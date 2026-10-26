@@ -1,0 +1,32 @@
+{
+  "name": "esa-voting-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ethiopia Scout Association — Secure General Assembly Voting System (Telegram bot)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "gen:credentials": "tsx scripts/generate-credentials.ts",
+    "typecheck": "tsc --noEmit",
+    "test:mock": "npm run build && node tests/mock-e2e.mjs",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "test:pg": "npm run build && node tests/mock-e2e.mjs"
+  },
+  "dependencies": {
+    "@types/pg": "^8.23.1",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
