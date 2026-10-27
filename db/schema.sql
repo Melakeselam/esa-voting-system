@@ -22,6 +22,8 @@ create table if not exists members (
   is_active        boolean not null default true,
   created_at       timestamptz not null default now()
 );
+-- Votes per ballot (council vote weight; 1 = one delegate, one vote).
+alter table members add column if not exists vote_weight int not null default 1;
 
 -- Resolutions to be voted on during the assembly.
 create table if not exists resolutions (
@@ -67,6 +69,8 @@ create table if not exists votes (
 create unique index if not exists votes_one_per_member
   on votes (resolution_id, member_id) where member_id is not null;
 create index if not exists votes_by_resolution on votes (resolution_id);
+-- Weight stamped on the vote when it is cast (secret ballots keep no member id).
+alter table votes add column if not exists weight int not null default 1;
 
 -- Minimal audit trail of sensitive actions.
 create table if not exists audit_log (
@@ -119,8 +123,13 @@ security definer
 as $$
 declare
   v_res resolutions%rowtype;
+  v_weight int;
 begin
   select * into v_res from resolutions where id = p_resolution_id for update;
+  select coalesce(vote_weight, 1) into v_weight from members where id = p_member_id;
+  if v_weight is null then
+    v_weight := 1;
+  end if;
   if not found then
     return 'not_found';
   end if;
@@ -137,7 +146,7 @@ begin
       return 'already_voted';
     end if;
     update votes
-       set choice_index = p_choice, updated_at = now()
+       set choice_index = p_choice, weight = v_weight, updated_at = now()
      where resolution_id = p_resolution_id and member_id = p_member_id;
     return 'changed';
   end if;
@@ -145,21 +154,23 @@ begin
   insert into ballots (resolution_id, member_id)
   values (p_resolution_id, p_member_id);
 
-  insert into votes (resolution_id, member_id, choice_index)
+  insert into votes (resolution_id, member_id, choice_index, weight)
   values (p_resolution_id,
           case when v_res.anonymous then null else p_member_id end,
-          p_choice);
+          p_choice,
+          v_weight);
   return 'ok';
 end;
 $$;
 
--- Tally used for results (avoids row-limit pitfalls of client-side counting).
+-- Tally used for results: sums the vote weights (1 per vote unless the
+-- member's council gives each delegate several votes).
 create or replace function tally_votes(p_resolution_id uuid)
 returns table (choice_index int, votes bigint)
 language sql
 security definer
 as $$
-  select v.choice_index, count(*)::bigint
+  select v.choice_index, coalesce(sum(v.weight), 0)::bigint
     from votes v
    where v.resolution_id = p_resolution_id
    group by v.choice_index
@@ -185,8 +196,10 @@ create table if not exists councils (
   name       text unique not null,
   code       text unique not null,          -- short token prefix, e.g. ADD
   seats      int not null default 1,        -- number of voting delegates
+  vote_weight int not null default 1,       -- votes carried by each delegate
   created_at timestamptz not null default now()
 );
+alter table councils add column if not exists vote_weight int not null default 1;
 alter table members add column if not exists council_id uuid references councils(id) on delete set null;
 alter table members add column if not exists seat_no int;
 create index if not exists members_by_council on members (council_id);

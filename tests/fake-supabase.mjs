@@ -9,15 +9,15 @@
 import { randomUUID } from "node:crypto";
 
 const DEFAULTS = {
-  members: () => ({ id: randomUUID(), full_name: null, region: null, council_id: null, seat_no: null, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
+  members: () => ({ id: randomUUID(), full_name: null, region: null, council_id: null, seat_no: null, vote_weight: 1, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
   resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
   ballots: () => ({ created_at: now() }),
-  votes: () => ({ id: randomUUID(), member_id: null, created_at: now(), updated_at: now() }),
+  votes: () => ({ id: randomUUID(), member_id: null, weight: 1, created_at: now(), updated_at: now() }),
   audit_log: () => ({ details: null, created_at: now() }),
   app_settings: () => ({ updated_at: now() }),
   chat_topics: () => ({ thread_id: 0, name: null, chat_title: null, updated_at: now() }),
   admins: () => ({ name: null, added_by: null, created_at: now() }),
-  councils: () => ({ id: randomUUID(), seats: 1, created_at: now() }),
+  councils: () => ({ id: randomUUID(), seats: 1, vote_weight: 1, created_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
@@ -52,7 +52,7 @@ class FakeClient {
     if (name === "cast_vote") return { data: this._castVote(a.p_resolution_id, a.p_member_id, a.p_choice), error: null };
     if (name === "tally_votes") {
       const counts = new Map();
-      for (const v of this.tables.votes) if (same(v.resolution_id, a.p_resolution_id)) counts.set(v.choice_index, (counts.get(v.choice_index) ?? 0) + 1);
+      for (const v of this.tables.votes) if (same(v.resolution_id, a.p_resolution_id)) counts.set(v.choice_index, (counts.get(v.choice_index) ?? 0) + (v.weight ?? 1));
       return { data: [...counts].map(([choice_index, votes]) => ({ choice_index, votes })).sort((x, y) => x.choice_index - y.choice_index), error: null };
     }
     return { data: null, error: { message: `function ${name} does not exist`, code: "42883" } };
@@ -62,15 +62,16 @@ class FakeClient {
     if (!res) return "not_found";
     if (res.status !== "open") return "not_open";
     if (choice < 0 || choice >= res.options.length) return "bad_choice";
+    const weight = this.tables.members.find((m) => m.id === memberId)?.vote_weight ?? 1;
     const hasBallot = this.tables.ballots.some((b) => b.resolution_id === resId && b.member_id === memberId);
     if (hasBallot) {
       if (res.anonymous) return "already_voted";
       const v = this.tables.votes.find((x) => x.resolution_id === resId && x.member_id === memberId);
-      if (v) { v.choice_index = choice; v.updated_at = now(); }
+      if (v) { v.choice_index = choice; v.weight = weight; v.updated_at = now(); }
       return "changed";
     }
     this._insert("ballots", { resolution_id: resId, member_id: memberId });
-    this._insert("votes", { resolution_id: resId, member_id: res.anonymous ? null : memberId, choice_index: choice });
+    this._insert("votes", { resolution_id: resId, member_id: res.anonymous ? null : memberId, choice_index: choice, weight });
     return "ok";
   }
   _insert(table, row) {

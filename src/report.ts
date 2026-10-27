@@ -166,7 +166,7 @@ export function reportToHtml(report: AssemblyReport): string {
         ${s.res.description ? `<p class="desc">${escapeHtml(s.res.description)}</p>` : ""}
         <p class="meta">
           ${s.res.anonymous ? "Secret ballot" : "Open ballot"} ·
-          Ballots cast: <strong>${s.ballots}</strong> (${s.turnoutPct}% of registered members)${quorumMeta}
+          Ballots cast: <strong>${s.ballots}</strong> (${s.turnoutPct}% of registered members)${s.counts.reduce((a, b) => a + b, 0) !== s.ballots ? ` · Votes counted (weighted): <strong>${s.counts.reduce((a, b) => a + b, 0)}</strong>` : ""}${quorumMeta}
           · To pass: ${thresholdLabel(s.res.threshold)}
           ${s.res.opened_at ? ` · Opened: ${formatLocal(s.res.opened_at)}` : ""}
           ${s.res.closed_at ? ` · Closed: ${formatLocal(s.res.closed_at)}` : ""}

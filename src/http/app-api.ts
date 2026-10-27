@@ -126,6 +126,7 @@ function safeMember(m: Member) {
     region: m.region,
     registered_at: m.registered_at,
     is_active: m.is_active,
+    vote_weight: m.vote_weight ?? 1,
   };
 }
 
@@ -143,6 +144,7 @@ async function enrich(res: Resolution, withCounts: boolean) {
     ...res,
     ballots,
     counts,
+    votes_total: counts ? counts.reduce((a, b) => a + b, 0) : null, // weighted
     outcome,
     closes_at_local: res.closes_at ? formatLocal(res.closes_at) : null,
     opened_at_local: res.opened_at ? formatLocal(res.opened_at) : null,
@@ -590,15 +592,19 @@ route("POST", "/councils", true, async (ctx) => {
   const b = await ctx.body();
   const name = str(b.name, "Council name", { min: 2, max: 120 });
   const seats = int(b.seats, "Seats", { min: 1, max: 1000 })!;
+  const voteWeight = int(b.vote_weight, "Votes per delegate", { optional: true, min: 1, max: 100 });
   const code = str(b.code, "Code", { optional: true, max: 6 }) || null;
   const existing = await findCouncilByName(name);
   if (existing) {
     if (!bool(b.upsert, "upsert", false)) throw new HttpError(409, "A council with this name already exists.", "exists");
-    if (seats > existing.seats) await updateCouncil(existing.id, { seats });
+    const patch: { seats?: number; vote_weight?: number } = {};
+    if (seats > existing.seats) patch.seats = seats;
+    if (voteWeight !== null && voteWeight !== existing.vote_weight) patch.vote_weight = voteWeight;
+    if (Object.keys(patch).length) await updateCouncil(existing.id, patch);
     return { council: await getCouncil(existing.id), created: false };
   }
-  const c = await createCouncil({ name, seats, code });
-  await audit(ctx.user.id, "council_created", { name: c.name, code: c.code, seats: c.seats, via: "app" });
+  const c = await createCouncil({ name, seats, code, vote_weight: voteWeight ?? 1 });
+  await audit(ctx.user.id, "council_created", { name: c.name, code: c.code, seats: c.seats, vote_weight: c.vote_weight, via: "app" });
   return { council: await getCouncil(c.id), created: true };
 });
 
@@ -621,7 +627,7 @@ route("GET", `/councils/${UUID}`, true, async (_ctx, [id]) => {
 route("PATCH", `/councils/${UUID}`, true, async (ctx, [id]) => {
   await requireCouncil(id);
   const b = await ctx.body();
-  const patch: { name?: string; seats?: number } = {};
+  const patch: { name?: string; seats?: number; vote_weight?: number } = {};
   const name = str(b.name, "Council name", { optional: true, min: 2, max: 120 });
   if (name) {
     const clash = await findCouncilByName(name);
@@ -630,6 +636,8 @@ route("PATCH", `/councils/${UUID}`, true, async (ctx, [id]) => {
   }
   const seats = int(b.seats, "Seats", { optional: true, min: 1, max: 1000 });
   if (seats !== null) patch.seats = seats;
+  const voteWeight = int(b.vote_weight, "Votes per delegate", { optional: true, min: 1, max: 100 });
+  if (voteWeight !== null) patch.vote_weight = voteWeight;
   await updateCouncil(id, patch);
   await audit(ctx.user.id, "council_edited", { council_id: id, ...patch, via: "app" });
   return { council: await getCouncil(id) };

@@ -16,6 +16,7 @@ export interface Person {
   region: string | null;
   council_id?: string | null;
   seat_no?: number | null;
+  vote_weight?: number;
 }
 
 export interface CredentialRow {
@@ -47,6 +48,7 @@ export async function generateCredentials(people: Person[], prefix = "ESA-2026")
         region: person.region,
         council_id: person.council_id ?? null,
         seat_no: person.seat_no ?? null,
+        vote_weight: person.vote_weight ?? 1,
       });
       if (!error) {
         rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null });

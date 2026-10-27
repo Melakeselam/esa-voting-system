@@ -139,6 +139,7 @@ const USERS = {
   newAdmin: { id: 3001, first_name: "Second Admin" },
   delegate: { id: 2005, first_name: "Delegate" },
   delegate2: { id: 2006, first_name: "Delegate Two" },
+  delegate3: { id: 2007, first_name: "Delegate Three" },
 };
 
 async function api(method, path, user, body) {
@@ -254,9 +255,11 @@ try {
   eq("councils: duplicate name rejected (case-insensitive)", [r.status, r.json?.code], [409, "exists"]);
   r = await api("POST", "/councils", USERS.admin, { name: "Addis Ababa Regional Council", seats: 5, upsert: true });
   eq("councils: upsert reuses the council and raises seats", [r.json?.created, r.json?.council?.id === AARC.id, r.json?.council?.seats], [false, true, 5]);
-  r = await api("POST", "/councils", USERS.admin, { name: "Oromia", seats: 2 });
+  r = await api("POST", "/councils", USERS.admin, { name: "Oromia", seats: 2, vote_weight: 2 });
   const ORO = r.json?.council;
-  eq("councils: second council code", ORO?.code, "ORO");
+  eq("councils: second council code, 2 votes per delegate", [ORO?.code, ORO?.vote_weight, ORO?.total_votes], ["ORO", 2, 4]);
+  r = await api("POST", "/councils", USERS.admin, { name: "Oromia", seats: 2, vote_weight: 0 });
+  eq("councils: vote weight below 1 rejected", r.status, 400);
   r = await api("POST", "/councils/" + AARC.id + "/invitations", USERS.admin, { names: ["Hana Girma", "", "Yonas Bekele"] });
   const inv = r.json?.rows ?? [];
   eq("invitations: 3 issued for the council", [r.status, inv.length, r.json?.council?.issued], [200, 3, 3]);
@@ -265,7 +268,9 @@ try {
   const invRows = await rows("members");
   check("invitations: stored with council_id and region = council name", inv.every((x) => invRows.some((m) => m.token_id === x.token_id && m.council_id === AARC.id && m.region === AARC.name && m.password_hash.startsWith("$2"))));
   r = await api("POST", "/councils/" + ORO.id + "/invitations", USERS.admin, { count: 2 });
-  eq("invitations: issued by count", [r.json?.rows?.length, r.json?.rows?.map((x) => x.seat_no).join()], [2, "1,2"]);
+  const oroInv = r.json?.rows ?? [];
+  eq("invitations: issued by count", [oroInv.length, oroInv.map((x) => x.seat_no).join()], [2, "1,2"]);
+  check("invitations: delegates inherit the council vote weight", (await rows("members")).filter((m) => m.council_id === ORO.id).every((m) => m.vote_weight === 2));
   r = await api("GET", "/councils/" + AARC.id, USERS.admin);
   check("invitations: council page lists them with deep links", r.json?.invitations?.length === 3 && r.json.invitations.every((m) => m.link === "https://t.me/esa_mock_bot?start=inv_" + m.token_id && m.telegram_user_id === null), JSON.stringify(r.json?.invitations?.[0]));
   r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv });
@@ -309,6 +314,14 @@ try {
   check("councils: rename updates the delegates' region", (await rows("members")).filter((m) => m.council_id === AARC.id).every((m) => m.region === "Addis Ababa Council"));
   r = await api("GET", "/councils", USERS.guest);
   eq("councils: members cannot access", r.status, 403);
+  // Weighted delegate registers; weight visible to the member
+  r = await api("POST", "/register", USERS.delegate3, { token: oroInv[0].token_id, password: oroInv[0].password });
+  eq("weights: Oromia delegate registers with 2 votes", [r.json?.status, r.json?.member?.vote_weight], ["ok", 2]);
+  r = await api("PATCH", "/councils/" + ORO.id, USERS.admin, { vote_weight: 3 });
+  eq("weights: council weight edited", r.json?.council?.vote_weight, 3);
+  r = await api("GET", "/me", USERS.delegate3);
+  eq("weights: delegate weight follows the council", r.json?.member?.vote_weight, 3);
+  r = await api("PATCH", "/councils/" + ORO.id, USERS.admin, { vote_weight: 2 });
 
   // ---- 4. Member registration ------------------------------------------------
   r = await api("POST", "/register", USERS.abebe, { token: creds[0].token_id.toLowerCase(), password: creds[0].password });
@@ -344,7 +357,7 @@ try {
   r = await api("GET", "/me", USERS.dawit);
   eq("login(chat): same account is a member in the app", r.json?.member?.full_name, "Dawit Alemu");
   r = await api("GET", "/members?filter=registered", USERS.admin);
-  eq("members: 5 registered (3 credentials + 2 delegates)", r.json?.total, 5);
+  eq("members: 6 registered (3 credentials + 3 delegates)", r.json?.total, 6);
   r = await api("GET", "/members?q=sara", USERS.admin);
   eq("members: search by name", r.json?.items?.map((m) => m.full_name), ["Sara Tesfaye"]);
 
@@ -450,10 +463,10 @@ try {
   const R3 = r.json;
   await api("POST", "/resolutions/" + R3.id + "/open", USERS.admin, {});
   r = await api("POST", "/resolutions/" + R3.id + "/notify", USERS.admin, { offset: 0 });
-  eq("notify: ballot DM'd to all 5 registered members", [r.json?.sent, r.json?.total, r.json?.next_offset], [5, 5, null]);
+  eq("notify: ballot DM'd to all 6 registered members", [r.json?.sent, r.json?.total, r.json?.next_offset], [6, 6, null]);
   check("notify: DM carries vote buttons + app button", calls("sendMessage", (b) => Number(b.chat_id) === 2002 && /R3/.test(b.text ?? "")).some((c) => c.body.reply_markup?.inline_keyboard?.some((row) => row.some((btn) => btn.web_app?.url?.startsWith("https://esa.test/app/")))));
   r = await api("POST", "/broadcast", USERS.admin, { text: "Voting on R3 is open until 17:00.", offset: 0 });
-  eq("broadcast: delivered to 5", [r.json?.sent, r.json?.failed], [5, 0]);
+  eq("broadcast: delivered to 6", [r.json?.sent, r.json?.failed], [6, 0]);
   check("broadcast: message text delivered", sentTo(2001).some((c) => /Voting on R3 is open/.test(c.body.text)));
   r = await api("POST", "/resolutions/" + R3.id + "/publish", USERS.admin, { chat_id: GROUP.id, thread_id: 0 });
   check("publish: interim results posted to General", r.status === 200 && sentTo(GROUP.id, null).some((c) => /Interim/.test(c.body.text) && /R3/.test(c.body.text)));
@@ -500,7 +513,25 @@ try {
   eq("drafts: closed resolution cannot be edited", r.status, 409);
 
   r = await api("GET", "/dashboard", USERS.admin);
-  eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 2 }, 5]);
+  // Weighted tally: a secret ballot where one delegate carries 2 votes
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Weighted test", options: ["Yes", "No"], anonymous: true });
+  const RW = r.json;
+  await api("POST", "/resolutions/" + RW.id + "/open", USERS.admin, {});
+  r = await api("POST", "/vote", USERS.delegate3, { resolution_id: RW.id, choice_index: 0 });
+  eq("weights: 2-vote delegate casts a ballot", r.json?.result, "ok");
+  r = await api("POST", "/vote", USERS.delegate, { resolution_id: RW.id, choice_index: 1 });
+  eq("weights: 1-vote delegate casts a ballot", r.json?.result, "ok");
+  r = await api("POST", "/vote", USERS.delegate3, { resolution_id: RW.id, choice_index: 1 });
+  eq("weights: secret ballot still cannot be changed", r.json?.result, "already_voted");
+  check("weights: vote rows carry the weight but no member id", (await rows("votes")).filter((v) => v.resolution_id === RW.id).every((v) => v.member_id === null) && (await rows("votes")).filter((v) => v.resolution_id === RW.id).map((v) => v.weight).sort().join() === "1,2");
+  r = await api("GET", "/results/" + RW.id, USERS.admin);
+  eq("weights: tally sums the weights, ballots count people", [r.json?.counts, r.json?.ballots, r.json?.votes_total], [[2, 1], 2, 3]);
+  r = await api("POST", "/resolutions/" + RW.id + "/close", USERS.admin);
+  eq("weights: Yes adopted 2 votes to 1", [r.json?.outcome?.adopted, r.json?.outcome?.winner], [true, "Yes"]);
+  r = await api("POST", "/resolutions/" + RW.id + "/publish", USERS.admin, {});
+  check("weights: posted results show ballots and the weighted total", r.status === 200 && calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "") && /Ballots cast: <b>2<\/b> · Votes counted \(weighted\): <b>3<\/b>/.test(b.text ?? "")).length >= 1, JSON.stringify(calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "")).map((c) => c.body.text)));
+  r = await api("GET", "/dashboard", USERS.admin);
+  eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 3 }, 6]);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
   check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued"].every((a) => actions.has(a)), [...actions].join());

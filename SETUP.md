@@ -270,7 +270,8 @@ commands still work for anyone who prefers them.
 **Councils and invitations.** Members → ＋ Invitations. Add a council (name,
 seats, optional delegate names) or import a spreadsheet with the columns
 Council, Name, Seats; the bot sends one printable PDF per council (QR code +
-link + code + password per delegate). Hand one card to each chosen member; they
+link + code + password per delegate) and, optionally, the votes each delegate
+carries (vote weight). Hand one card to each chosen member; they
 scan it, tap Start and enter the password. The in-app Help has the full
 scenario. Keep the PDFs out of group chats.
 

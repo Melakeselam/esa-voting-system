@@ -11,6 +11,7 @@ export interface Member {
   is_active: boolean;
   council_id: string | null;
   seat_no: number | null;
+  vote_weight: number;
 }
 
 export interface Council {
@@ -18,6 +19,7 @@ export interface Council {
   name: string;
   code: string;
   seats: number;
+  vote_weight: number; // votes carried by each delegate
   created_at: string;
 }
 

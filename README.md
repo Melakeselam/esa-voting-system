@@ -146,6 +146,10 @@ delegate, invitation code, password, a **QR code** and a deep link
 which recognises the invitation and only asks for the password; the Mini App
 link pre-fills the code too. Lost sheet: "New passwords for unregistered
 delegates" reissues the PDF without touching registered members. The PDF
+**Vote weight:** each council also sets the votes per delegate (default 1), so
+6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes. The weight
+is stamped on each vote when cast (secret ballots keep no member id), the SQL
+tally sums weights, majorities use votes and quorum counts ballots. The PDF
 is built with pdfkit + qrcode; Amharic lines are included when
 `assets/fonts/NotoSansEthiopic-Regular.ttf` is present (it is in the repo).
 

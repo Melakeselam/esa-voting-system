@@ -44,6 +44,8 @@
             "The council hands one invitation to each chosen member. The member scans the QR code (or opens the link), taps Start, and enters the password: the code is already filled in.",
             "On the council page you see who has registered. “New passwords for unregistered delegates” renews the sheet if it was lost; registered delegates are not affected.",
           ] },
+          "Vote weight. Each council also has a number of votes per delegate (default 1). A council with 6 delegates at 1 vote each and a council with 3 delegates at 2 votes each both carry 6 votes. Set it when creating the council, in the Seats/Votes fields, or in the import sheet's last column; change it later with Edit on the council page (it applies to all its delegates from their next ballot on).",
+          "How it counts. The weight is stamped on each ballot when it is cast, so secret ballots stay anonymous. Results, posted tallies and the report show the ballots cast (people) and, when they differ, the votes counted (weighted). Majorities are computed on votes; quorum is the number of ballots (delegates who voted).",
           { bullets: [
             "Invitation codes start with the council code (for example AARC-K7M2P). Delegates also appear under Members with the council as their region.",
             "A council can be deleted only before invitations are issued. Afterwards, deactivate unused invitations under Members.",
@@ -194,6 +196,8 @@
             "ምክር ቤቱ ለእያንዳንዱ የተመረጠ አባል አንድ ጥሪ ይሰጣል። አባሉ QR ኮዱን ይቃኛል (ወይም አገናኙን ይከፍታል)፣ Start ይነካል፣ እና የይለፍ ቃሉን ያስገባል፤ ኮዱ አስቀድሞ ተሞልቷል።",
             "በምክር ቤቱ ገጽ ላይ ማን እንደተመዘገበ ያያሉ። «ላልተመዘገቡ ተወካዮች አዲስ የይለፍ ቃላት» ወረቀቱ ከጠፋ ያድሰዋል፤ የተመዘገቡ ተወካዮች አይነኩም።",
           ] },
+          "የድምፅ ክብደት። እያንዳንዱ ምክር ቤት በእያንዳንዱ ተወካይ የድምፅ ብዛትም አለው (ነባሪ 1)። እያንዳንዳቸው 1 ድምፅ ያላቸው 6 ተወካዮች ያሉት ምክር ቤት እና እያንዳንዳቸው 2 ድምፅ ያላቸው 3 ተወካዮች ያሉት ምክር ቤት ሁለቱም 6 ድምፅ ይይዛሉ። ምክር ቤቱን ሲፈጥሩ በመቀመጫዎች/ድምፆች መስኮች ወይም በማስመጫ ሰንጠረዡ የመጨረሻ አምድ ያስቀምጡት፤ በኋላ በምክር ቤቱ ገጽ ላይ በ«አስተካክል» ይቀይሩት (ከሚቀጥለው ድምፃቸው ጀምሮ ለሁሉም ተወካዮቹ ይተገበራል)።",
+          "እንዴት ይቆጠራል። ክብደቱ ድምፅ ሲሰጥ በእያንዳንዱ ድምፅ ላይ ይታተማል፣ ስለዚህ ሚስጥራዊ ድምፆች ስም-አልባ ሆነው ይቀጥላሉ። ውጤቶች፣ የተለጠፉ ቆጠራዎች እና ሪፖርቱ የተሰጡ ድምፆችን (ሰዎች) እና ሲለያዩ የተቆጠሩ ድምፆችን (በክብደት) ያሳያሉ። አብላጫ ድምፅ በድምፆች ይሰላል፤ ምልዓተ ጉባኤ የተሰጡ ድምፆች ብዛት (ድምፅ የሰጡ ተወካዮች) ነው።",
           { bullets: [
             "የጥሪ ኮዶች በምክር ቤቱ ኮድ ይጀምራሉ (ለምሳሌ AARC-K7M2P)። ተወካዮች ምክር ቤቱ እንደ ክልላቸው ሆኖ በ«አባላት» ስርም ይታያሉ።",
             "ምክር ቤት ሊሰረዝ የሚችለው ጥሪዎች ከመሰጠታቸው በፊት ብቻ ነው። ከዚያ በኋላ ያልተጠቀሙባቸውን ጥሪዎች በ«አባላት» ስር ያቦዝኑ።",
@@ -334,6 +338,7 @@
           ] },
           { bullets: [
             "One invitation registers one Telegram account. If the bot says the invitation is already registered, contact your council or the National Office.",
+            "Your council may give each delegate more than one vote. The Vote and Me tabs then say how many votes your ballot counts as; you still cast one ballot per resolution.",
             "Keep the invitation private: anyone holding it could vote in your place.",
           ] },
         ],
@@ -402,6 +407,7 @@
           ] },
           { bullets: [
             "አንድ ጥሪ አንድ የቴሌግራም መለያ ይመዘግባል። ቦቱ ጥሪው አስቀድሞ ተመዝግቧል ካለ፣ ምክር ቤትዎን ወይም ብሔራዊ ጽሕፈት ቤቱን ያነጋግሩ።",
+            "ምክር ቤትዎ ለእያንዳንዱ ተወካይ ከአንድ በላይ ድምፅ ሊሰጥ ይችላል። ከዚያ «ድምፅ ይስጡ» እና «እኔ» ትሮች ድምፅዎ እንደ ስንት ድምፅ እንደሚቆጠር ይናገራሉ፤ አሁንም በእያንዳንዱ የውሳኔ ሀሳብ አንድ ድምፅ ይሰጣሉ።",
             "ጥሪውን በግል ያስቀምጡ፦ የያዘው ማንኛውም ሰው በእርስዎ ምትክ ድምፅ መስጠት ይችላል።",
           ] },
         ],

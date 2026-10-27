@@ -314,7 +314,7 @@
     var max = Math.max.apply(null, e.counts.concat([1]));
     var o = e.outcome || {};
     var leaders = o.leaders || [];
-    var html = '<p class="hint">' + esc(t("Ballots cast:")) + " <b>" + e.ballots + "</b>" +
+    var html = '<p class="hint">' + esc(t("Ballots cast:")) + " <b>" + e.ballots + "</b>" + (total !== e.ballots ? " · " + esc(t("Votes counted:")) + " <b>" + total + "</b>" : "") +
       (e.quorum ? " · " + esc(t("Quorum {n}", { n: e.quorum })) + ": " + (o.quorumMet ? "✅ " + esc(t("met")) : "❌ " + esc(t("not met"))) : "") +
       " · " + esc(t("To pass:")) + " " + esc(thresholdLabel(e.threshold)) + "</p>";
     e.options.forEach(function (opt, i) {
@@ -709,7 +709,8 @@
 
   // ---------------------------------------------------------------- ADMIN: councils & invitations
   function councilMeta(c) {
-    return t("{issued} of {seats} invitations issued · {registered} registered", { issued: c.issued, seats: c.seats, registered: c.registered });
+    return t("{issued} of {seats} invitations issued · {registered} registered", { issued: c.issued, seats: c.seats, registered: c.registered }) +
+      (c.vote_weight > 1 ? " · " + t("{n} votes each", { n: c.vote_weight }) : "");
   }
   function splitNames(text) {
     return String(text || "").split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
@@ -733,14 +734,17 @@
     var e = existing || {};
     return openSheet("<h2>" + esc(e.id ? t("Edit council") : t("Add council")) + "</h2>" +
       '<div class="field"><label>' + esc(t("Council name")) + '</label><input type="text" data-name maxlength="120" placeholder="' + esc(t("e.g. Addis Ababa Regional Council")) + '" value="' + esc(e.name || "") + '"></div>' +
-      '<div class="field"><label>' + esc(t("Number of voting delegates (seats)")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-seats value="' + (e.seats || 1) + '"></div>' +
+      '<div class="inline-fields"><div class="field"><label>' + esc(t("Number of voting delegates (seats)")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-seats value="' + (e.seats || 1) + '"></div>' +
+      '<div class="field"><label>' + esc(t("Votes per delegate (vote weight)")) + '</label><input type="number" min="1" max="100" inputmode="numeric" data-weight value="' + (e.vote_weight || 1) + '"></div></div>' +
+      '<p class="hint">' + esc(t("Total votes = delegates × votes per delegate. Example: 6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes.")) + "</p>" +
       (e.id ? "" : '<div class="field"><label>' + esc(t("Delegate names, one per line (optional — leave empty for anonymous invitations)")) + '</label><textarea data-names rows="5" placeholder="' + esc(t("Abebe Kebede\nSara Tesfaye")) + '"></textarea></div>') +
       '<button class="btn block" data-ok>' + esc(e.id ? t("Save changes") : t("Create council")) + "</button>",
       function (sheet, close) {
         sheet.querySelector("[data-ok]").onclick = function () {
           var names = e.id ? [] : splitNames(sheet.querySelector("[data-names]").value);
           var seats = Number(sheet.querySelector("[data-seats]").value) || 0;
-          close({ name: sheet.querySelector("[data-name]").value.trim(), seats: Math.max(seats, names.length), names: names });
+          var weight = Number(sheet.querySelector("[data-weight]").value) || 0;
+          close({ name: sheet.querySelector("[data-name]").value.trim(), seats: Math.max(seats, names.length), vote_weight: weight, names: names });
         };
       });
   }
@@ -769,8 +773,9 @@
         if (!v) return;
         if (v.name.length < 2) return toast(t("Enter a council name"), "err");
         if (!v.seats) return toast(t("Enter the number of seats"), "err");
+        if (!v.vote_weight) return toast(t("Enter the votes per delegate (1 or more)"), "err");
         try {
-          var r = await api("POST", "/councils", { name: v.name, seats: v.seats });
+          var r = await api("POST", "/councils", { name: v.name, seats: v.seats, vote_weight: v.vote_weight });
           haptic("success");
           if (!v.names.length) { toast(t("Council created"), "ok"); return go("council", { id: r.council.id }); }
           toast(t("Council created — issuing invitations…"));
@@ -789,7 +794,7 @@
       if (!alive()) return;
       var c = d.council;
       var html = '<div class="card"><h2>' + esc(c.name) + ' <span class="badge">' + esc(c.code) + "</span></h2>" +
-        '<dl class="kv"><dt>' + esc(t("Seats")) + "</dt><dd>" + c.seats + "</dd><dt>" + esc(t("Issued")) + "</dt><dd>" + c.issued + "</dd><dt>" + esc(t("Registered")) + "</dt><dd>" + c.registered + "</dd></dl>" +
+        '<dl class="kv"><dt>' + esc(t("Seats")) + "</dt><dd>" + c.seats + "</dd><dt>" + esc(t("Votes per delegate")) + "</dt><dd>" + c.vote_weight + "</dd><dt>" + esc(t("Total votes")) + "</dt><dd>" + c.total_votes + "</dd><dt>" + esc(t("Issued")) + "</dt><dd>" + c.issued + "</dd><dt>" + esc(t("Registered")) + "</dt><dd>" + c.registered + "</dd></dl>" +
         '<p class="hint">' + esc(t("Invitation codes start with {code}-. Registered delegates appear under Members as well.", { code: c.code })) + "</p>" +
         '<div class="actions inline"><button class="btn secondary sm" data-act="edit">✏️ ' + esc(t("Edit")) + "</button>" +
         (c.issued === 0 ? '<button class="btn danger sm" data-act="delete">🗑 ' + esc(t("Delete")) + "</button>" : "") + "</div></div>";
@@ -824,7 +829,8 @@
             var v = await councilSheet(c);
             if (!v) return;
             if (v.name.length < 2) return toast(t("Enter a council name"), "err");
-            await api("PATCH", "/councils/" + c.id, { name: v.name, seats: v.seats });
+            if (!v.vote_weight) return toast(t("Enter the votes per delegate (1 or more)"), "err");
+            await api("PATCH", "/councils/" + c.id, { name: v.name, seats: v.seats, vote_weight: v.vote_weight });
             haptic("success"); toast(t("Saved"), "ok"); return refresh();
           }
           if (act === "delete") {
@@ -893,11 +899,12 @@
   function planFromRows(rows) {
     if (!rows.length) return [];
     var head = rows[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
-    var ci = 0, ni = 1, si = 2;
+    var ci = 0, ni = 1, si = 2, wi = 3;
     if (head.some(function (h) { return /council|region|ም/.test(h); })) {
       ci = head.findIndex(function (h) { return /council|region/.test(h); }); if (ci < 0) ci = 0;
       ni = head.findIndex(function (h) { return /^(name|delegate|member|full)/.test(h); });
-      si = head.findIndex(function (h) { return /seat|vote|delegates|count|number/.test(h); });
+      wi = head.findIndex(function (h) { return /weight|per delegate|votes each/.test(h); });
+      si = head.findIndex(function (h, k) { return k !== wi && /seat|vote|delegates|count|number/.test(h); });
       rows = rows.slice(1);
     }
     var plan = {}, order = [];
@@ -906,10 +913,12 @@
       if (!council) return;
       var name = ni >= 0 ? String(r[ni] || "").trim() : "";
       var seats = si >= 0 ? Number(String(r[si] || "").replace(/[^0-9]/g, "")) || 0 : 0;
+      var weight = wi >= 0 ? Number(String(r[wi] || "").replace(/[^0-9]/g, "")) || 0 : 0;
       var key = council.toLowerCase();
-      if (!plan[key]) { plan[key] = { name: council, seats: 0, names: [] }; order.push(key); }
+      if (!plan[key]) { plan[key] = { name: council, seats: 0, vote_weight: 1, names: [] }; order.push(key); }
       if (name) plan[key].names.push(name);
       if (seats > plan[key].seats) plan[key].seats = seats;
+      if (weight > plan[key].vote_weight) plan[key].vote_weight = weight;
     });
     return order.map(function (k) { var p = plan[k]; p.seats = Math.max(p.seats, p.names.length, 1); return p; });
   }
@@ -918,11 +927,11 @@
     title: function () { return t("Import councils"); },
     render: async function (content) {
       var plan = [];
-      content.innerHTML = '<div class="card"><p class="small">' + esc(t("Upload an Excel (.xlsx) or CSV file, or paste rows below. One row per delegate, or one row per council with the number of seats:")) + "</p>" +
-        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td></tr><tr><td>Addis Ababa</td><td>Sara Tesfaye</td><td></td></tr><tr><td>Oromia</td><td></td><td>5</td></tr></table>' +
+      content.innerHTML = '<div class="card"><p class="small">' + esc(t("Upload an Excel (.xlsx) or CSV file, or paste rows below. One row per delegate, or one row per council with the number of seats. An optional last column gives the votes per delegate (default 1):")) + "</p>" +
+        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th><th>Votes each</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td><td></td></tr><tr><td>Addis Ababa</td><td>Sara Tesfaye</td><td></td><td></td></tr><tr><td>Oromia</td><td></td><td>3</td><td>2</td></tr></table>' +
         '<p class="hint">' + esc(t("A council with names gets one named invitation per row; a council with only a number of seats gets that many anonymous invitations. Existing councils are reused.")) + "</p></div>" +
         '<div class="card"><div class="field"><label>' + esc(t("File")) + '</label><input type="file" data-file accept=".xlsx,.xls,.csv,text/csv"></div>' +
-        '<div class="field"><label>' + esc(t("Or paste rows (Council, Name, Seats)")) + '</label><textarea data-text rows="6" placeholder="Addis Ababa, Abebe Kebede&#10;Oromia, , 5"></textarea></div>' +
+        '<div class="field"><label>' + esc(t("Or paste rows (Council, Name, Seats, Votes each)")) + '</label><textarea data-text rows="6" placeholder="Addis Ababa, Abebe Kebede&#10;Oromia, , 3, 2"></textarea></div>' +
         '<button class="btn secondary block" data-preview>' + esc(t("Preview")) + "</button></div>" +
         '<div data-plan></div><div data-out></div>';
       var planBox = content.querySelector("[data-plan]");
@@ -931,7 +940,7 @@
         if (!plan.length) { planBox.innerHTML = '<div class="card"><p class="empty">' + esc(t("Nothing to import yet.")) + "</p></div>"; return; }
         var total = plan.reduce(function (a, p) { return a + p.seats; }, 0);
         planBox.innerHTML = '<div class="section-title">' + esc(t("Preview")) + '</div><div class="list">' + plan.map(function (p) {
-          return '<div class="row static"><div class="main"><div class="title">' + esc(p.name) + '</div><div class="meta">' + esc(t("{seats} invitations · {named} named", { seats: p.seats, named: p.names.length })) + "</div></div></div>";
+          return '<div class="row static"><div class="main"><div class="title">' + esc(p.name) + '</div><div class="meta">' + esc(t("{seats} invitations · {named} named", { seats: p.seats, named: p.names.length })) + (p.vote_weight > 1 ? " · " + esc(t("{n} votes each", { n: p.vote_weight })) : "") + "</div></div></div>";
         }).join("") + "</div>" +
           '<button class="btn block" data-run>' + esc(t("Create {councils} councils and {n} invitations", { councils: plan.length, n: total })) + "</button>";
         planBox.querySelector("[data-run]").onclick = runImport;
@@ -961,7 +970,7 @@
           for (var i = 0; i < plan.length; i++) {
             var p = plan[i];
             st.textContent = t("{name}: creating council…", { name: p.name });
-            var r = await api("POST", "/councils", { name: p.name, seats: p.seats, upsert: true });
+            var r = await api("POST", "/councils", { name: p.name, seats: p.seats, vote_weight: p.vote_weight || 1, upsert: true });
             var names = p.names.length ? p.names : Array.apply(null, Array(p.seats)).map(function () { return ""; });
             var rows = await issueForCouncil(r.council.id, names, function (n) { st.textContent = t("{name}: {done} of {total} invitations…", { name: p.name, done: n, total: names.length }); bar.style.width = Math.round((done + n) / total * 100) + "%"; });
             done += rows.length;
@@ -1261,7 +1270,7 @@
       var d = await api("GET", "/ballots");
       if (!alive()) return;
       var html = "";
-      if (d.member) html += '<p class="hint">' + esc(t("Registered as")) + " <b>" + esc(d.member.full_name || d.member.token_id) + "</b></p>";
+      if (d.member) html += '<p class="hint">' + esc(t("Registered as")) + " <b>" + esc(d.member.full_name || d.member.token_id) + "</b>" + (d.member.vote_weight > 1 ? " · " + esc(t("your vote counts as {n} votes", { n: d.member.vote_weight })) : "") + "</p>";
       if (!d.open.length) {
         html += '<div class="card"><p class="empty">' + esc(t("No resolutions are open for voting right now.")) + (d.drafts ? " " + esc(t("{count} being prepared.", { count: plural(d.drafts, "resolution") })) : "") + "</p></div>";
       } else {
@@ -1313,7 +1322,8 @@
       content.innerHTML = '<div class="card"><h2>' + esc(m.full_name || m.token_id) + '</h2><dl class="kv"><dt>' + esc(t("Token")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd>" +
         (m.region ? "<dt>" + esc(t("Region")) + "</dt><dd>" + esc(m.region) + "</dd>" : "") +
         "<dt>" + esc(t("Registered")) + "</dt><dd>" + (m.registered_at ? esc(fmtDate(m.registered_at)) : "—") + "</dd>" +
-        "<dt>" + esc(t("Telegram")) + "</dt><dd>" + esc(state.me.user.first_name + (state.me.user.last_name ? " " + state.me.user.last_name : "")) + "</dd></dl></div>" +
+        "<dt>" + esc(t("Telegram")) + "</dt><dd>" + esc(state.me.user.first_name + (state.me.user.last_name ? " " + state.me.user.last_name : "")) + "</dd>" +
+        (m.vote_weight > 1 ? "<dt>" + esc(t("Vote weight")) + "</dt><dd>" + esc(t("Your ballot counts as {n} votes.", { n: m.vote_weight })) + "</dd>" : "") + "</dl></div>" +
         '<div class="card"><h3>' + esc(t("How voting works")) + '</h3><p class="small">' + t("Open resolutions appear under <b>Vote</b>. Tap an option and confirm. On a <b>secret ballot</b> your choice is stored without your name and cannot be changed. On an <b>open ballot</b> you may change your vote until voting closes. Results are published when voting closes.") +
         '</p><p class="small">' + esc(t("Lost your phone or changed account? Ask the National Office to detach your token; you can then register again with the same credentials.")) + "</p></div>" +
         '<div class="actions"><button class="btn secondary block" data-help>❔ ' + esc(t("Help and guides")) + "</button>" +

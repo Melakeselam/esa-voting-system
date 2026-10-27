@@ -13,6 +13,7 @@ import { generateCredentials, type CredentialRow } from "./credentials.js";
 export interface CouncilSummary extends Council {
   issued: number;      // invitations created
   registered: number;  // delegates who have bound a Telegram account
+  total_votes: number; // seats × vote_weight
 }
 
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -45,7 +46,13 @@ export async function listCouncils(): Promise<CouncilSummary[]> {
     issued.set(id, (issued.get(id) ?? 0) + 1);
     if (m.telegram_user_id !== null) registered.set(id, (registered.get(id) ?? 0) + 1);
   }
-  return (councils ?? []).map((c: Council) => ({ ...c, issued: issued.get(c.id) ?? 0, registered: registered.get(c.id) ?? 0 }));
+  return (councils ?? []).map((c: Council) => ({
+    ...c,
+    vote_weight: c.vote_weight ?? 1,
+    issued: issued.get(c.id) ?? 0,
+    registered: registered.get(c.id) ?? 0,
+    total_votes: c.seats * (c.vote_weight ?? 1),
+  }));
 }
 
 export async function getCouncil(id: string): Promise<CouncilSummary | null> {
@@ -59,13 +66,14 @@ export async function findCouncilByName(name: string): Promise<Council | null> {
   return (data as Council | null) ?? null;
 }
 
-export async function createCouncil(input: { name: string; seats: number; code?: string | null }): Promise<Council> {
+export async function createCouncil(input: { name: string; seats: number; code?: string | null; vote_weight?: number }): Promise<Council> {
+  const voteWeight = Math.max(1, input.vote_weight ?? 1);
   const base = (input.code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) || suggestCode(input.name);
   for (let attempt = 0; attempt < 6; attempt++) {
     const code = attempt === 0 ? base : `${base.slice(0, 5)}${attempt + 1}`;
     const { data, error } = await supabase
       .from("councils")
-      .insert({ name: input.name.trim(), code, seats: input.seats })
+      .insert({ name: input.name.trim(), code, seats: input.seats, vote_weight: voteWeight })
       .select("*")
       .single();
     if (!error) return data as Council;
@@ -75,24 +83,29 @@ export async function createCouncil(input: { name: string; seats: number; code?:
   // Last resort: random code.
   const { data, error } = await supabase
     .from("councils")
-    .insert({ name: input.name.trim(), code: randomString(4), seats: input.seats })
+    .insert({ name: input.name.trim(), code: randomString(4), seats: input.seats, vote_weight: voteWeight })
     .select("*")
     .single();
   if (error) throw error;
   return data as Council;
 }
 
-export async function updateCouncil(id: string, patch: { name?: string; seats?: number }): Promise<Council | null> {
+export async function updateCouncil(id: string, patch: { name?: string; seats?: number; vote_weight?: number }): Promise<Council | null> {
   const clean: Record<string, unknown> = {};
   if (patch.name !== undefined) clean.name = patch.name.trim();
   if (patch.seats !== undefined) clean.seats = patch.seats;
+  if (patch.vote_weight !== undefined) clean.vote_weight = Math.max(1, patch.vote_weight);
   if (Object.keys(clean).length === 0) return (await supabase.from("councils").select("*").eq("id", id).maybeSingle()).data as Council | null;
   const { data, error } = await supabase.from("councils").update(clean).eq("id", id).select("*");
   if (error) throw error;
   const row = (data ?? [])[0] as Council | undefined;
-  if (row && patch.name !== undefined) {
-    // Keep the members' region label in step with the council name.
-    await supabase.from("members").update({ region: row.name }).eq("council_id", id);
+  if (row && (patch.name !== undefined || patch.vote_weight !== undefined)) {
+    // Keep the delegates in step: region label = council name, vote weight = council weight
+    // (applies from their next ballot on; votes already cast keep the weight they were cast with).
+    const memberPatch: Record<string, unknown> = {};
+    if (patch.name !== undefined) memberPatch.region = row.name;
+    if (patch.vote_weight !== undefined) memberPatch.vote_weight = row.vote_weight;
+    await supabase.from("members").update(memberPatch).eq("council_id", id);
   }
   return row ?? null;
 }
@@ -126,7 +139,7 @@ export async function councilMembers(councilId: string): Promise<Invitation[]> {
 export async function issueInvitations(council: Council, names: (string | null)[]): Promise<CredentialRow[]> {
   const existing = await councilMembers(council.id);
   let seat = existing.reduce((m, r) => Math.max(m, r.seat_no ?? 0), 0);
-  const people = names.map((name) => ({ name, region: council.name, council_id: council.id, seat_no: ++seat }));
+  const people = names.map((name) => ({ name, region: council.name, council_id: council.id, seat_no: ++seat, vote_weight: council.vote_weight ?? 1 }));
   return generateCredentials(people, council.code);
 }
 

@@ -60,7 +60,7 @@ export function resultsText(res: Resolution, rows: TallyRow[], totalBallots: num
   const lines = [
     `📊 <b>Results — ${escapeHtml(res.code)}: ${escapeHtml(res.title)}</b>`,
     res.status === "closed" ? "🔴 Final — voting closed." : "🟢 Interim — voting still open.",
-    `Ballots cast: <b>${totalBallots}</b>`,
+    `Ballots cast: <b>${totalBallots}</b>` + (totalVotes !== totalBallots ? ` · Votes counted (weighted): <b>${totalVotes}</b>` : ""),
   ];
   if (res.quorum) {
     lines.push(
