@@ -301,7 +301,7 @@ REPORT_EMAIL_TO=office@...     # the designated secure recipient
 # TELEGRAM CONFIGURATION
 
 ## BOT NAME 
-ESA Assembly Voting
+ESA Voting System
 
 ## BOT USERNAME
 esa_2026_2019_voting_bot

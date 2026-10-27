@@ -1182,7 +1182,7 @@
 
   // ---------------------------------------------------------------- MEMBER: register
   views.register = {
-    title: function () { return t("ESA Assembly Voting"); },
+    title: function () { return t("ESA Voting System"); },
     render: async function (content, params) {
       content.innerHTML = '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>" +
         (params.inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +

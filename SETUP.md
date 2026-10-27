@@ -15,7 +15,9 @@ for you and test credentials ready for a demo.
 
 1. In Telegram, search for **@BotFather** (verified, blue check) and open a chat.
 2. Send `/newbot`.
-3. BotFather asks for a **display name** — enter e.g. `ESA Assembly Voting`.
+3. BotFather asks for a **display name** — enter anything; the app sets it to
+   `ESA Voting System` (and the descriptions) at every start-up. Change them
+   with `BOT_DISPLAY_NAME`, `BOT_SHORT_DESCRIPTION`, `BOT_DESCRIPTION`.
 4. It then asks for a **username**, which must end in `bot` and be unique —
    e.g. `esa_voting_bot` or `esa_assembly_2026_bot`.
 5. BotFather replies with the **HTTP API token**, which looks like

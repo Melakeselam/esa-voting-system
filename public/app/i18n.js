@@ -118,7 +118,7 @@
       "Enter a Telegram ID": "የቴሌግራም መታወቂያ ያስገቡ",
       "Enter both your token and password.": "ቶከንዎንም የይለፍ ቃልዎንም ያስገቡ።",
       "Enter the number of minutes": "የደቂቃዎችን ብዛት ያስገቡ",
-      "ESA Assembly Voting": "የኢስማ ጉባኤ ድምፅ አሰጣጥ",
+      "ESA Voting System": "የኢስማ የድምፅ አሰጣጥ ሥርዓት",
       "ESA Voting — Admin": "የኢስማ ድምፅ አሰጣጥ — አስተዳዳሪ",
       "Final results": "የመጨረሻ ውጤቶች",
       "Five wrong passwords lock the token for a while. Problems? Contact the National Office.": "አምስት የተሳሳቱ የይለፍ ቃላት ቶከኑን ለተወሰነ ጊዜ ይቆልፋሉ። ችግር አለ? ብሔራዊ ጽሕፈት ቤቱን ያነጋግሩ።",

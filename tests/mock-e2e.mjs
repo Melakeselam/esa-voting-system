@@ -191,6 +191,8 @@ try {
   const menu = calls("setChatMenuButton")[0];
   eq("setup: menu button opens the Mini App", menu?.body.menu_button?.web_app?.url, "https://esa.test/app/");
   check("setup: commands registered", calls("setMyCommands").length >= 1);
+  eq("setup: bot display name applied by the app", calls("setMyName")[0]?.body?.name, "ESA Voting System");
+  check("setup: bot descriptions applied by the app", calls("setMyShortDescription").length >= 1 && calls("setMyDescription").length >= 1);
   eq("setup: reports app url", setup.app_url, "https://esa.test/app/");
 
   eq("webhook: wrong secret rejected", await update(textMessage(USERS.guest, "/start"), "nope"), 401);

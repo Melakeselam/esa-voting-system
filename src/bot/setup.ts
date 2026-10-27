@@ -9,6 +9,7 @@ export const ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"] a
  * "Open app" menu button that launches the Mini App. Idempotent.
  */
 export async function registerTelegramSurface(bot: Bot): Promise<void> {
+  await applyBotIdentity(bot);
   await bot.api.setMyCommands([
     { command: "start", description: "Register / show welcome" },
     { command: "vote", description: "Show resolutions open for voting" },
@@ -39,6 +40,37 @@ export async function registerTelegramSurface(bot: Bot): Promise<void> {
     });
   } else {
     await bot.api.setChatMenuButton({ menu_button: { type: "commands" } });
+  }
+}
+
+/**
+ * Name and descriptions shown in Telegram (profile, empty chat, share
+ * preview). Telegram rate-limits name changes, so each value is only sent
+ * when it differs from what Telegram already has.
+ */
+export async function applyBotIdentity(bot: Bot): Promise<void> {
+  const want = {
+    name: config.botDisplayName,
+    short: config.botShortDescription.slice(0, 120),
+    description: config.botDescription.slice(0, 512),
+  };
+  try {
+    const current = await bot.api.getMyName();
+    if (current?.name !== want.name) await bot.api.setMyName(want.name);
+  } catch (err) {
+    console.warn("Could not set the bot name:", (err as Error).message);
+  }
+  try {
+    const current = await bot.api.getMyShortDescription();
+    if (current?.short_description !== want.short) await bot.api.setMyShortDescription(want.short);
+  } catch (err) {
+    console.warn("Could not set the bot short description:", (err as Error).message);
+  }
+  try {
+    const current = await bot.api.getMyDescription();
+    if (current?.description !== want.description) await bot.api.setMyDescription(want.description);
+  } catch (err) {
+    console.warn("Could not set the bot description:", (err as Error).message);
   }
 }
 

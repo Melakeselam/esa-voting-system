@@ -43,6 +43,10 @@ export const config = {
     .filter((n) => Number.isFinite(n) && n > 0),
   /** When set, the bot runs in webhook mode; otherwise long polling (local dev). */
   publicUrl: publicUrl.replace(/\/$/, "") || null,
+  /** Display name, short description and description the app applies to the bot at start-up (BotFather values are overwritten). */
+  botDisplayName: env("BOT_DISPLAY_NAME") || "ESA Voting System",
+  botShortDescription: env("BOT_SHORT_DESCRIPTION") || "Secure voting for the ESA General Assembly — register with your invitation and vote from your phone.",
+  botDescription: env("BOT_DESCRIPTION") || "Official voting assistant of the Ethiopia Scout Association General Assembly. Register once with the invitation code and password issued by your council or the National Office, then vote on resolutions from this chat or the app.",
   webhookSecret: env("WEBHOOK_SECRET"),
   /** Protects /api/tick (auto-close) and /api/setup. Defaults to the webhook secret. */
   cronSecret: env("CRON_SECRET", "WEBHOOK_SECRET"),
