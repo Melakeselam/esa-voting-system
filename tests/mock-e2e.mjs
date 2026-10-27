@@ -440,6 +440,7 @@ try {
   // Mini App static + landing page (the hosting readiness probe requests "/")
   r = await fetch(base + "/app/");
   check("app: Mini App page served", r.status === 200 && /telegram-web-app\.js/.test(await r.text()));
+  for (const f of ["i18n.js", "help.js", "app.css"]) { r = await fetch(base + "/app/" + f); check("app: /app/" + f + " served", r.status === 200 && (await r.text()).length > 1000); }
   r = await fetch(base + "/");
   check("app: landing page answers 200 for the readiness probe", r.status === 200 && /\/app\//.test(await r.text()));
   r = await fetch(base + "/healthz");

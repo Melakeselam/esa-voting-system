@@ -267,6 +267,12 @@ commands still work for anyone who prefers them.
   added under **Setup → Admins**, see the admin panel. The app proves identity
   with Telegram's signed `initData`; nothing to log into.
 
+**Help and language.** The **?** button at the top right opens the in-app
+guides for the current role (admins also see the member guide). The button next
+to it switches between English and Amharic; a member whose Telegram is set to
+Amharic sees Amharic by default. Ask a native speaker to review the Amharic
+strings in `public/app/i18n.js` and `public/app/help.js` before the assembly.
+
 **Admin panel map**
 
 | Tab | What you do there |
@@ -282,7 +288,7 @@ in it. Before the assembly, post a short message in each topic so they all
 appear in the picker; rename them in Setup if a name was not captured.
 
 **Testing without Telegram or a database.** `npm run test:mock` runs a
-113-check scenario against an in-memory database and a mocked Telegram API:
+116-check scenario against an in-memory database and a mocked Telegram API:
 secure setup, group/topic learning, credential generation, registration (app
 and chat, lockout, token conflicts), announcements into different topics,
 secret and open ballots, double-vote guard, chat-button voting, close and

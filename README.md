@@ -134,6 +134,17 @@ in the database, so deploys are safe mid-assembly.
 
 ## 6b. The Mini App
 
+**Help and language.** Every screen has a **?** button (top right) that opens
+step-by-step guides for the current role: admins get the full assembly
+workflow (setup, credentials, resolutions, opening and closing votes, reports,
+troubleshooting); members get registering, voting and results. Next to it, the
+language button switches between **English and Amharic**; the choice is
+remembered on the device and the Telegram client language (`am`) is used as
+the default. Translations live in `public/app/i18n.js` (English text is the
+key) and the guides in `public/app/help.js`; `npm run test:i18n` fails if a
+string in `app.js` has no Amharic entry. Bot chat messages and server-generated
+text (dates, posted results, reports) are English only.
+
 Everything below can be done without typing a command: the bot's **Open app**
 menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
 
@@ -155,7 +166,7 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   the updates it sees (bot added as admin, topic created/edited, any message in
   a topic). The admin picks a topic from that list when announcing; results are
   published to the same topic on close.
-- **Tests:** `npm run test:mock` runs a 113-check end-to-end scenario against
+- **Tests:** `npm run test:mock` runs a 116-check end-to-end scenario against
   an in-memory database and a mocked Telegram API (setup, rooms, login,
   lockout, voting in both ballot types, auto-close, reports, admin management).
   `TEST_DATABASE_URL=postgres://… npm run test:pg` runs the same scenario

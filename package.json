@@ -13,9 +13,10 @@
     "dev": "tsx watch src/server.ts",
     "gen:credentials": "tsx scripts/generate-credentials.ts",
     "typecheck": "tsc --noEmit",
-    "test:mock": "npm run build && node tests/mock-e2e.mjs",
+    "test:mock": "npm run build && node tests/i18n-check.mjs && node tests/mock-e2e.mjs",
     "db:migrate": "tsx scripts/migrate.ts",
-    "test:pg": "npm run build && node tests/mock-e2e.mjs"
+    "test:pg": "npm run build && node tests/mock-e2e.mjs",
+    "test:i18n": "node tests/i18n-check.mjs"
   },
   "dependencies": {
     "@types/pg": "^8.23.1",
