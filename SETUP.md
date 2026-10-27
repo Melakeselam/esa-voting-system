@@ -267,6 +267,13 @@ commands still work for anyone who prefers them.
   added under **Setup → Admins**, see the admin panel. The app proves identity
   with Telegram's signed `initData`; nothing to log into.
 
+**Councils and invitations.** Members → ＋ Invitations. Add a council (name,
+seats, optional delegate names) or import a spreadsheet with the columns
+Council, Name, Seats; the bot sends one printable PDF per council (QR code +
+link + code + password per delegate). Hand one card to each chosen member; they
+scan it, tap Start and enter the password. The in-app Help has the full
+scenario. Keep the PDFs out of group chats.
+
 **Help and language.** The **?** button at the top right opens the in-app
 guides for the current role (admins also see the member guide). The button next
 to it switches between English and Amharic; a member whose Telegram is set to
@@ -288,7 +295,7 @@ in it. Before the assembly, post a short message in each topic so they all
 appear in the picker; rename them in Setup if a name was not captured.
 
 **Testing without Telegram or a database.** `npm run test:mock` runs a
-116-check scenario against an in-memory database and a mocked Telegram API:
+145-check scenario against an in-memory database and a mocked Telegram API:
 secure setup, group/topic learning, credential generation, registration (app
 and chat, lockout, token conflicts), announcements into different topics,
 secret and open ballots, double-vote guard, chat-button voting, close and

@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 
 const DEFAULTS = {
-  members: () => ({ id: randomUUID(), full_name: null, region: null, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
+  members: () => ({ id: randomUUID(), full_name: null, region: null, council_id: null, seat_no: null, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
   resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
   ballots: () => ({ created_at: now() }),
   votes: () => ({ id: randomUUID(), member_id: null, created_at: now(), updated_at: now() }),
@@ -17,10 +17,11 @@ const DEFAULTS = {
   app_settings: () => ({ updated_at: now() }),
   chat_topics: () => ({ thread_id: 0, name: null, chat_title: null, updated_at: now() }),
   admins: () => ({ name: null, added_by: null, created_at: now() }),
+  councils: () => ({ id: randomUUID(), seats: 1, created_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
-  app_settings: ["key"], chat_topics: ["chat_id", "thread_id"], admins: ["telegram_user_id"],
+  app_settings: ["key"], chat_topics: ["chat_id", "thread_id"], admins: ["telegram_user_id"], councils: ["id"],
 };
 const UNIQUE = {
   members: [["token_id"], ["telegram_user_id"]],
@@ -30,6 +31,7 @@ const UNIQUE = {
   app_settings: [["key"]],
   chat_topics: [["chat_id", "thread_id"]],
   admins: [["telegram_user_id"]],
+  councils: [["name"], ["code"]],
 };
 
 function now() { return new Date().toISOString(); }
@@ -178,6 +180,7 @@ class Builder {
       case "delete": {
         const hit = rows.filter(match);
         c.tables[this.t] = rows.filter((r) => !match(r));
+        if (this.t === "councils") for (const r of hit) for (const m of c.tables.members) if (m.council_id === r.id) m.council_id = null;
         if (this.t === "resolutions") for (const r of hit) { c.tables.ballots = c.tables.ballots.filter((b) => b.resolution_id !== r.id); c.tables.votes = c.tables.votes.filter((v) => v.resolution_id !== r.id); }
         return this._shape(this.returning ? hit.map((r) => project(r, this.cols)) : null, null);
       }

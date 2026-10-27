@@ -1,10 +1,10 @@
 import { Composer } from "grammy";
 import type { Context } from "grammy";
 import { audit } from "../db.js";
-import { findByTelegramId } from "../services/members.js";
+import { checkToken, findByTelegramId } from "../services/members.js";
 import { getById, listResolutions } from "../services/resolutions.js";
 import { castVote, memberBallots } from "../services/votes.js";
-import { handleLoginMessage, inLogin, promptLogin } from "./login.js";
+import { beginLoginWithToken, handleLoginMessage, inLogin, promptLogin } from "./login.js";
 import { appKeyboard, confirmKeyboard, escapeHtml, resolutionCard, voteKeyboard } from "./ui.js";
 import type { InlineKeyboard } from "grammy";
 
@@ -23,6 +23,26 @@ const HELP =
 pm.command("start", async (ctx) => {
   const member = await findByTelegramId(ctx.from!.id);
   if (!member) {
+    // Invitation deep link (QR code / printed link): /start inv_<token>
+    const payload = typeof ctx.match === "string" ? ctx.match : "";
+    if (payload.startsWith("inv_")) {
+      const token = decodeURIComponent(payload.slice("inv_".length));
+      const check = await checkToken(token, ctx.from!.id);
+      if (check.status === "ok") {
+        beginLoginWithToken(ctx.from!.id, check.member);
+        await ctx.reply(
+          `🎫 Invitation code <b>${escapeHtml(check.member.token_id)}</b> recognised` +
+            (check.member.region ? ` — ${escapeHtml(check.member.region)}` : "") +
+            ".\n\nSend your <b>password</b> here now (the message is deleted right after checking), or open the app and enter it there.",
+          { parse_mode: "HTML", reply_markup: appKeyboard("📱 Register in the app", `?inv=${encodeURIComponent(check.member.token_id)}`) },
+        );
+        return;
+      }
+      if (check.status === "conflict") {
+        await ctx.reply("⚠️ This invitation is already registered to another Telegram account. If you believe this is an error, contact the National Office.");
+        return;
+      }
+    }
     await promptLogin(ctx);
     return;
   }

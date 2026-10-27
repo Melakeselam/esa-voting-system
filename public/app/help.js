@@ -34,6 +34,25 @@
         ],
       },
       {
+        icon: "🏛", title: "Invitations per council (QR codes and PDF)",
+        body: [
+          "Use this instead of plain credentials when voting members are chosen by councils (regions, sections). Each council gets a fixed number of invitations; each invitation is one voting seat.",
+          { steps: [
+            "Members → “＋ Invitations” → “Add council”: enter the council name and the number of voting delegates (seats). Paste the delegate names one per line if you know them; leave the box empty for anonymous invitations the council assigns itself.",
+            "Or tap “Import councils from Excel / CSV” and upload a sheet with the columns Council, Name, Seats (one row per delegate, or one row per council with a number of seats). Check the preview, then “Create councils and invitations”.",
+            "The bot sends you one PDF per council: two invitations per A4 page, each with the council, the delegate, the invitation code, the password, a QR code and a link. Print it and cut along the dashed line, or forward the PDF to the council.",
+            "The council hands one invitation to each chosen member. The member scans the QR code (or opens the link), taps Start, and enters the password: the code is already filled in.",
+            "On the council page you see who has registered. “New passwords for unregistered delegates” renews the sheet if it was lost; registered delegates are not affected.",
+          ] },
+          { bullets: [
+            "Invitation codes start with the council code (for example AARC-K7M2P). Delegates also appear under Members with the council as their region.",
+            "A council can be deleted only before invitations are issued. Afterwards, deactivate unused invitations under Members.",
+            "The PDF contains the passwords: delete it from your chat once the invitations are handed over.",
+          ] },
+          { tip: "Generate the invitations a week before the assembly and print them on thick paper; keep one unprinted copy of the PDF in a safe place for reissues." },
+        ],
+      },
+      {
         icon: "📝", title: "How members register",
         body: [
           "Members register once; after that their Telegram account is linked to their token.",
@@ -165,6 +184,25 @@
         ],
       },
       {
+        icon: "🏛", title: "በምክር ቤት ጥሪዎች (QR ኮዶች እና PDF)",
+        body: [
+          "ድምፅ ሰጪ አባላት በምክር ቤቶች (ክልሎች፣ ክፍሎች) ሲመረጡ ከተራ የመግቢያ መረጃ ይልቅ ይህንን ይጠቀሙ። እያንዳንዱ ምክር ቤት የተወሰነ ቁጥር ያላቸው ጥሪዎች ያገኛል፤ እያንዳንዱ ጥሪ አንድ የድምፅ መቀመጫ ነው።",
+          { steps: [
+            "«አባላት» → «＋ ጥሪዎች» → «ምክር ቤት አክል»፦ የምክር ቤቱን ስም እና የድምፅ ሰጪ ተወካዮች ብዛት (መቀመጫዎች) ያስገቡ። ስሞቹን ካወቁ በእያንዳንዱ መስመር አንድ ተወካይ ይለጥፉ፤ ምክር ቤቱ ራሱ የሚያከፋፍላቸው ስም-አልባ ጥሪዎች ከፈለጉ ሳጥኑን ባዶ ይተውት።",
+            "ወይም «ምክር ቤቶችን ከኤክሴል / CSV አስመጣ»ን ነክተው ምክር ቤት፣ ስም፣ መቀመጫዎች የሚሉ አምዶች ያሉት ሰንጠረዥ ይስቀሉ (በእያንዳንዱ ተወካይ አንድ ረድፍ፣ ወይም በእያንዳንዱ ምክር ቤት የመቀመጫ ብዛት ያለው አንድ ረድፍ)። ቅድመ እይታውን ይመልከቱ፣ ከዚያ «ምክር ቤቶች እና ጥሪዎች ፍጠር»።",
+            "ቦቱ ለእያንዳንዱ ምክር ቤት አንድ PDF ይልክልዎታል፦ በእያንዳንዱ A4 ገጽ ሁለት ጥሪዎች፣ እያንዳንዱ ምክር ቤቱን፣ ተወካዩን፣ የጥሪ ኮዱን፣ የይለፍ ቃሉን፣ QR ኮድ እና አገናኝ የያዘ። አትመው በነጥብ መስመሩ ይቁረጡ፣ ወይም PDFውን ለምክር ቤቱ ያስተላልፉ።",
+            "ምክር ቤቱ ለእያንዳንዱ የተመረጠ አባል አንድ ጥሪ ይሰጣል። አባሉ QR ኮዱን ይቃኛል (ወይም አገናኙን ይከፍታል)፣ Start ይነካል፣ እና የይለፍ ቃሉን ያስገባል፤ ኮዱ አስቀድሞ ተሞልቷል።",
+            "በምክር ቤቱ ገጽ ላይ ማን እንደተመዘገበ ያያሉ። «ላልተመዘገቡ ተወካዮች አዲስ የይለፍ ቃላት» ወረቀቱ ከጠፋ ያድሰዋል፤ የተመዘገቡ ተወካዮች አይነኩም።",
+          ] },
+          { bullets: [
+            "የጥሪ ኮዶች በምክር ቤቱ ኮድ ይጀምራሉ (ለምሳሌ AARC-K7M2P)። ተወካዮች ምክር ቤቱ እንደ ክልላቸው ሆኖ በ«አባላት» ስርም ይታያሉ።",
+            "ምክር ቤት ሊሰረዝ የሚችለው ጥሪዎች ከመሰጠታቸው በፊት ብቻ ነው። ከዚያ በኋላ ያልተጠቀሙባቸውን ጥሪዎች በ«አባላት» ስር ያቦዝኑ።",
+            "PDFው የይለፍ ቃላቱን ይዟል፦ ጥሪዎቹ ከተሰጡ በኋላ ከቻትዎ ይሰርዙት።",
+          ] },
+          { tip: "ጥሪዎቹን ከጉባኤው አንድ ሳምንት በፊት አመንጭተው በወፍራም ወረቀት ያትሙ፤ ለድጋሚ ስርጭት አንድ ያልታተመ የPDF ቅጂ በደህና ቦታ ያስቀምጡ።" },
+        ],
+      },
+      {
         icon: "📝", title: "አባላት እንዴት ይመዘገባሉ",
         body: [
           "አባላት አንድ ጊዜ ይመዘገባሉ፤ ከዚያ በኋላ የቴሌግራም መለያቸው ከቶከናቸው ጋር ይገናኛል።",
@@ -286,6 +324,21 @@
         ],
       },
       {
+        icon: "🎫", title: "Register with a printed invitation (QR code)",
+        body: [
+          "If your council gave you a printed invitation, it carries a QR code, an invitation code and a password.",
+          { steps: [
+            "Scan the QR code with your phone camera (or open the link printed under it). Telegram opens the voting bot.",
+            "Tap Start. The bot replies that it recognised your invitation code.",
+            "Either send the password in the chat (the message is deleted right after checking) or tap “Register in the app”: the code is already filled in, enter the password and tap Register.",
+          ] },
+          { bullets: [
+            "One invitation registers one Telegram account. If the bot says the invitation is already registered, contact your council or the National Office.",
+            "Keep the invitation private: anyone holding it could vote in your place.",
+          ] },
+        ],
+      },
+      {
         icon: "🗳", title: "Cast your vote",
         body: [
           { steps: [
@@ -339,6 +392,21 @@
         ],
       },
       {
+        icon: "🎫", title: "በታተመ ጥሪ (QR ኮድ) መመዝገብ",
+        body: [
+          "ምክር ቤትዎ የታተመ ጥሪ ከሰጠዎት፣ QR ኮድ፣ የጥሪ ኮድ እና የይለፍ ቃል ይዟል።",
+          { steps: [
+            "QR ኮዱን በስልክዎ ካሜራ ይቃኙ (ወይም ከሥሩ የታተመውን አገናኝ ይክፈቱ)። ቴሌግራም የድምፅ መስጫ ቦቱን ይከፍታል።",
+            "Start ይንኩ። ቦቱ የጥሪ ኮድዎን እንዳወቀ ይመልስልዎታል።",
+            "የይለፍ ቃሉን በቻቱ ውስጥ ይላኩ (መልዕክቱ ከተፈተሸ በኋላ ወዲያውኑ ይሰረዛል) ወይም «በመተግበሪያው ይመዝገቡ»ን ይንኩ፦ ኮዱ አስቀድሞ ተሞልቷል፣ የይለፍ ቃሉን አስገብተው «ይመዝገቡ»ን ይንኩ።",
+          ] },
+          { bullets: [
+            "አንድ ጥሪ አንድ የቴሌግራም መለያ ይመዘግባል። ቦቱ ጥሪው አስቀድሞ ተመዝግቧል ካለ፣ ምክር ቤትዎን ወይም ብሔራዊ ጽሕፈት ቤቱን ያነጋግሩ።",
+            "ጥሪውን በግል ያስቀምጡ፦ የያዘው ማንኛውም ሰው በእርስዎ ምትክ ድምፅ መስጠት ይችላል።",
+          ] },
+        ],
+      },
+      {
         icon: "🗳", title: "ድምፅዎን መስጠት",
         body: [
           { steps: [
@@ -383,7 +451,7 @@
       var L = lang === "am" ? "am" : "en";
       if (role === "admin") return ADMIN[L].concat([{ icon: "🙋", title: L === "am" ? "ለአባላት፦ መመዝገብ እና ድምፅ መስጠት" : "For members: registering and voting", body: [L === "am" ? "አባላት በመተግበሪያው ውስጥ የሚያዩት መመሪያ ይህ ነው።" : "This is the guide members see in the app."] }]).concat(MEMBER[L]);
       if (role === "member") return MEMBER[L];
-      return MEMBER[L].slice(0, 2).concat(MEMBER[L].slice(4));
+      return MEMBER[L].slice(0, 2).concat(MEMBER[L].slice(5));
     },
   };
 })();

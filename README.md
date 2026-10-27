@@ -134,6 +134,21 @@ in the database, so deploys are safe mid-assembly.
 
 ## 6b. The Mini App
 
+**Councils and printed invitations.** When voting members are chosen by
+councils (regions, sections), use **Members → ＋ Invitations** instead of plain
+credentials. Each council gets a name and a number of voting seats; the admin
+types the delegate names (or leaves them anonymous) or imports an Excel/CSV
+sheet with the columns `Council, Name, Seats`. Every invitation is a member
+row whose token starts with the council code (`AARC-K7M2P`), and the bot
+sends the admin one **PDF per council**: two A4 cards per page with council,
+delegate, invitation code, password, a **QR code** and a deep link
+(`https://t.me/<bot>?start=inv_<code>`). Scanning the code opens the bot,
+which recognises the invitation and only asks for the password; the Mini App
+link pre-fills the code too. Lost sheet: "New passwords for unregistered
+delegates" reissues the PDF without touching registered members. The PDF
+is built with pdfkit + qrcode; Amharic lines are included when
+`assets/fonts/NotoSansEthiopic-Regular.ttf` is present (it is in the repo).
+
 **Help and language.** Every screen has a **?** button (top right) that opens
 step-by-step guides for the current role: admins get the full assembly
 workflow (setup, credentials, resolutions, opening and closing votes, reports,
@@ -166,7 +181,7 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   the updates it sees (bot added as admin, topic created/edited, any message in
   a topic). The admin picks a topic from that list when announcing; results are
   published to the same topic on close.
-- **Tests:** `npm run test:mock` runs a 116-check end-to-end scenario against
+- **Tests:** `npm run test:mock` runs a 145-check end-to-end scenario against
   an in-memory database and a mocked Telegram API (setup, rooms, login,
   lockout, voting in both ballot types, auto-close, reports, admin management).
   `TEST_DATABASE_URL=postgres://… npm run test:pg` runs the same scenario

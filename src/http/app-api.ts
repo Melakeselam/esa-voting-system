@@ -9,6 +9,8 @@ import { announceKeyboard, resolutionCard, resultsText, voteKeyboard } from "../
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
 import { credentialsCsv, generateCredentials, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
+import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, reissuePasswords, updateCouncil } from "../services/councils.js";
+import { ethiopicFontAvailable, invitationLink, invitationsPdf, type InvitationRow } from "../invitations.js";
 import {
   findById,
   findByTelegramId,
@@ -550,6 +552,143 @@ route("POST", "/broadcast", true, async (ctx) => {
   return result;
 });
 
+
+// ---------------------------------------------------------------------------
+// Admin: councils & invitations
+// ---------------------------------------------------------------------------
+
+const INVITE_BATCH = 40; // bcrypt per row; the app loops over larger lists
+
+function invitationRows(b: Record<string, unknown>): InvitationRow[] {
+  if (!Array.isArray(b.rows) || b.rows.length === 0) throw new HttpError(400, "rows is required");
+  if (b.rows.length > 2000) throw new HttpError(400, "Too many rows");
+  return b.rows.map((r) => {
+    const o = asObject(r);
+    return {
+      token_id: str(o.token_id, "token_id", { max: 40 }),
+      password: str(o.password, "password", { max: 40 }),
+      full_name: str(o.full_name, "full_name", { optional: true, max: 120 }) || null,
+      seat_no: int(o.seat_no, "seat_no", { optional: true, min: 1 }),
+    };
+  });
+}
+
+async function requireCouncil(id: string) {
+  const c = await getCouncil(id);
+  if (!c) throw new HttpError(404, "Council not found.");
+  return c;
+}
+
+route("GET", "/councils", true, async () => ({
+  items: await listCouncils(),
+  bot_username: bot.botInfo.username,
+  amharic_pdf: ethiopicFontAvailable(),
+}));
+
+/** Create a council; with upsert=true an existing council of the same name is reused (seats raised if needed). */
+route("POST", "/councils", true, async (ctx) => {
+  const b = await ctx.body();
+  const name = str(b.name, "Council name", { min: 2, max: 120 });
+  const seats = int(b.seats, "Seats", { min: 1, max: 1000 })!;
+  const code = str(b.code, "Code", { optional: true, max: 6 }) || null;
+  const existing = await findCouncilByName(name);
+  if (existing) {
+    if (!bool(b.upsert, "upsert", false)) throw new HttpError(409, "A council with this name already exists.", "exists");
+    if (seats > existing.seats) await updateCouncil(existing.id, { seats });
+    return { council: await getCouncil(existing.id), created: false };
+  }
+  const c = await createCouncil({ name, seats, code });
+  await audit(ctx.user.id, "council_created", { name: c.name, code: c.code, seats: c.seats, via: "app" });
+  return { council: await getCouncil(c.id), created: true };
+});
+
+route("GET", `/councils/${UUID}`, true, async (_ctx, [id]) => {
+  const council = await requireCouncil(id);
+  const members = await councilMembers(id);
+  const now = Date.now();
+  return {
+    council,
+    invitations: members.map((m) => ({
+      ...m,
+      locked: m.locked_until !== null && new Date(m.locked_until).getTime() > now,
+      link: invitationLink(bot.botInfo.username, m.token_id),
+    })),
+    bot_username: bot.botInfo.username,
+    amharic_pdf: ethiopicFontAvailable(),
+  };
+});
+
+route("PATCH", `/councils/${UUID}`, true, async (ctx, [id]) => {
+  await requireCouncil(id);
+  const b = await ctx.body();
+  const patch: { name?: string; seats?: number } = {};
+  const name = str(b.name, "Council name", { optional: true, min: 2, max: 120 });
+  if (name) {
+    const clash = await findCouncilByName(name);
+    if (clash && clash.id !== id) throw new HttpError(409, "A council with this name already exists.", "exists");
+    patch.name = name;
+  }
+  const seats = int(b.seats, "Seats", { optional: true, min: 1, max: 1000 });
+  if (seats !== null) patch.seats = seats;
+  await updateCouncil(id, patch);
+  await audit(ctx.user.id, "council_edited", { council_id: id, ...patch, via: "app" });
+  return { council: await getCouncil(id) };
+});
+
+route("DELETE", `/councils/${UUID}`, true, async (ctx, [id]) => {
+  const c = await requireCouncil(id);
+  const ok = await deleteCouncil(id);
+  if (!ok) throw new HttpError(409, "This council already has invitations; deactivate them under Members instead.", "has_members");
+  await audit(ctx.user.id, "council_deleted", { name: c.name, via: "app" });
+  return { ok: true };
+});
+
+/** Issue invitations: names (one per delegate, empty = anonymous seat) or a count. Max 40 per request. */
+route("POST", `/councils/${UUID}/invitations`, true, async (ctx, [id]) => {
+  const c = await requireCouncil(id);
+  const b = await ctx.body();
+  let names: (string | null)[];
+  if (Array.isArray(b.names)) {
+    names = b.names.map((n, i) => str(n, `Name ${i + 1}`, { optional: true, max: 120 }) || null);
+  } else {
+    const count = int(b.count, "Count", { min: 1, max: INVITE_BATCH })!;
+    names = Array.from({ length: count }, () => null);
+  }
+  if (names.length === 0) throw new HttpError(400, "Nobody to invite.");
+  if (names.length > INVITE_BATCH) throw new HttpError(400, `At most ${INVITE_BATCH} per request; the app sends larger lists in batches.`);
+  const rows = await issueInvitations(c, names);
+  await audit(ctx.user.id, "invitations_issued", { council: c.name, count: rows.length, via: "app" });
+  return { rows, council: await getCouncil(id) };
+});
+
+/** Fresh passwords for every invitation of the council that is not registered yet (lost sheet). */
+route("POST", `/councils/${UUID}/reissue`, true, async (ctx, [id]) => {
+  const c = await requireCouncil(id);
+  const rows = await reissuePasswords(c);
+  await audit(ctx.user.id, "invitations_reissued", { council: c.name, count: rows.length, via: "app" });
+  return { rows, council: await getCouncil(id) };
+});
+
+/** Build the printable PDF (QR + link per invitation) and send it to the admin chat. */
+route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
+  const c = await requireCouncil(id);
+  const rows = invitationRows(await ctx.body());
+  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username });
+  const stamp = formatLocal(new Date()).replace(/[: ]/g, "-");
+  const file = `esa-invitations-${c.code.toLowerCase()}-${stamp}.pdf`;
+  try {
+    await bot.api.sendDocument(ctx.user.id, new InputFile(pdf, file), {
+      caption:
+        `🎫 ${rows.length} invitation(s) for ${c.name}. Print it (two per page, cut along the line) or forward the PDF to the council. ` +
+        "It contains the passwords: delete it from the chat once the invitations are handed over.",
+    });
+  } catch (err) {
+    throw new HttpError(502, `Could not send the file to your chat: ${(err as Error).message}. Send /start to the bot first.`);
+  }
+  await audit(ctx.user.id, "invitations_pdf_sent", { council: c.name, count: rows.length, via: "app" });
+  return { ok: true, count: rows.length, file };
+});
+
 // ---------------------------------------------------------------------------
 // Admin: report
 // ---------------------------------------------------------------------------
@@ -591,7 +730,7 @@ route("POST", "/report", true, async (ctx) => {
 // Admin: setup
 // ---------------------------------------------------------------------------
 
-const TABLES = ["members", "resolutions", "ballots", "votes", "audit_log", "app_settings", "chat_topics", "admins"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "audit_log", "app_settings", "chat_topics", "admins", "councils"];
 
 async function dbStatus(): Promise<{ ok: boolean; missing: string[] }> {
   const missing: string[] = [];

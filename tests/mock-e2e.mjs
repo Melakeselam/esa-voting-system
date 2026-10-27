@@ -54,6 +54,8 @@ const tgServer = createServer(async (req, res) => {
     }
     const fn = /filename="?([^"\r\n]+)"?/.exec(raw);
     if (fn) body.filename = fn[1];
+    body.bytes = raw.length;
+    body.is_pdf = raw.includes("%PDF-");
   }
   tgCalls.push({ method, body });
   let result = true;
@@ -92,7 +94,7 @@ const REAL = Boolean(process.env.TEST_DATABASE_URL);
 if (!REAL) register("./hooks.mjs", import.meta.url);
 const { handleHttp } = await import(pathToFileURL(resolve(root, "dist/http/router.js")).href);
 const realDb = REAL ? await import(pathToFileURL(resolve(root, "dist/db.js")).href) : null;
-const TABLES = ["members", "resolutions", "ballots", "votes", "audit_log", "app_settings", "chat_topics", "admins"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "audit_log", "app_settings", "chat_topics", "admins", "councils"];
 if (REAL) {
   await realDb.ensureSchema();
   await realDb.supabase.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
@@ -135,6 +137,8 @@ const USERS = {
   dawit: { id: 2003, first_name: "Dawit" },
   guest: { id: 2004, first_name: "Guest" },
   newAdmin: { id: 3001, first_name: "Second Admin" },
+  delegate: { id: 2005, first_name: "Delegate" },
+  delegate2: { id: 2006, first_name: "Delegate Two" },
 };
 
 async function api(method, path, user, body) {
@@ -240,6 +244,72 @@ try {
   r = await api("POST", "/members/credentials-file", USERS.admin, { rows: creds });
   check("credentials: CSV delivered to admin chat only", r.status === 200 && calls("sendDocument", (b) => Number(b.chat_id) === 1001 && /credentials/.test(b.filename ?? "")).length === 1);
 
+  // ---- Councils & invitations (QR / PDF flow)
+  r = await api("GET", "/councils", USERS.admin);
+  eq("councils: empty at start", [r.status, r.json?.items?.length], [200, 0]);
+  r = await api("POST", "/councils", USERS.admin, { name: "Addis Ababa Regional Council", seats: 3 });
+  const AARC = r.json?.council;
+  eq("councils: created with a code derived from the name", [r.status, r.json?.created, AARC?.code, AARC?.seats], [200, true, "AARC", 3]);
+  r = await api("POST", "/councils", USERS.admin, { name: "addis ababa regional council", seats: 2 });
+  eq("councils: duplicate name rejected (case-insensitive)", [r.status, r.json?.code], [409, "exists"]);
+  r = await api("POST", "/councils", USERS.admin, { name: "Addis Ababa Regional Council", seats: 5, upsert: true });
+  eq("councils: upsert reuses the council and raises seats", [r.json?.created, r.json?.council?.id === AARC.id, r.json?.council?.seats], [false, true, 5]);
+  r = await api("POST", "/councils", USERS.admin, { name: "Oromia", seats: 2 });
+  const ORO = r.json?.council;
+  eq("councils: second council code", ORO?.code, "ORO");
+  r = await api("POST", "/councils/" + AARC.id + "/invitations", USERS.admin, { names: ["Hana Girma", "", "Yonas Bekele"] });
+  const inv = r.json?.rows ?? [];
+  eq("invitations: 3 issued for the council", [r.status, inv.length, r.json?.council?.issued], [200, 3, 3]);
+  check("invitations: tokens carry the council code and seat numbers 1..3", inv.every((x) => /^AARC-[A-HJ-NP-Z2-9]{5}$/.test(x.token_id)) && inv.map((x) => x.seat_no).join() === "1,2,3", JSON.stringify(inv.map((x) => [x.token_id, x.seat_no])));
+  eq("invitations: anonymous seat has no name", [inv[0].full_name, inv[1].full_name], ["Hana Girma", null]);
+  const invRows = await rows("members");
+  check("invitations: stored with council_id and region = council name", inv.every((x) => invRows.some((m) => m.token_id === x.token_id && m.council_id === AARC.id && m.region === AARC.name && m.password_hash.startsWith("$2"))));
+  r = await api("POST", "/councils/" + ORO.id + "/invitations", USERS.admin, { count: 2 });
+  eq("invitations: issued by count", [r.json?.rows?.length, r.json?.rows?.map((x) => x.seat_no).join()], [2, "1,2"]);
+  r = await api("GET", "/councils/" + AARC.id, USERS.admin);
+  check("invitations: council page lists them with deep links", r.json?.invitations?.length === 3 && r.json.invitations.every((m) => m.link === "https://t.me/esa_mock_bot?start=inv_" + m.token_id && m.telegram_user_id === null), JSON.stringify(r.json?.invitations?.[0]));
+  r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv });
+  const pdfCall = calls("sendDocument", (b) => Number(b.chat_id) === 1001 && /invitations-aarc/.test(b.filename ?? "") && /\.pdf$/.test(b.filename ?? ""));
+  check("invitations: PDF sent to the admin chat", r.status === 200 && pdfCall.length === 1 && pdfCall[0].body.is_pdf && pdfCall[0].body.bytes > 10000, JSON.stringify([r.status, r.json, pdfCall.map((c) => c.body)]));
+  r = await api("DELETE", "/councils/" + AARC.id, USERS.admin);
+  eq("councils: cannot delete once invitations exist", [r.status, r.json?.code], [409, "has_members"]);
+  r = await api("POST", "/councils", USERS.admin, { name: "Temporary", seats: 1 });
+  r = await api("DELETE", "/councils/" + r.json.council.id, USERS.admin);
+  eq("councils: empty council can be deleted", r.status, 200);
+  r = await api("GET", "/councils", USERS.admin);
+  eq("councils: list with counts", r.json?.items?.map((c) => [c.code, c.issued, c.registered]), [["AARC", 3, 0], ["ORO", 2, 0]]);
+
+  // Deep link: /start inv_<token> → bot recognises the code and waits for the password
+  await update(textMessage(USERS.delegate, "/start inv_" + inv[0].token_id));
+  check("invitation(chat): /start inv_<code> recognises the invitation", /Invitation code/.test(lastTextTo(2005)) && new RegExp(inv[0].token_id).test(lastTextTo(2005)), lastTextTo(2005));
+  check("invitation(chat): reply carries an app button with the code pre-filled", sentTo(2005).some((c) => c.body.reply_markup?.inline_keyboard?.some((row) => row.some((b) => b.web_app?.url === "https://esa.test/app/?inv=" + inv[0].token_id))));
+  await update(textMessage(USERS.delegate, inv[0].password));
+  check("invitation(chat): password completes registration", /Registration complete/.test(sentTo(2005).map((c) => c.body.text).join("\n")));
+  r = await api("GET", "/me", USERS.delegate);
+  eq("invitation(chat): delegate is a member of the council", [r.json?.role, r.json?.member?.full_name, r.json?.member?.region], ["member", "Hana Girma", "Addis Ababa Regional Council"]);
+  await update(textMessage(USERS.delegate2, "/start inv_" + inv[0].token_id));
+  check("invitation(chat): used invitation refused for another account", /already registered/.test(lastTextTo(2006)), lastTextTo(2006));
+  await update(textMessage(USERS.delegate2, "/start inv_AARC-NOPE1"));
+  check("invitation(chat): unknown code falls back to the normal prompt", /Voting Token ID/.test(lastTextTo(2006)), lastTextTo(2006));
+  // App registration with the code from the QR link (?inv= is client-side; the API call is the same)
+  r = await api("POST", "/register", USERS.delegate2, { token: inv[2].token_id, password: inv[2].password });
+  eq("invitation(app): second delegate registers with code + password", [r.json?.status, r.json?.member?.full_name], ["ok", "Yonas Bekele"]);
+  r = await api("GET", "/councils", USERS.admin);
+  eq("councils: registered count updated", r.json?.items?.find((c) => c.code === "AARC")?.registered, 2);
+  // Reissue: only the unregistered seat gets a new password; registered ones keep theirs
+  const hashBefore = Object.fromEntries((await rows("members")).filter((m) => m.council_id === AARC.id).map((m) => [m.token_id, m.password_hash]));
+  r = await api("POST", "/councils/" + AARC.id + "/reissue", USERS.admin);
+  const hashAfter = Object.fromEntries((await rows("members")).filter((m) => m.council_id === AARC.id).map((m) => [m.token_id, m.password_hash]));
+  eq("invitations: reissue returns only the unregistered seat", r.json?.rows?.map((x) => x.token_id), [inv[1].token_id]);
+  check("invitations: reissue changes only that password", hashAfter[inv[1].token_id] !== hashBefore[inv[1].token_id] && hashAfter[inv[0].token_id] === hashBefore[inv[0].token_id] && hashAfter[inv[2].token_id] === hashBefore[inv[2].token_id]);
+  r = await api("POST", "/register", USERS.guest, { token: inv[1].token_id, password: inv[1].password });
+  eq("invitations: old password no longer works after reissue", r.json?.status, "wrong_password");
+  r = await api("PATCH", "/councils/" + AARC.id, USERS.admin, { name: "Addis Ababa Council", seats: 4 });
+  eq("councils: rename + seats", [r.json?.council?.name, r.json?.council?.seats], ["Addis Ababa Council", 4]);
+  check("councils: rename updates the delegates' region", (await rows("members")).filter((m) => m.council_id === AARC.id).every((m) => m.region === "Addis Ababa Council"));
+  r = await api("GET", "/councils", USERS.guest);
+  eq("councils: members cannot access", r.status, 403);
+
   // ---- 4. Member registration ------------------------------------------------
   r = await api("POST", "/register", USERS.abebe, { token: creds[0].token_id.toLowerCase(), password: creds[0].password });
   eq("login(app): correct credentials register (case-insensitive token)", r.json?.status, "ok");
@@ -274,7 +344,7 @@ try {
   r = await api("GET", "/me", USERS.dawit);
   eq("login(chat): same account is a member in the app", r.json?.member?.full_name, "Dawit Alemu");
   r = await api("GET", "/members?filter=registered", USERS.admin);
-  eq("members: 3 registered", r.json?.total, 3);
+  eq("members: 5 registered (3 credentials + 2 delegates)", r.json?.total, 5);
   r = await api("GET", "/members?q=sara", USERS.admin);
   eq("members: search by name", r.json?.items?.map((m) => m.full_name), ["Sara Tesfaye"]);
 
@@ -380,10 +450,10 @@ try {
   const R3 = r.json;
   await api("POST", "/resolutions/" + R3.id + "/open", USERS.admin, {});
   r = await api("POST", "/resolutions/" + R3.id + "/notify", USERS.admin, { offset: 0 });
-  eq("notify: ballot DM'd to all 3 registered members", [r.json?.sent, r.json?.total, r.json?.next_offset], [3, 3, null]);
+  eq("notify: ballot DM'd to all 5 registered members", [r.json?.sent, r.json?.total, r.json?.next_offset], [5, 5, null]);
   check("notify: DM carries vote buttons + app button", calls("sendMessage", (b) => Number(b.chat_id) === 2002 && /R3/.test(b.text ?? "")).some((c) => c.body.reply_markup?.inline_keyboard?.some((row) => row.some((btn) => btn.web_app?.url?.startsWith("https://esa.test/app/")))));
   r = await api("POST", "/broadcast", USERS.admin, { text: "Voting on R3 is open until 17:00.", offset: 0 });
-  eq("broadcast: delivered to 3", [r.json?.sent, r.json?.failed], [3, 0]);
+  eq("broadcast: delivered to 5", [r.json?.sent, r.json?.failed], [5, 0]);
   check("broadcast: message text delivered", sentTo(2001).some((c) => /Voting on R3 is open/.test(c.body.text)));
   r = await api("POST", "/resolutions/" + R3.id + "/publish", USERS.admin, { chat_id: GROUP.id, thread_id: 0 });
   check("publish: interim results posted to General", r.status === 200 && sentTo(GROUP.id, null).some((c) => /Interim/.test(c.body.text) && /R3/.test(c.body.text)));
@@ -430,10 +500,10 @@ try {
   eq("drafts: closed resolution cannot be edited", r.status, 409);
 
   r = await api("GET", "/dashboard", USERS.admin);
-  eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 2 }, 3]);
+  eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 2 }, 5]);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

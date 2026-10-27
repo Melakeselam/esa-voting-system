@@ -17,6 +17,11 @@ export function beginLogin(userId: number): void {
   sessions.set(userId, { step: "token" });
 }
 
+/** Invitation link already carried the token: continue at the password step. */
+export function beginLoginWithToken(userId: number, member: Member): void {
+  sessions.set(userId, { step: "password", member });
+}
+
 export function inLogin(userId: number): boolean {
   return sessions.has(userId);
 }

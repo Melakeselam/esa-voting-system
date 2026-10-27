@@ -9,6 +9,16 @@ export interface Member {
   failed_attempts: number;
   locked_until: string | null;
   is_active: boolean;
+  council_id: string | null;
+  seat_no: number | null;
+}
+
+export interface Council {
+  id: string;
+  name: string;
+  code: string;
+  seats: number;
+  created_at: string;
 }
 
 export type ResolutionStatus = "draft" | "open" | "closed";

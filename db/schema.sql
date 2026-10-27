@@ -176,3 +176,18 @@ alter table audit_log   enable row level security;
 alter table app_settings enable row level security;
 alter table chat_topics  enable row level security;
 alter table admins       enable row level security;
+
+-- Councils (regional / sectional bodies) that receive voting invitations.
+-- Each invitation is a members row linked to its council with a seat number;
+-- the token prefix is the council code (e.g. ADD-K7M2P).
+create table if not exists councils (
+  id         uuid primary key default gen_random_uuid(),
+  name       text unique not null,
+  code       text unique not null,          -- short token prefix, e.g. ADD
+  seats      int not null default 1,        -- number of voting delegates
+  created_at timestamptz not null default now()
+);
+alter table members add column if not exists council_id uuid references councils(id) on delete set null;
+alter table members add column if not exists seat_no int;
+create index if not exists members_by_council on members (council_id);
+alter table councils enable row level security;

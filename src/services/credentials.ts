@@ -14,6 +14,8 @@ function randomString(length: number): string {
 export interface Person {
   name: string | null;
   region: string | null;
+  council_id?: string | null;
+  seat_no?: number | null;
 }
 
 export interface CredentialRow {
@@ -21,6 +23,7 @@ export interface CredentialRow {
   password: string;
   full_name: string | null;
   region: string | null;
+  seat_no?: number | null;
 }
 
 /**
@@ -42,9 +45,11 @@ export async function generateCredentials(people: Person[], prefix = "ESA-2026")
         password_hash: hash,
         full_name: person.name,
         region: person.region,
+        council_id: person.council_id ?? null,
+        seat_no: person.seat_no ?? null,
       });
       if (!error) {
-        rows.push({ token_id: token, password, full_name: person.name, region: person.region });
+        rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null });
         break;
       }
       if (error.code !== "23505" || attempt >= 3) throw error;

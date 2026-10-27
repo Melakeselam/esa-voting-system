@@ -565,7 +565,7 @@
   var memQ = "", memFilter = "all";
   views.members = {
     title: function () { return t("Members"); },
-    action: function () { return { label: "＋ " + t("Credentials"), onClick: function () { go("generate"); } }; },
+    action: function () { return { label: "＋ " + t("Invitations"), onClick: function () { go("councils"); } }; },
     render: async function (content, params, alive) {
       var page = 0;
       var d = await api("GET", "/members?q=" + encodeURIComponent(memQ) + "&filter=" + memFilter + "&page=0");
@@ -644,7 +644,7 @@
 
   // ---------------------------------------------------------------- ADMIN: generate credentials
   views.generate = {
-    title: function () { return t("Generate credentials"); },
+    title: function () { return t("Quick credentials"); },
     render: async function (content) {
       content.innerHTML =
         '<div class="card"><p class="hint">' + esc(t("Creates a Token ID + password for each member and stores only a hash.")) + " " +
@@ -703,6 +703,285 @@
           if (rows.length) out.innerHTML += '<div class="card"><p class="danger-text">' + esc(t("{n} credentials were created before the error. Their passwords are shown below — copy them now.", { n: rows.length })) + "</p>" + credsTable(rows) + "</div>";
         } finally { btn.disabled = false; }
       };
+    },
+  };
+
+
+  // ---------------------------------------------------------------- ADMIN: councils & invitations
+  function councilMeta(c) {
+    return t("{issued} of {seats} invitations issued · {registered} registered", { issued: c.issued, seats: c.seats, registered: c.registered });
+  }
+  function splitNames(text) {
+    return String(text || "").split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+  }
+  /** Issue invitations for one council in batches of 40. names: array of strings (empty string = anonymous seat). */
+  async function issueForCouncil(councilId, names, onProgress) {
+    var rows = [];
+    for (var off = 0; off < names.length; off += 40) {
+      var r = await api("POST", "/councils/" + councilId + "/invitations", { names: names.slice(off, off + 40) });
+      rows = rows.concat(r.rows);
+      if (onProgress) onProgress(rows.length, names.length);
+    }
+    return rows;
+  }
+  function credsTable(rows) {
+    return '<table class="creds"><tr><th>#</th><th>' + esc(t("Code")) + "</th><th>" + esc(t("Password")) + "</th><th>" + esc(t("Name")) + "</th></tr>" +
+      rows.map(function (x) { return "<tr><td>" + (x.seat_no || "") + "</td><td><code>" + esc(x.token_id) + "</code></td><td><code>" + esc(x.password) + "</code></td><td>" + esc(x.full_name || "") + "</td></tr>"; }).join("") + "</table>";
+  }
+  /** Sheet to add a council (name, seats, optional delegate names). Resolves {name, seats, names} or null. */
+  function councilSheet(existing) {
+    var e = existing || {};
+    return openSheet("<h2>" + esc(e.id ? t("Edit council") : t("Add council")) + "</h2>" +
+      '<div class="field"><label>' + esc(t("Council name")) + '</label><input type="text" data-name maxlength="120" placeholder="' + esc(t("e.g. Addis Ababa Regional Council")) + '" value="' + esc(e.name || "") + '"></div>' +
+      '<div class="field"><label>' + esc(t("Number of voting delegates (seats)")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-seats value="' + (e.seats || 1) + '"></div>' +
+      (e.id ? "" : '<div class="field"><label>' + esc(t("Delegate names, one per line (optional — leave empty for anonymous invitations)")) + '</label><textarea data-names rows="5" placeholder="' + esc(t("Abebe Kebede\nSara Tesfaye")) + '"></textarea></div>') +
+      '<button class="btn block" data-ok>' + esc(e.id ? t("Save changes") : t("Create council")) + "</button>",
+      function (sheet, close) {
+        sheet.querySelector("[data-ok]").onclick = function () {
+          var names = e.id ? [] : splitNames(sheet.querySelector("[data-names]").value);
+          var seats = Number(sheet.querySelector("[data-seats]").value) || 0;
+          close({ name: sheet.querySelector("[data-name]").value.trim(), seats: Math.max(seats, names.length), names: names });
+        };
+      });
+  }
+
+  views.councils = {
+    title: function () { return t("Councils & invitations"); },
+    action: function () { return { label: "↻", onClick: refresh }; },
+    render: async function (content, params, alive) {
+      var d = await api("GET", "/councils");
+      if (!alive()) return;
+      var html = '<div class="card"><p class="small">' + esc(t("Each council receives a number of voting invitations: one invitation code and password per delegate, with a QR code and link, delivered as a printable PDF. The council hands an invitation to each of its chosen members, who register by scanning the code and entering the password.")) + "</p></div>" +
+        '<div class="actions"><button class="btn block" data-act="add">＋ ' + esc(t("Add council")) + "</button>" +
+        '<button class="btn secondary block" data-act="import">📄 ' + esc(t("Import councils from Excel / CSV")) + "</button>" +
+        '<button class="btn secondary block" data-act="quick">🎫 ' + esc(t("Quick credentials (no council)")) + "</button></div>";
+      html += '<div class="section-title">' + esc(t("Councils")) + "</div>";
+      html += d.items.length ? '<div class="list">' + d.items.map(function (c) {
+        return '<button class="row" data-c="' + c.id + '"><div class="main"><div class="title">' + esc(c.name) + ' <span class="badge">' + esc(c.code) + '</span></div><div class="meta">' + esc(councilMeta(c)) + '</div></div><span class="chev">›</span></button>';
+      }).join("") + "</div>" : '<div class="card"><p class="empty">' + esc(t("No councils yet. Add one or import a spreadsheet.")) + "</p></div>";
+      content.innerHTML = html;
+      on(content, "[data-c]", "click", function (e) { go("council", { id: e.currentTarget.dataset.c }); });
+      on(content, "[data-act]", "click", async function (e) {
+        var act = e.currentTarget.dataset.act;
+        if (act === "import") return go("councilImport");
+        if (act === "quick") return go("generate");
+        var v = await councilSheet(null);
+        if (!v) return;
+        if (v.name.length < 2) return toast(t("Enter a council name"), "err");
+        if (!v.seats) return toast(t("Enter the number of seats"), "err");
+        try {
+          var r = await api("POST", "/councils", { name: v.name, seats: v.seats });
+          haptic("success");
+          if (!v.names.length) { toast(t("Council created"), "ok"); return go("council", { id: r.council.id }); }
+          toast(t("Council created — issuing invitations…"));
+          var rows = await issueForCouncil(r.council.id, v.names);
+          go("council", { id: r.council.id, rows: rows });
+        } catch (err) { fail(err); }
+      });
+    },
+  };
+
+  views.council = {
+    title: function () { return t("Council"); },
+    action: function () { return { label: "↻", onClick: refresh }; },
+    render: async function (content, params, alive) {
+      var d = await api("GET", "/councils/" + params.id);
+      if (!alive()) return;
+      var c = d.council;
+      var html = '<div class="card"><h2>' + esc(c.name) + ' <span class="badge">' + esc(c.code) + "</span></h2>" +
+        '<dl class="kv"><dt>' + esc(t("Seats")) + "</dt><dd>" + c.seats + "</dd><dt>" + esc(t("Issued")) + "</dt><dd>" + c.issued + "</dd><dt>" + esc(t("Registered")) + "</dt><dd>" + c.registered + "</dd></dl>" +
+        '<p class="hint">' + esc(t("Invitation codes start with {code}-. Registered delegates appear under Members as well.", { code: c.code })) + "</p>" +
+        '<div class="actions inline"><button class="btn secondary sm" data-act="edit">✏️ ' + esc(t("Edit")) + "</button>" +
+        (c.issued === 0 ? '<button class="btn danger sm" data-act="delete">🗑 ' + esc(t("Delete")) + "</button>" : "") + "</div></div>";
+      if (params.rows && params.rows.length) {
+        html += '<div class="card"><h3>✅ ' + esc(t("{n} new invitations", { n: params.rows.length })) + "</h3>" +
+          '<p class="hint">' + esc(t("The passwords exist only here until you send the file. Send the PDF to your chat now, then print it or forward it to the council.")) + "</p>" +
+          '<div class="actions"><button class="btn block" data-act="pdf">📄 ' + esc(t("Send printable PDF to my chat")) + "</button>" +
+          '<button class="btn secondary block" data-act="csv">📎 ' + esc(t("Send CSV to my chat")) + "</button></div>" +
+          "<details><summary>" + esc(t("Show codes here")) + "</summary>" + credsTable(params.rows) + "</details></div>";
+      }
+      html += '<div class="actions"><button class="btn block" data-act="add">＋ ' + esc(t("Add delegates")) + "</button>" +
+        (c.issued > c.registered ? '<button class="btn secondary block" data-act="reissue">🔁 ' + esc(t("New passwords for unregistered delegates (lost sheet)")) + "</button>" : "") + "</div>";
+      html += '<div class="section-title">' + esc(t("Invitations")) + "</div>";
+      html += d.invitations.length ? '<div class="list">' + d.invitations.map(function (m) {
+        var badge = m.telegram_user_id ? '<span class="badge ok">' + esc(t("registered")) + "</span>" : '<span class="badge">' + esc(t("not registered")) + "</span>";
+        if (!m.is_active) badge += ' <span class="badge err">' + esc(t("deactivated")) + "</span>";
+        if (m.locked) badge += ' <span class="badge warn">' + esc(t("locked")) + "</span>";
+        return '<button class="row" data-m="' + m.id + '"><div class="main"><div class="title">' + (m.seat_no ? m.seat_no + ". " : "") + esc(m.full_name || t("Delegate {n}", { n: m.seat_no || "" })) + '</div><div class="meta"><code>' + esc(m.token_id) + "</code> " + badge + '</div></div><span class="chev">›</span></button>';
+      }).join("") + "</div>" : '<div class="card"><p class="empty">' + esc(t("No invitations issued yet.")) + "</p></div>";
+      content.innerHTML = html;
+
+      on(content, "[data-m]", "click", async function (e) {
+        var m = d.invitations.filter(function (x) { return x.id === e.currentTarget.dataset.m; })[0];
+        if (!m) return;
+        await openSheet("<h2>" + esc(m.full_name || t("Delegate {n}", { n: m.seat_no || "" })) + '</h2><dl class="kv"><dt>' + esc(t("Code")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd><dt>" + esc(t("Link")) + '</dt><dd><a href="' + esc(m.link) + '" target="_blank">' + esc(m.link) + "</a></dd><dt>" + esc(t("Status")) + "</dt><dd>" + esc(m.telegram_user_id ? t("Registered") : t("Not registered yet")) + "</dd></dl>" +
+          '<p class="hint">' + esc(t("Unlock, detach or deactivate this delegate under Members.")) + "</p>", function (sheet, close) { /* read-only */ });
+      });
+      on(content, "[data-act]", "click", async function (e) {
+        var act = e.currentTarget.dataset.act;
+        try {
+          if (act === "edit") {
+            var v = await councilSheet(c);
+            if (!v) return;
+            if (v.name.length < 2) return toast(t("Enter a council name"), "err");
+            await api("PATCH", "/councils/" + c.id, { name: v.name, seats: v.seats });
+            haptic("success"); toast(t("Saved"), "ok"); return refresh();
+          }
+          if (act === "delete") {
+            if (!(await confirmDialog(t("Delete council {name}?", { name: c.name })))) return;
+            await api("DELETE", "/councils/" + c.id);
+            toast(t("Council deleted"), "ok"); return back();
+          }
+          if (act === "add") {
+            var a = await openSheet("<h2>" + esc(t("Add delegates")) + "</h2>" +
+              '<div class="field"><label>' + esc(t("Delegate names, one per line")) + '</label><textarea data-names rows="6" placeholder="' + esc(t("Abebe Kebede\nSara Tesfaye")) + '"></textarea></div>' +
+              '<div class="field"><label>' + esc(t("Or number of anonymous invitations")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-count placeholder="' + esc(t("e.g. 5")) + '"></div>' +
+              '<button class="btn block" data-ok>' + esc(t("Issue invitations")) + "</button>",
+              function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close({ names: splitNames(sheet.querySelector("[data-names]").value), count: Number(sheet.querySelector("[data-count]").value) || 0 }); }; });
+            if (!a) return;
+            var names = a.names.length ? a.names : Array.apply(null, Array(a.count)).map(function () { return ""; });
+            if (!names.length) return toast(t("Add at least one delegate"), "err");
+            if (!(await confirmDialog(t("Issue {n} invitations for {name}?", { n: names.length, name: c.name })))) return;
+            toast(t("Issuing invitations…"));
+            var rows = await issueForCouncil(c.id, names);
+            haptic("success");
+            params.rows = rows; return refresh();
+          }
+          if (act === "reissue") {
+            if (!(await confirmDialog(t("Give every unregistered delegate of {name} a new password? The old invitations stop working.", { name: c.name })))) return;
+            var rr = await api("POST", "/councils/" + c.id + "/reissue");
+            haptic("success");
+            params.rows = rr.rows; toast(t("{n} passwords renewed", { n: rr.rows.length }), "ok"); return refresh();
+          }
+          if (act === "pdf") {
+            e.currentTarget.disabled = true;
+            await api("POST", "/councils/" + c.id + "/invitations-pdf", { rows: params.rows });
+            haptic("success"); toast(t("PDF sent to your chat"), "ok"); e.currentTarget.disabled = false; return;
+          }
+          if (act === "csv") {
+            await api("POST", "/members/credentials-file", { rows: params.rows.map(function (r) { return { token_id: r.token_id, password: r.password, full_name: r.full_name, region: c.name }; }) });
+            haptic("success"); toast(t("CSV sent to your chat"), "ok"); return;
+          }
+        } catch (err) { fail(err); }
+      });
+    },
+  };
+
+  // ---------------------------------------------------------------- ADMIN: import councils from a spreadsheet
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      if (document.querySelector('script[src="' + src + '"]')) return resolve();
+      var sc = document.createElement("script"); sc.src = src; sc.onload = resolve; sc.onerror = function () { reject(new Error(t("Could not load the spreadsheet reader. Paste the rows as text instead."))); };
+      document.head.append(sc);
+    });
+  }
+  function parseCsvText(text) {
+    return String(text || "").split(/\r?\n/).filter(function (l) { return l.trim(); }).map(function (line) {
+      var out = [], cur = "", q = false;
+      for (var i = 0; i < line.length; i++) {
+        var ch = line[i];
+        if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+        else if (ch === '"') q = true;
+        else if (ch === "," || ch === ";" || ch === "\t") { out.push(cur); cur = ""; }
+        else cur += ch;
+      }
+      out.push(cur);
+      return out.map(function (x) { return x.trim(); });
+    });
+  }
+  /** Rows (arrays) → plan [{name, seats, names[]}]. Header row with "council" is optional; columns: Council, Name, Seats. */
+  function planFromRows(rows) {
+    if (!rows.length) return [];
+    var head = rows[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
+    var ci = 0, ni = 1, si = 2;
+    if (head.some(function (h) { return /council|region|ም/.test(h); })) {
+      ci = head.findIndex(function (h) { return /council|region/.test(h); }); if (ci < 0) ci = 0;
+      ni = head.findIndex(function (h) { return /^(name|delegate|member|full)/.test(h); });
+      si = head.findIndex(function (h) { return /seat|vote|delegates|count|number/.test(h); });
+      rows = rows.slice(1);
+    }
+    var plan = {}, order = [];
+    rows.forEach(function (r) {
+      var council = String(r[ci] || "").trim();
+      if (!council) return;
+      var name = ni >= 0 ? String(r[ni] || "").trim() : "";
+      var seats = si >= 0 ? Number(String(r[si] || "").replace(/[^0-9]/g, "")) || 0 : 0;
+      var key = council.toLowerCase();
+      if (!plan[key]) { plan[key] = { name: council, seats: 0, names: [] }; order.push(key); }
+      if (name) plan[key].names.push(name);
+      if (seats > plan[key].seats) plan[key].seats = seats;
+    });
+    return order.map(function (k) { var p = plan[k]; p.seats = Math.max(p.seats, p.names.length, 1); return p; });
+  }
+
+  views.councilImport = {
+    title: function () { return t("Import councils"); },
+    render: async function (content) {
+      var plan = [];
+      content.innerHTML = '<div class="card"><p class="small">' + esc(t("Upload an Excel (.xlsx) or CSV file, or paste rows below. One row per delegate, or one row per council with the number of seats:")) + "</p>" +
+        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td></tr><tr><td>Addis Ababa</td><td>Sara Tesfaye</td><td></td></tr><tr><td>Oromia</td><td></td><td>5</td></tr></table>' +
+        '<p class="hint">' + esc(t("A council with names gets one named invitation per row; a council with only a number of seats gets that many anonymous invitations. Existing councils are reused.")) + "</p></div>" +
+        '<div class="card"><div class="field"><label>' + esc(t("File")) + '</label><input type="file" data-file accept=".xlsx,.xls,.csv,text/csv"></div>' +
+        '<div class="field"><label>' + esc(t("Or paste rows (Council, Name, Seats)")) + '</label><textarea data-text rows="6" placeholder="Addis Ababa, Abebe Kebede&#10;Oromia, , 5"></textarea></div>' +
+        '<button class="btn secondary block" data-preview>' + esc(t("Preview")) + "</button></div>" +
+        '<div data-plan></div><div data-out></div>';
+      var planBox = content.querySelector("[data-plan]");
+      var out = content.querySelector("[data-out]");
+      function showPlan() {
+        if (!plan.length) { planBox.innerHTML = '<div class="card"><p class="empty">' + esc(t("Nothing to import yet.")) + "</p></div>"; return; }
+        var total = plan.reduce(function (a, p) { return a + p.seats; }, 0);
+        planBox.innerHTML = '<div class="section-title">' + esc(t("Preview")) + '</div><div class="list">' + plan.map(function (p) {
+          return '<div class="row static"><div class="main"><div class="title">' + esc(p.name) + '</div><div class="meta">' + esc(t("{seats} invitations · {named} named", { seats: p.seats, named: p.names.length })) + "</div></div></div>";
+        }).join("") + "</div>" +
+          '<button class="btn block" data-run>' + esc(t("Create {councils} councils and {n} invitations", { councils: plan.length, n: total })) + "</button>";
+        planBox.querySelector("[data-run]").onclick = runImport;
+      }
+      async function readFile(file) {
+        if (/\.csv$/i.test(file.name) || /csv|text/.test(file.type)) return parseCsvText(await file.text());
+        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+        var wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        return window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
+      }
+      content.querySelector("[data-file]").addEventListener("change", async function (ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        try { plan = planFromRows(await readFile(file)); showPlan(); haptic("light"); } catch (err) { fail(err); }
+      });
+      content.querySelector("[data-preview]").onclick = function () {
+        plan = planFromRows(parseCsvText(content.querySelector("[data-text]").value)); showPlan();
+      };
+      async function runImport() {
+        if (!(await confirmDialog(t("Create the councils and issue all invitations now? One PDF per council will be sent to your chat.")))) return;
+        planBox.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        out.innerHTML = '<div class="card"><p class="hint" data-st>' + esc(t("Starting…")) + '</p><div class="progress"><span data-bar style="width:0%"></span></div><div data-log></div></div>';
+        var st = out.querySelector("[data-st]"), bar = out.querySelector("[data-bar]"), log = out.querySelector("[data-log]");
+        var done = 0, total = plan.reduce(function (a, p) { return a + p.seats; }, 0), allRows = [];
+        try {
+          for (var i = 0; i < plan.length; i++) {
+            var p = plan[i];
+            st.textContent = t("{name}: creating council…", { name: p.name });
+            var r = await api("POST", "/councils", { name: p.name, seats: p.seats, upsert: true });
+            var names = p.names.length ? p.names : Array.apply(null, Array(p.seats)).map(function () { return ""; });
+            var rows = await issueForCouncil(r.council.id, names, function (n) { st.textContent = t("{name}: {done} of {total} invitations…", { name: p.name, done: n, total: names.length }); bar.style.width = Math.round((done + n) / total * 100) + "%"; });
+            done += rows.length;
+            rows.forEach(function (x) { allRows.push({ token_id: x.token_id, password: x.password, full_name: x.full_name, region: p.name }); });
+            st.textContent = t("{name}: sending PDF…", { name: p.name });
+            await api("POST", "/councils/" + r.council.id + "/invitations-pdf", { rows: rows });
+            log.insertAdjacentHTML("beforeend", '<p class="small">✅ ' + esc(p.name) + " — " + esc(t("{n} invitations, PDF sent", { n: rows.length })) + "</p>");
+          }
+          st.textContent = t("Sending the CSV with all codes…");
+          await api("POST", "/members/credentials-file", { rows: allRows });
+          haptic("success");
+          st.textContent = t("Done: {n} invitations across {councils} councils. The PDFs and one CSV are in your chat.", { n: done, councils: plan.length });
+          bar.style.width = "100%";
+        } catch (err) {
+          fail(err);
+          st.textContent = t("Stopped after {n} invitations: {error}", { n: done, error: err.message });
+          if (allRows.length) out.insertAdjacentHTML("beforeend", '<div class="card"><p class="danger-text">' + esc(t("Codes created before the error — copy them now:")) + "</p>" + credsTable(allRows.map(function (x) { return { token_id: x.token_id, password: x.password, full_name: x.full_name }; })) + "</div>");
+        }
+      }
+      showPlan();
     },
   };
 
@@ -897,7 +1176,8 @@
     title: function () { return t("ESA Assembly Voting"); },
     render: async function (content, params) {
       content.innerHTML = '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>" +
-        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="ESA-2026-K7M2P"></div>' +
+        (params.inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +
+        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="ESA-2026-K7M2P" value="' + esc(params.inv || "") + '"></div>' +
         '<div class="field"><label>' + esc(t("Password")) + '</label><input type="password" data-pass autocomplete="off" placeholder="' + esc(t("from your credential slip")) + '"></div>' +
         '<p class="err hint" data-err hidden></p></div>' +
         '<button class="btn block" data-go>' + esc(t("Register")) + "</button>" +
@@ -912,6 +1192,7 @@
         locked_now: t("Wrong password — the token is now locked for a while."),
       };
       content.querySelector("[data-help]").onclick = function () { go("help"); };
+      if (params.inv) setTimeout(function () { try { content.querySelector("[data-pass]").focus(); } catch (_) { /* ignore */ } }, 100);
       content.querySelector("[data-go]").onclick = async function () {
         var token = content.querySelector("[data-token]").value.trim().toUpperCase();
         var pass = content.querySelector("[data-pass]").value;
@@ -1043,12 +1324,19 @@
   };
 
   // ---------------------------------------------------------------- boot
+  /** Deep-link parameters: ?r=<resolution id> / start_param vote_<id> focus a ballot; ?inv=<code> / start_param inv_<code> pre-fill registration. */
   function parseStart() {
-    var q = new URLSearchParams(location.search).get("r");
+    var qs = new URLSearchParams(location.search);
+    var q = qs.get("r");
+    var inv = qs.get("inv");
     var sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+    if (sp && /^inv_/.test(sp)) { try { inv = inv || decodeURIComponent(sp.slice(4)); } catch (_) { /* ignore */ } sp = null; }
     if (sp && /^(vote_|r_)/.test(sp)) sp = sp.replace(/^(vote_|r_)/, "");
     var id = q || sp || null;
-    return id && /^[0-9a-f-]{36}$/.test(id) ? id : null;
+    return {
+      focus: id && /^[0-9a-f-]{36}$/.test(id) ? id : null,
+      inv: inv ? String(inv).trim().toUpperCase().slice(0, 40) : null,
+    };
   }
 
   async function boot() {
@@ -1072,14 +1360,14 @@
       app.querySelector("[data-retry]").onclick = boot;
       return;
     }
-    var focus = parseStart();
+    var start = parseStart();
     if (state.me.role === "admin") {
-      if (focus && state.me.member) go("ballots", { focus: focus }, { root: true });
+      if (start.focus && state.me.member) go("ballots", { focus: start.focus }, { root: true });
       else go("home", {}, { root: true });
     } else if (state.me.role === "member") {
-      go("ballots", { focus: focus }, { root: true });
+      go("ballots", { focus: start.focus }, { root: true });
     } else {
-      go("register", { focus: focus }, { root: true });
+      go("register", { focus: start.focus, inv: start.inv }, { root: true });
     }
   }
 
