@@ -1077,7 +1077,8 @@
           }).join("") + "</div>";
         });
       }
-      html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button></div>";
+      html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
+        (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
 
       // Admins
       html += '<div class="card"><h3>' + esc(t("Admins")) + '</h3><div class="list">' +
@@ -1105,6 +1106,10 @@
             if (!v) return;
             if (!v.telegram_user_id) return toast(t("Enter a Telegram ID"), "err");
             await api("POST", "/setup/admins", v); haptic("success"); toast(t("Admin added"), "ok"); return refresh();
+          }
+          if (act === "unlinkgroup") {
+            if (!(await confirmDialog(t("Unlink this group? Its topics are removed from the list. The bot links a group again as soon as it sees a message there.")))) return;
+            await api("DELETE", "/setup/group"); haptic("success"); toast(t("Group unlinked"), "ok"); return refresh();
           }
           if (act === "addtopic") {
             var tv = await openSheet("<h2>" + esc(t("Add topic by ID")) + '</h2><p class="hint">' + esc(t("Open the topic in Telegram Desktop/Web: the URL ends in /<topic id>. The group chat ID is shown above once linked.")) + "</p>" +

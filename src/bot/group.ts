@@ -1,6 +1,7 @@
 import { Composer } from "grammy";
 import type { Context } from "grammy";
-import { getLinkedGroup, setSetting, upsertTopic } from "../services/settings.js";
+import { audit } from "../db.js";
+import { getLinkedGroup, setSetting, unlinkGroup, upsertTopic } from "../services/settings.js";
 
 /**
  * Learns the assembly group and its forum topics from the updates the bot
@@ -30,7 +31,16 @@ async function track(ctx: Context): Promise<void> {
   // Bot added to (or promoted in) a group.
   if (ctx.myChatMember) {
     const status = ctx.myChatMember.new_chat_member.status;
-    if (status === "left" || status === "kicked") return;
+    if (status === "left" || status === "kicked") {
+      // Bot removed from the group: forget it and its topics so Setup stops showing them.
+      const linked = await getLinkedGroup();
+      if (linked?.chat_id === chat.id) {
+        await unlinkGroup(chat.id);
+        await audit(ctx.myChatMember.from.id, "group_unlinked", { chat_id: chat.id, via: "removed_from_group" });
+      }
+      for (const k of [...seen]) if (k.startsWith(`${chat.id}:`)) seen.delete(k);
+      return;
+    }
     await linkGroupIfUnset(chat.id, title);
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
     seen.add(`${chat.id}:0`);

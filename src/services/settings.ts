@@ -85,3 +85,24 @@ export async function deleteTopic(chatId: number, threadId: number): Promise<voi
   const { error } = await supabase.from("chat_topics").delete().eq("chat_id", chatId).eq("thread_id", threadId);
   if (error) throw error;
 }
+
+export async function deleteSetting(key: string): Promise<void> {
+  const { error } = await supabase.from("app_settings").delete().eq("key", key);
+  if (error) throw error;
+}
+
+/**
+ * Forget the linked group and every topic learned in it — used when the bot
+ * is removed from the group, or when an admin unlinks it in Setup. With a
+ * chatId, only acts when that chat is the linked one.
+ */
+export async function unlinkGroup(chatId?: number): Promise<void> {
+  const linked = await getLinkedGroup();
+  if (chatId !== undefined && linked && linked.chat_id !== chatId) return;
+  const id = chatId ?? linked?.chat_id;
+  if (linked) await deleteSetting("group");
+  if (id !== undefined) {
+    const { error } = await supabase.from("chat_topics").delete().eq("chat_id", id);
+    if (error) throw error;
+  }
+}

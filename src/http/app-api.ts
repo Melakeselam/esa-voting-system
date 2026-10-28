@@ -36,6 +36,7 @@ import {
 import {
   deleteTopic,
   getLinkedGroup,
+  unlinkGroup,
   getTopic,
   listTopics,
   renameTopic,
@@ -751,8 +752,9 @@ async function dbStatus(): Promise<{ ok: boolean; missing: string[] }> {
   return { ok: missing.length === 0, missing };
 }
 
-route("GET", "/setup", true, async () => {
-  const [group, topics, dbAdmins, db] = await Promise.all([getLinkedGroup(), listTopics(), listDbAdmins().catch(() => []), dbStatus()]);
+route("GET", "/setup", true, async (ctx) => {
+  let [group, topics] = await Promise.all([getLinkedGroup(), listTopics()]);
+  const [dbAdmins, db] = await Promise.all([listDbAdmins().catch(() => []), dbStatus()]);
   let webhook = null;
   let webhookError: string | null = null;
   try {
@@ -767,15 +769,23 @@ route("GET", "/setup", true, async () => {
     try {
       const m = (await bot.api.getChatMember(group.chat_id, bot.botInfo.id)) as unknown as Record<string, unknown>;
       const status = String(m.status);
-      const owner = status === "creator";
-      const isAdmin = owner || status === "administrator";
-      groupRights = {
-        status,
-        is_admin: isAdmin,
-        can_manage_topics: owner || (isAdmin && Boolean(m.can_manage_topics)),
-        can_delete_messages: owner || (isAdmin && Boolean(m.can_delete_messages)),
-        can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
-      };
+      if (status === "left" || status === "kicked") {
+        // The bot was removed while we were not listening: forget the group now.
+        await unlinkGroup(group.chat_id);
+        await audit(ctx.user.id, "group_unlinked", { chat_id: group.chat_id, via: "membership_check" });
+        group = null;
+        topics = [];
+      } else {
+        const owner = status === "creator";
+        const isAdmin = owner || status === "administrator";
+        groupRights = {
+          status,
+          is_admin: isAdmin,
+          can_manage_topics: owner || (isAdmin && Boolean(m.can_manage_topics)),
+          can_delete_messages: owner || (isAdmin && Boolean(m.can_delete_messages)),
+          can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
+        };
+      }
     } catch {
       groupRights = null;
     }
@@ -839,6 +849,13 @@ route("POST", "/setup/group", true, async (ctx) => {
   await setSetting("group", { chat_id: chatId, title });
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
   await audit(ctx.user.id, "group_linked", { chat_id: chatId, via: "app" });
+  return { ok: true };
+});
+
+route("DELETE", "/setup/group", true, async (ctx) => {
+  const group = await getLinkedGroup();
+  await unlinkGroup();
+  await audit(ctx.user.id, "group_unlinked", { chat_id: group?.chat_id ?? null, via: "app" });
   return { ok: true };
 });
 

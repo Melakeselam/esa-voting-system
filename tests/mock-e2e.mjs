@@ -29,6 +29,7 @@ process.chdir(root);
 // ---------------------------------------------------------------- mock Telegram
 const BOT_TOKEN = "777000:MOCKTOKENabcdef";
 const BOT = { id: 777000, is_bot: true, first_name: "ESA Voting (mock)", username: "esa_mock_bot" };
+let botMembership = "administrator"; // what getChatMember reports for the bot in the group
 const tgCalls = [];
 let webhookUrl = "";
 let nextMessageId = 100;
@@ -61,7 +62,7 @@ const tgServer = createServer(async (req, res) => {
   let result = true;
   switch (method) {
     case "getMe": result = BOT; break;
-    case "getChatMember": result = { status: "administrator", user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true }; break;
+    case "getChatMember": result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true }; break;
     case "setWebhook": webhookUrl = body.url; break;
     case "deleteWebhook": webhookUrl = ""; break;
     case "getWebhookInfo": result = { url: webhookUrl, has_custom_certificate: false, pending_update_count: 0 }; break;
@@ -554,9 +555,27 @@ try {
   check("weights: posted results show ballots and the weighted total", r.status === 200 && calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "") && /Ballots cast: <b>2<\/b> · Votes counted \(weighted\): <b>3<\/b>/.test(b.text ?? "")).length >= 1, JSON.stringify(calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "")).map((c) => c.body.text)));
   r = await api("GET", "/dashboard", USERS.admin);
   eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 3 }, 6]);
+
+  // ---- Bot removed from the group ----------------------------------------
+  const botStatus = (oldStatus, newStatus, date) => ({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
+  await update(botStatus("administrator", "left", 2));
+  r = await api("GET", "/setup", USERS.admin);
+  check("group: removing the bot unlinks the group and clears its topics", r.json?.group === null && (r.json?.topics ?? []).length === 0, JSON.stringify([r.json?.group, r.json?.topics?.length]));
+  await update(botStatus("left", "administrator", 3));
+  r = await api("GET", "/setup", USERS.admin);
+  eq("group: re-adding the bot links the group again", r.json?.group?.chat_id, GROUP.id);
+  botMembership = "kicked";
+  r = await api("GET", "/setup", USERS.admin);
+  check("group: Setup refresh unlinks when Telegram says the bot is gone", r.json?.group === null && r.json?.group_rights === null, JSON.stringify([r.json?.group, r.json?.group_rights]));
+  botMembership = "administrator";
+  await update(botStatus("kicked", "administrator", 4));
+  r = await api("DELETE", "/setup/group", USERS.admin);
+  eq("group: admin can unlink by hand", r.status, 200);
+  r = await api("GET", "/setup", USERS.admin);
+  eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

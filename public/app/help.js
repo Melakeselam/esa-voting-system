@@ -148,6 +148,7 @@
           { bullets: [
             "No topics in the picker: the bot has not seen a message there yet. Post in the topic and tap ↻, or add it by ID in Setup.",
             "Renaming a topic in the app did not change it in the group: the bot lacks the “Manage topics” right. Grant it in the group's administrator settings, then save the name again.",
+            "Setup still shows a group the bot was removed from: tap ↻. The app checks the bot's membership and unlinks the group; “Unlink group” does the same by hand.",
             "The bot does not post in the group: make sure it is an administrator of the supergroup, then send a test message from Setup.",
             "Members do not receive private messages: they must open the bot and tap Start once.",
             "A member cannot register: check the token in Members (locked? deactivated? already registered?).",
@@ -301,6 +302,7 @@
           { bullets: [
             "በመራጩ ውስጥ ርዕሶች የሉም፦ ቦቱ እስካሁን እዚያ መልዕክት አላየም። በርዕሱ ውስጥ ይለጥፉና ↻ን ይንኩ፣ ወይም በ«ማዋቀር» ውስጥ በመታወቂያ ያክሉት።",
             "በመተግበሪያው ውስጥ ርዕስ መሰየም በቡድኑ ውስጥ አልቀየረውም፦ ቦቱ የ«ርዕሶችን አስተዳድር» መብት የለውም። በቡድኑ የአስተዳዳሪ ቅንብሮች ውስጥ ይስጡትና ስሙን እንደገና ያስቀምጡ።",
+            "ቦቱ የተወገደበት ቡድን አሁንም በ«ማዋቀር» ውስጥ ይታያል፦ ↻ን ይንኩ። መተግበሪያው የቦቱን አባልነት አረጋግጦ ቡድኑን ያላቅቃል፤ «ቡድኑን አላቅቅ» በእጅ ተመሳሳይ ነገር ያደርጋል።",
             "ቦቱ በቡድኑ ውስጥ አይለጥፍም፦ የሱፐርግሩፑ አስተዳዳሪ መሆኑን ያረጋግጡ፣ ከዚያ ከ«ማዋቀር» የሙከራ መልዕክት ይላኩ።",
             "አባላት የግል መልዕክት አይደርሳቸውም፦ ቦቱን ከፍተው አንድ ጊዜ «Start»ን መንካት አለባቸው።",
             "አባል መመዝገብ አይችልም፦ ቶከኑን በ«አባላት» ውስጥ ይመልከቱ (ተቆልፏል? ቦዝኗል? አስቀድሞ ተመዝግቧል?)።",
