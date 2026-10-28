@@ -12,7 +12,7 @@
           { steps: [
             "Open Setup and read the Health list. Every line should show ✅. If the webhook line shows ❌, tap “Register webhook, commands and menu button”.",
             "Add the bot to the assembly supergroup as an administrator. The group links itself and appears under “Assembly group & topics”.",
-            "Post a short message in every topic (room) where announcements and results should go. Tap ↻ in Setup: the topics appear in the list. Rename any topic whose name was not captured.",
+            "Post a short message in every topic (room) where announcements and results should go. Tap ↻ in Setup: the topics appear in the list. Rename any topic whose name was not captured; when the bot has the “Manage topics” admin right, the topic is renamed in the group too.",
             "Add the other officials as admins: they send /whoami to the bot, you enter the ID under Admins → Add admin.",
             "Tap “Send a test message here” on one topic to confirm the bot can post in the group.",
           ] },
@@ -147,6 +147,7 @@
         body: [
           { bullets: [
             "No topics in the picker: the bot has not seen a message there yet. Post in the topic and tap ↻, or add it by ID in Setup.",
+            "Renaming a topic in the app did not change it in the group: the bot lacks the “Manage topics” right. Grant it in the group's administrator settings, then save the name again.",
             "The bot does not post in the group: make sure it is an administrator of the supergroup, then send a test message from Setup.",
             "Members do not receive private messages: they must open the bot and tap Start once.",
             "A member cannot register: check the token in Members (locked? deactivated? already registered?).",
@@ -164,7 +165,7 @@
           { steps: [
             "«ማዋቀር»ን ከፍተው የጤንነት ዝርዝሩን ያንብቡ። እያንዳንዱ መስመር ✅ ማሳየት አለበት። የዌብሁክ መስመሩ ❌ ካሳየ «ዌብሁክ፣ ትዕዛዞችን እና የምናሌ አዝራርን መዝግብ»ን ይንኩ።",
             "ቦቱን ወደ የጉባኤው ሱፐርግሩፕ እንደ አስተዳዳሪ ያክሉ። ቡድኑ በራሱ ይገናኛል እና በ«የጉባኤ ቡድን እና ርዕሶች» ስር ይታያል።",
-            "ማስታወቂያዎችና ውጤቶች በሚለጠፉበት እያንዳንዱ ርዕስ (ክፍል) ውስጥ አጭር መልዕክት ይለጥፉ። በ«ማዋቀር» ውስጥ ↻ን ይንኩ፤ ርዕሶቹ በዝርዝሩ ውስጥ ይታያሉ። ስሙ ያልተያዘ ርዕስ ካለ እንደገና ይሰይሙት።",
+            "ማስታወቂያዎችና ውጤቶች በሚለጠፉበት እያንዳንዱ ርዕስ (ክፍል) ውስጥ አጭር መልዕክት ይለጥፉ። በ«ማዋቀር» ውስጥ ↻ን ይንኩ፤ ርዕሶቹ በዝርዝሩ ውስጥ ይታያሉ። ስሙ ያልተያዘ ርዕስ ካለ እንደገና ይሰይሙት፤ ቦቱ የ«ርዕሶችን አስተዳድር» የአስተዳዳሪ መብት ካለው ርዕሱ በቡድኑ ውስጥም ይቀየራል።",
             "ሌሎቹን ባለሥልጣናት እንደ አስተዳዳሪ ያክሉ፦ እነሱ ለቦቱ /whoami ይልካሉ፣ እርስዎ መታወቂያውን በ«አስተዳዳሪዎች» → «አስተዳዳሪ አክል» ውስጥ ያስገባሉ።",
             "ቦቱ በቡድኑ ውስጥ መለጠፍ እንደሚችል ለማረጋገጥ በአንድ ርዕስ ላይ «እዚህ የሙከራ መልዕክት ላክ»ን ይንኩ።",
           ] },
@@ -299,6 +300,7 @@
         body: [
           { bullets: [
             "በመራጩ ውስጥ ርዕሶች የሉም፦ ቦቱ እስካሁን እዚያ መልዕክት አላየም። በርዕሱ ውስጥ ይለጥፉና ↻ን ይንኩ፣ ወይም በ«ማዋቀር» ውስጥ በመታወቂያ ያክሉት።",
+            "በመተግበሪያው ውስጥ ርዕስ መሰየም በቡድኑ ውስጥ አልቀየረውም፦ ቦቱ የ«ርዕሶችን አስተዳድር» መብት የለውም። በቡድኑ የአስተዳዳሪ ቅንብሮች ውስጥ ይስጡትና ስሙን እንደገና ያስቀምጡ።",
             "ቦቱ በቡድኑ ውስጥ አይለጥፍም፦ የሱፐርግሩፑ አስተዳዳሪ መሆኑን ያረጋግጡ፣ ከዚያ ከ«ማዋቀር» የሙከራ መልዕክት ይላኩ።",
             "አባላት የግል መልዕክት አይደርሳቸውም፦ ቦቱን ከፍተው አንድ ጊዜ «Start»ን መንካት አለባቸው።",
             "አባል መመዝገብ አይችልም፦ ቶከኑን በ«አባላት» ውስጥ ይመልከቱ (ተቆልፏል? ቦዝኗል? አስቀድሞ ተመዝግቧል?)።",

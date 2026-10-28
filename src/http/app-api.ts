@@ -832,8 +832,23 @@ route("POST", "/setup/topics", true, async (ctx) => {
 
 route("PATCH", "/setup/topics/(-?\\d+)/(\\d+)", true, async (ctx, [chat, thread]) => {
   const name = str((await ctx.body()).name, "Name", { min: 1, max: 128 });
-  await renameTopic(Number(chat), Number(thread), name);
-  return { ok: true };
+  const chatId = Number(chat);
+  const threadId = Number(thread);
+  await renameTopic(chatId, threadId, name);
+  // Rename the forum topic in the group as well. Telegram only allows this when
+  // the bot is an administrator with the "Manage topics" right; otherwise the
+  // new name stays an app-side label and the client tells the admin why.
+  let telegram = false;
+  let reason: string | null = null;
+  try {
+    if (threadId === 0) await bot.api.editGeneralForumTopic(chatId, name);
+    else await bot.api.editForumTopic(chatId, threadId, { name });
+    telegram = true;
+  } catch (err) {
+    reason = (err as Error).message ?? String(err);
+  }
+  await audit(ctx.user.id, "topic_renamed", { chat_id: chatId, thread_id: threadId, name, telegram, via: "app" });
+  return { ok: true, telegram, reason };
 });
 
 route("DELETE", "/setup/topics/(-?\\d+)/(\\d+)", true, async (_ctx, [chat, thread]) => {

@@ -311,6 +311,8 @@
       "tokens issued": "የተሰጡ ቶከኖች",
       "Topic #{id}": "ርዕስ #{id}",
       "Topic added": "ርዕስ ተጨምሯል",
+      "Topic renamed in the group": "ርዕሱ በቡድኑ ውስጥ ተቀይሯል",
+      "Name saved in the app only. Give the bot the “Manage topics” admin right to rename it in the group.": "ስሙ በመተግበሪያው ውስጥ ብቻ ተቀምጧል። በቡድኑ ውስጥ ለመቀየር ለቦቱ የ«ርዕሶችን አስተዳድር» የአስተዳዳሪ መብት ይስጡት።",
       "Topic ID (0 = General)": "የርዕስ መታወቂያ (0 = አጠቃላይ)",
       "Topic ID {id}": "የርዕስ መታወቂያ {id}",
       "Topics appear here once the bot sees a message in them. Post a short message in each topic, then tap ↻. Names are learned when a topic is created or edited; you can rename them here.": "ቦቱ በውስጣቸው መልዕክት ካየ በኋላ ርዕሶች እዚህ ይታያሉ። በእያንዳንዱ ርዕስ ውስጥ አጭር መልዕክት ይለጥፉ፣ ከዚያ ↻ን ይንኩ። ርዕስ ሲፈጠር ወይም ሲስተካከል ስሞች ይታወቃሉ፤ እዚህ እንደገና መሰየም ይችላሉ።",

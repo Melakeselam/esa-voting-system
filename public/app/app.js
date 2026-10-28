@@ -1127,7 +1127,14 @@
           function (sheet, close) { on(sheet, "[data-a]", "click", function (e2) { close({ a: e2.currentTarget.dataset.a, name: sheet.querySelector("[data-name]").value.trim() }); }); });
         if (!a) return;
         try {
-          if (a.a === "rename") { if (!a.name) return toast(t("Enter a name"), "err"); await api("PATCH", "/setup/topics/" + chat + "/" + thread, { name: a.name }); }
+          if (a.a === "rename") {
+            if (!a.name) return toast(t("Enter a name"), "err");
+            var rr = await api("PATCH", "/setup/topics/" + chat + "/" + thread, { name: a.name });
+            haptic("success");
+            if (rr && rr.telegram) toast(t("Topic renamed in the group"), "ok");
+            else toast(t("Name saved in the app only. Give the bot the “Manage topics” admin right to rename it in the group."), "warn");
+            return refresh();
+          }
           else if (a.a === "test") { await api("POST", "/setup/test-message", { chat_id: chat, thread_id: thread }); }
           else if (a.a === "delete") { await api("DELETE", "/setup/topics/" + chat + "/" + thread); }
           haptic("success"); toast(t("Done"), "ok"); refresh();

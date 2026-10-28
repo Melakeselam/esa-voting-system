@@ -68,6 +68,15 @@ const tgServer = createServer(async (req, res) => {
     case "sendDocument":
       result = { message_id: nextMessageId++, date: Math.floor(Date.now() / 1000), chat: { id: Number(body.chat_id), type: Number(body.chat_id) < 0 ? "supergroup" : "private" }, text: body.text ?? "" };
       break;
+    case "editForumTopic":
+    case "editGeneralForumTopic":
+      // Simulate a bot without the "Manage topics" right for one particular name.
+      if (String(body.name ?? "").startsWith("Blocked")) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error_code: 400, description: "Bad Request: not enough rights to manage topics" }));
+        return;
+      }
+      break;
     default: result = true;
   }
   res.writeHead(200, { "content-type": "application/json" });
@@ -234,6 +243,15 @@ try {
   eq("rooms: topic names learned", [topicNames[0], topicNames[11], topicNames[22], topicNames[33]], ["General", "Day 1 — Resolutions", "JOTA-JOTI", null]);
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/33", USERS.admin, { name: "Announcements" });
   eq("rooms: topic renamed from app", r.status, 200);
+  check("rooms: rename pushed to the Telegram topic", r.json?.telegram === true && calls("editForumTopic", (b) => Number(b.message_thread_id) === 33 && b.name === "Announcements").length === 1, JSON.stringify(r.json));
+  r = await api("PATCH", "/setup/topics/" + GROUP.id + "/0", USERS.admin, { name: "General" });
+  check("rooms: General topic renamed via editGeneralForumTopic", r.json?.telegram === true && calls("editGeneralForumTopic", (b) => b.name === "General").length === 1);
+  r = await api("PATCH", "/setup/topics/" + GROUP.id + "/22", USERS.admin, { name: "Blocked rename" });
+  check("rooms: without Manage-topics right the name is kept as a label", r.status === 200 && r.json?.telegram === false && /rights/.test(r.json?.reason ?? ""), JSON.stringify(r.json));
+  r = await api("GET", "/setup", USERS.admin);
+  eq("rooms: label stored although Telegram refused", (r.json?.topics ?? []).find((t) => t.thread_id === 22)?.name, "Blocked rename");
+  r = await api("PATCH", "/setup/topics/" + GROUP.id + "/22", USERS.admin, { name: "JOTA-JOTI" });
+  eq("rooms: topic name restored", r.json?.telegram, true);
   r = await api("POST", "/setup/test-message", USERS.admin, { chat_id: GROUP.id, thread_id: 22 });
   check("rooms: test message lands in JOTA-JOTI topic", r.status === 200 && sentTo(GROUP.id, 22).length === 1);
 

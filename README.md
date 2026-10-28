@@ -184,7 +184,9 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
 - **Topics ("rooms"):** the bot records the group and its forum topics from
   the updates it sees (bot added as admin, topic created/edited, any message in
   a topic). The admin picks a topic from that list when announcing; results are
-  published to the same topic on close.
+  published to the same topic on close. Renaming a topic in the Mini App also
+  renames it in the group when the bot holds the "Manage topics" admin right;
+  without it the new name is kept as an app-side label and the admin is told so.
 - **Tests:** `npm run test:mock` runs a 145-check end-to-end scenario against
   an in-memory database and a mocked Telegram API (setup, rooms, login,
   lockout, voting in both ballot types, auto-close, reports, admin management).
