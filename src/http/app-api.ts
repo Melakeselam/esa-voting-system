@@ -760,7 +760,28 @@ route("GET", "/setup", true, async () => {
   } catch (err) {
     webhookError = (err as Error).message;
   }
+  // How the bot stands in the linked group, so the admin can see why a topic
+  // rename stayed app-side (it needs the "Manage topics" administrator right).
+  let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean } | null = null;
+  if (group?.chat_id) {
+    try {
+      const m = (await bot.api.getChatMember(group.chat_id, bot.botInfo.id)) as unknown as Record<string, unknown>;
+      const status = String(m.status);
+      const owner = status === "creator";
+      const isAdmin = owner || status === "administrator";
+      groupRights = {
+        status,
+        is_admin: isAdmin,
+        can_manage_topics: owner || (isAdmin && Boolean(m.can_manage_topics)),
+        can_delete_messages: owner || (isAdmin && Boolean(m.can_delete_messages)),
+        can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
+      };
+    } catch {
+      groupRights = null;
+    }
+  }
   return {
+    group_rights: groupRights,
     mode: config.serverless ? "serverless" : "server",
     polling: !config.publicUrl,
     public_url: config.publicUrl,
@@ -840,15 +861,17 @@ route("PATCH", "/setup/topics/(-?\\d+)/(\\d+)", true, async (ctx, [chat, thread]
   // new name stays an app-side label and the client tells the admin why.
   let telegram = false;
   let reason: string | null = null;
+  let code: "no_rights" | "error" | null = null;
   try {
     if (threadId === 0) await bot.api.editGeneralForumTopic(chatId, name);
     else await bot.api.editForumTopic(chatId, threadId, { name });
     telegram = true;
   } catch (err) {
     reason = (err as Error).message ?? String(err);
+    code = /rights|CHAT_ADMIN_REQUIRED|administrator/i.test(reason) ? "no_rights" : "error";
   }
-  await audit(ctx.user.id, "topic_renamed", { chat_id: chatId, thread_id: threadId, name, telegram, via: "app" });
-  return { ok: true, telegram, reason };
+  await audit(ctx.user.id, "topic_renamed", { chat_id: chatId, thread_id: threadId, name, telegram, reason, via: "app" });
+  return { ok: true, telegram, reason, code };
 });
 
 route("DELETE", "/setup/topics/(-?\\d+)/(\\d+)", true, async (_ctx, [chat, thread]) => {

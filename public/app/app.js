@@ -1064,7 +1064,9 @@
 
       // Group & topics
       html += '<div class="card"><h3>' + esc(t("Assembly group & topics")) + "</h3>" +
-        (s.group ? "<p>" + esc(t("Linked group:")) + " <b>" + esc(s.group.title || s.group.chat_id) + '</b> <span class="hint">(' + s.group.chat_id + ")</span></p>" :
+        (s.group ? "<p>" + esc(t("Linked group:")) + " <b>" + esc(s.group.title || s.group.chat_id) + '</b> <span class="hint">(' + s.group.chat_id + ")</span></p>" +
+          (s.group_rights ? '<p class="hint">' + esc(t("Bot in the group:")) + " " + esc(s.group_rights.is_admin ? t("administrator") : t("not an administrator")) + " · " + esc(t("Manage topics")) + " " +
+            (s.group_rights.can_manage_topics ? "✅" : "❌ — " + esc(t("without this right, renaming a topic here does not rename it in the group"))) + "</p>" : "") :
           '<p class="hint">' + esc(t("No group linked yet. Add the bot to the assembly supergroup as an administrator (it will link automatically), or post any message in the group.")) + "</p>") +
         '<p class="hint">' + esc(t("Topics appear here once the bot sees a message in them. Post a short message in each topic, then tap ↻. Names are learned when a topic is created or edited; you can rename them here.")) + "</p>";
       if (s.topics.length) {
@@ -1132,6 +1134,7 @@
             var rr = await api("PATCH", "/setup/topics/" + chat + "/" + thread, { name: a.name });
             haptic("success");
             if (rr && rr.telegram) toast(t("Topic renamed in the group"), "ok");
+            else if (rr && rr.code === "error" && rr.reason) toast(t("Name saved in the app only. Telegram refused the rename: {reason}", { reason: rr.reason }), "warn");
             else toast(t("Name saved in the app only. Give the bot the “Manage topics” admin right to rename it in the group."), "warn");
             return refresh();
           }

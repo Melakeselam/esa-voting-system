@@ -61,6 +61,7 @@ const tgServer = createServer(async (req, res) => {
   let result = true;
   switch (method) {
     case "getMe": result = BOT; break;
+    case "getChatMember": result = { status: "administrator", user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true }; break;
     case "setWebhook": webhookUrl = body.url; break;
     case "deleteWebhook": webhookUrl = ""; break;
     case "getWebhookInfo": result = { url: webhookUrl, has_custom_certificate: false, pending_update_count: 0 }; break;
@@ -238,6 +239,7 @@ try {
   await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 33, is_topic_message: true, text: "hello" } });
   r = await api("GET", "/setup", USERS.admin);
   eq("rooms: group linked", r.json?.group?.chat_id, GROUP.id);
+  check("rooms: bot's rights in the group reported", r.json?.group_rights?.is_admin === true && r.json?.group_rights?.can_manage_topics === true, JSON.stringify(r.json?.group_rights));
   const topicNames = Object.fromEntries((r.json?.topics ?? []).map((t) => [t.thread_id, t.name]));
   eq("rooms: General + 3 topics known", Object.keys(topicNames).length, 4);
   eq("rooms: topic names learned", [topicNames[0], topicNames[11], topicNames[22], topicNames[33]], ["General", "Day 1 — Resolutions", "JOTA-JOTI", null]);
@@ -247,7 +249,7 @@ try {
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/0", USERS.admin, { name: "General" });
   check("rooms: General topic renamed via editGeneralForumTopic", r.json?.telegram === true && calls("editGeneralForumTopic", (b) => b.name === "General").length === 1);
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/22", USERS.admin, { name: "Blocked rename" });
-  check("rooms: without Manage-topics right the name is kept as a label", r.status === 200 && r.json?.telegram === false && /rights/.test(r.json?.reason ?? ""), JSON.stringify(r.json));
+  check("rooms: without Manage-topics right the name is kept as a label", r.status === 200 && r.json?.telegram === false && r.json?.code === "no_rights" && /rights/.test(r.json?.reason ?? ""), JSON.stringify(r.json));
   r = await api("GET", "/setup", USERS.admin);
   eq("rooms: label stored although Telegram refused", (r.json?.topics ?? []).find((t) => t.thread_id === 22)?.name, "Blocked rename");
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/22", USERS.admin, { name: "JOTA-JOTI" });
