@@ -311,6 +311,7 @@
       "tokens issued": "የተሰጡ ቶከኖች",
       "Topic #{id}": "ርዕስ #{id}",
       "Topic added": "ርዕስ ተጨምሯል",
+      "not the linked group": "የተገናኘው ቡድን አይደለም",
       "Unlink group": "ቡድኑን አላቅቅ",
       "Unlink this group? Its topics are removed from the list. The bot links a group again as soon as it sees a message there.": "ይህን ቡድን ይላቀቅ? ርዕሶቹ ከዝርዝሩ ይወገዳሉ። ቦቱ እዚያ መልዕክት እንዳየ ቡድኑን እንደገና ያገናኛል።",
       "Group unlinked": "ቡድኑ ተላቅቋል",

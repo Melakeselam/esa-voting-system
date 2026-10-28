@@ -263,6 +263,12 @@ try {
   eq("rooms: label stored although Telegram refused", (r.json?.topics ?? []).find((t) => t.thread_id === 22)?.name, "Blocked rename");
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/22", USERS.admin, { name: "JOTA-JOTI" });
   eq("rooms: topic name restored", r.json?.telegram, true);
+  r = await api("POST", "/setup/topics", USERS.admin, { chat_id: 1, thread_id: 1, name: "Phantom" });
+  eq("rooms: adding a topic under a chat id that is not the linked group is rejected", r.status, 400);
+  r = await api("POST", "/setup/topics", USERS.admin, { chat_id: GROUP.id, thread_id: 44, name: "Added by ID" });
+  eq("rooms: adding a topic by ID in the linked group works", r.status, 200);
+  r = await api("DELETE", "/setup/topics/" + GROUP.id + "/44", USERS.admin);
+  eq("rooms: topic removed from the list again", r.status, 200);
   r = await api("POST", "/setup/test-message", USERS.admin, { chat_id: GROUP.id, thread_id: 22 });
   check("rooms: test message lands in JOTA-JOTI topic", r.status === 200 && sentTo(GROUP.id, 22).length === 1);
 

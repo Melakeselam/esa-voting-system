@@ -876,7 +876,12 @@ route("POST", "/setup/topics", true, async (ctx) => {
   const chatId = int(b.chat_id, "chat_id")!;
   const threadId = int(b.thread_id, "thread_id", { min: 0 })!;
   const name = str(b.name, "Name", { min: 1, max: 128 });
-  await upsertTopic({ chat_id: chatId, thread_id: threadId, name });
+  // Topics live in the linked supergroup only; a stray chat id (e.g. "1") would
+  // create a phantom topic that renames and announcements can never reach.
+  const linked = await getLinkedGroup();
+  if (linked && chatId !== linked.chat_id) throw new HttpError(400, `Chat ID must be the linked group's ID (${linked.chat_id}).`);
+  if (!linked && chatId >= 0) throw new HttpError(400, "Chat ID must be a supergroup ID (it starts with -100).");
+  await upsertTopic({ chat_id: chatId, thread_id: threadId, name, chat_title: linked?.title ?? null });
   return { ok: true };
 });
 

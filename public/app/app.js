@@ -202,7 +202,7 @@
     var groups = {};
     topics.forEach(function (tp) {
       var key = String(tp.chat_id);
-      if (!groups[key]) groups[key] = { chat_id: tp.chat_id, title: tp.chat_title || t("Chat {id}", { id: tp.chat_id }), topics: [] };
+      if (!groups[key]) groups[key] = { chat_id: tp.chat_id, title: (tp.chat_title || t("Chat {id}", { id: tp.chat_id })) + (state.linkedChatId && tp.chat_id !== state.linkedChatId ? " · " + t("not the linked group") : ""), topics: [] };
       groups[key].topics.push(tp);
     });
     return Object.keys(groups).map(function (k) { return groups[k]; });
@@ -1039,6 +1039,7 @@
     action: function () { return { label: "↻", onClick: refresh }; },
     render: async function (content, params, alive) {
       var s = await api("GET", "/setup");
+      state.linkedChatId = s.group ? s.group.chat_id : null;
       if (!alive()) return;
       function check(ok, title, detail, kind) {
         var icon = ok === true ? "✅" : ok === false ? (kind === "warn" ? "⚠️" : "❌") : "ℹ️";
@@ -1113,7 +1114,7 @@
           }
           if (act === "addtopic") {
             var tv = await openSheet("<h2>" + esc(t("Add topic by ID")) + '</h2><p class="hint">' + esc(t("Open the topic in Telegram Desktop/Web: the URL ends in /<topic id>. The group chat ID is shown above once linked.")) + "</p>" +
-              '<div class="field"><label>' + esc(t("Group chat ID")) + '</label><input type="number" data-chat value="' + (s.group ? s.group.chat_id : "") + '"></div>' +
+              '<div class="field"><label>' + esc(t("Group chat ID")) + '</label><input type="number" data-chat value="' + (s.group ? s.group.chat_id : "") + '"' + (s.group ? " readonly" : "") + "></div>" +
               '<div class="field"><label>' + esc(t("Topic ID (0 = General)")) + '</label><input type="number" inputmode="numeric" data-thread></div>' +
               '<div class="field"><label>' + esc(t("Name")) + '</label><input type="text" data-name maxlength="128" placeholder="' + esc(t("e.g. Day 1 — Resolutions")) + '"></div><button class="btn block" data-ok>' + esc(t("Add")) + "</button>",
               function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close({ chat_id: Number(sheet.querySelector("[data-chat]").value), thread_id: Number(sheet.querySelector("[data-thread]").value || 0), name: sheet.querySelector("[data-name]").value.trim() }); }; });
