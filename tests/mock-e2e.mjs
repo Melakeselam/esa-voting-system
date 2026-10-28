@@ -62,7 +62,15 @@ const tgServer = createServer(async (req, res) => {
   let result = true;
   switch (method) {
     case "getMe": result = BOT; break;
-    case "getChatMember": result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true }; break;
+    case "getChatMember":
+      if (botMembership === "gone") {
+        // What Telegram really answers once the bot has been removed from the group.
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error_code: 403, description: "Forbidden: bot is not a member of the supergroup chat" }));
+        return;
+      }
+      result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true };
+      break;
     case "setWebhook": webhookUrl = body.url; break;
     case "deleteWebhook": webhookUrl = ""; break;
     case "getWebhookInfo": result = { url: webhookUrl, has_custom_certificate: false, pending_update_count: 0 }; break;
@@ -569,6 +577,13 @@ try {
   check("group: Setup refresh unlinks when Telegram says the bot is gone", r.json?.group === null && r.json?.group_rights === null, JSON.stringify([r.json?.group, r.json?.group_rights]));
   botMembership = "administrator";
   await update(botStatus("kicked", "administrator", 4));
+  r = await api("GET", "/setup", USERS.admin);
+  eq("group: linked again before the error-path check", r.json?.group?.chat_id, GROUP.id);
+  botMembership = "gone";
+  r = await api("GET", "/setup", USERS.admin);
+  check("group: Setup refresh unlinks when Telegram answers 403 for the removed bot", r.json?.group === null && (r.json?.topics ?? []).length === 0, JSON.stringify([r.json?.group, r.json?.group_rights]));
+  botMembership = "administrator";
+  await update(botStatus("left", "administrator", 5));
   r = await api("DELETE", "/setup/group", USERS.admin);
   eq("group: admin can unlink by hand", r.status, 200);
   r = await api("GET", "/setup", USERS.admin);

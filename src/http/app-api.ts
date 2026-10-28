@@ -3,6 +3,7 @@ import { InputFile } from "grammy";
 import { appUrl, config, emailConfigured } from "../config.js";
 import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
+import { forgetChatMemo } from "../bot/group.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -766,15 +767,20 @@ route("GET", "/setup", true, async (ctx) => {
   // rename stayed app-side (it needs the "Manage topics" administrator right).
   let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean } | null = null;
   if (group?.chat_id) {
+    const linkedChatId = group.chat_id;
+    const forget = async (reason: string) => {
+      // The bot was removed while we were not listening: forget the group now.
+      await unlinkGroup(linkedChatId);
+      forgetChatMemo(linkedChatId);
+      await audit(ctx.user.id, "group_unlinked", { chat_id: linkedChatId, via: "membership_check", reason });
+      group = null;
+      topics = [];
+    };
     try {
-      const m = (await bot.api.getChatMember(group.chat_id, bot.botInfo.id)) as unknown as Record<string, unknown>;
+      const m = (await bot.api.getChatMember(linkedChatId, bot.botInfo.id)) as unknown as Record<string, unknown>;
       const status = String(m.status);
       if (status === "left" || status === "kicked") {
-        // The bot was removed while we were not listening: forget the group now.
-        await unlinkGroup(group.chat_id);
-        await audit(ctx.user.id, "group_unlinked", { chat_id: group.chat_id, via: "membership_check" });
-        group = null;
-        topics = [];
+        await forget(status);
       } else {
         const owner = status === "creator";
         const isAdmin = owner || status === "administrator";
@@ -786,7 +792,12 @@ route("GET", "/setup", true, async (ctx) => {
           can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
         };
       }
-    } catch {
+    } catch (err) {
+      // Telegram answers for a removed bot with an error rather than a "left"
+      // member: 403 "bot was kicked from the supergroup chat" / "bot is not a
+      // member of the supergroup chat", or 400 "chat not found".
+      const msg = (err as Error).message ?? String(err);
+      if (/kicked|not a member|chat not found|Forbidden/i.test(msg)) await forget(msg);
       groupRights = null;
     }
   }
@@ -855,6 +866,7 @@ route("POST", "/setup/group", true, async (ctx) => {
 route("DELETE", "/setup/group", true, async (ctx) => {
   const group = await getLinkedGroup();
   await unlinkGroup();
+  if (group) forgetChatMemo(group.chat_id);
   await audit(ctx.user.id, "group_unlinked", { chat_id: group?.chat_id ?? null, via: "app" });
   return { ok: true };
 });

@@ -14,6 +14,11 @@ export const groupComposer = new Composer<Context>();
 // Per-process memo so a busy group does not cause a database write per message.
 const seen = new Set<string>();
 
+/** Drop everything memoised for a chat, so the next update re-reads the database (after an unlink). */
+export function forgetChatMemo(chatId: number): void {
+  for (const k of [...seen]) if (k.startsWith(`${chatId}:`)) seen.delete(k);
+}
+
 groupComposer.use(async (ctx, next) => {
   try {
     await track(ctx);
@@ -38,9 +43,11 @@ async function track(ctx: Context): Promise<void> {
         await unlinkGroup(chat.id);
         await audit(ctx.myChatMember.from.id, "group_unlinked", { chat_id: chat.id, via: "removed_from_group" });
       }
-      for (const k of [...seen]) if (k.startsWith(`${chat.id}:`)) seen.delete(k);
+      forgetChatMemo(chat.id);
       return;
     }
+    // Added or promoted: rare, so always re-read the stored link instead of trusting the memo.
+    forgetChatMemo(chat.id);
     await linkGroupIfUnset(chat.id, title);
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
     seen.add(`${chat.id}:0`);
