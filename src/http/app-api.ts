@@ -3,7 +3,7 @@ import { InputFile } from "grammy";
 import { appUrl, config, emailConfigured } from "../config.js";
 import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
-import { forgetChatMemo } from "../bot/group.js";
+import { forgetChatMemo, getLastUpdate } from "../bot/group.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -810,6 +810,7 @@ route("GET", "/setup", true, async (ctx) => {
     bot: { id: bot.botInfo.id, username: bot.botInfo.username, name: bot.botInfo.first_name },
     webhook,
     webhook_error: webhookError,
+    last_update: getLastUpdate(),
     webhook_secret_set: Boolean(config.webhookSecret),
     cron_secret_set: Boolean(config.cronSecret),
     tick_path: "/api/tick?key=<CRON_SECRET or WEBHOOK_SECRET>",

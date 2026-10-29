@@ -21,8 +21,6 @@ async function main(): Promise<void> {
     await ensureSchema();
     console.log("Database schema is up to date.");
   }
-  await ensureBotReady();
-
   const server = createServer((req, res) => {
     handleHttp(req, res).catch((err) => {
       console.error("request handler error:", err);
@@ -39,20 +37,27 @@ async function main(): Promise<void> {
       console.error("WEBHOOK_SECRET must be set in webhook mode.");
       process.exit(1);
     }
-    await registerTelegramSurface(bot);
+    // Open the port first: the platform's probes and Telegram's webhook
+    // deliveries get answered even when the Telegram API is slow to respond
+    // to the registration calls (seen 2026-10-28: a pod sat for 3 minutes
+    // between the schema check and listening and was restarted by the probe).
+    // Request handlers await ensureBotReady() themselves.
     server.listen(config.port, async () => {
       console.log(`HTTP server listening on :${config.port}`);
       try {
+        await ensureBotReady();
+        await registerTelegramSurface(bot);
         await registerWebhook(bot);
         console.log(`Webhook set to ${config.publicUrl}/telegram — @${bot.botInfo.username} is live.`);
         console.log(`Mini App: ${config.publicUrl}/app/`);
       } catch (err) {
-        console.error("Failed to register webhook:", err);
+        console.error("Failed to register with Telegram:", err);
       }
       startAutoCloseScheduler(bot.api);
     });
   } else {
     // ---- Local development: long polling; HTTP server still serves the Mini App on localhost ----
+    await ensureBotReady();
     await bot.api.deleteWebhook({ drop_pending_updates: false });
     await registerTelegramSurface(bot);
     startAutoCloseScheduler(bot.api);

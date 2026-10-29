@@ -590,6 +590,9 @@ try {
   check("group: Setup refresh unlinks when Telegram answers 403 for the removed bot", r.json?.group === null && (r.json?.topics ?? []).length === 0, JSON.stringify([r.json?.group, r.json?.group_rights]));
   botMembership = "administrator";
   await update(botStatus("left", "administrator", 5));
+  await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 33, is_topic_message: true, text: "ping" } });
+  r = await api("GET", "/setup", USERS.admin);
+  check("setup: last update from Telegram is reported", r.json?.last_update?.kind === "message" && r.json?.last_update?.chat_id === GROUP.id && r.json?.last_update?.thread_id === 33, JSON.stringify(r.json?.last_update));
   r = await api("DELETE", "/setup/group", USERS.admin);
   eq("group: admin can unlink by hand", r.status, 200);
   r = await api("GET", "/setup", USERS.admin);

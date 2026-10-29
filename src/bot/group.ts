@@ -19,7 +19,35 @@ export function forgetChatMemo(chatId: number): void {
   for (const k of [...seen]) if (k.startsWith(`${chatId}:`)) seen.delete(k);
 }
 
+export interface LastUpdate {
+  at: string;
+  kind: string;
+  chat_id: number | null;
+  chat_type: string | null;
+  chat_title: string | null;
+  thread_id: number | null;
+}
+let lastUpdate: LastUpdate | null = null;
+
+/**
+ * The most recent update this process received from Telegram. Setup › Health
+ * shows it so an admin can tell "the bot never saw my message" apart from
+ * "the bot saw it and did something else with it".
+ */
+export function getLastUpdate(): LastUpdate | null {
+  return lastUpdate;
+}
+
 groupComposer.use(async (ctx, next) => {
+  const chat = ctx.chat ?? ctx.myChatMember?.chat ?? null;
+  lastUpdate = {
+    at: new Date().toISOString(),
+    kind: Object.keys(ctx.update).find((k) => k !== "update_id") ?? "unknown",
+    chat_id: chat?.id ?? null,
+    chat_type: chat?.type ?? null,
+    chat_title: chat && "title" in chat ? (chat.title ?? null) : null,
+    thread_id: ctx.message?.is_topic_message ? (ctx.message.message_thread_id ?? null) : null,
+  };
   try {
     await track(ctx);
   } catch (err) {
@@ -39,6 +67,7 @@ async function track(ctx: Context): Promise<void> {
     if (status === "left" || status === "kicked") {
       // Bot removed from the group: forget it and its topics so Setup stops showing them.
       const linked = await getLinkedGroup();
+      console.log(`Bot ${status} group "${title ?? chat.id}" (${chat.id})${linked?.chat_id === chat.id ? " — unlinking it" : ""}`);
       if (linked?.chat_id === chat.id) {
         await unlinkGroup(chat.id);
         await audit(ctx.myChatMember.from.id, "group_unlinked", { chat_id: chat.id, via: "removed_from_group" });
@@ -70,6 +99,7 @@ async function track(ctx: Context): Promise<void> {
   if (threadId !== 0) {
     await upsertTopic({ chat_id: chat.id, thread_id: threadId, name, chat_title: title });
     seen.add(key);
+    console.log(`Learned topic #${threadId}${name ? ` "${name}"` : ""} in "${title ?? chat.id}" (${chat.id})`);
   }
 }
 
@@ -79,6 +109,7 @@ async function linkGroupIfUnset(chatId: number, title: string | null): Promise<v
   const linked = await getLinkedGroup();
   if (!linked) {
     await setSetting("group", { chat_id: chatId, title });
+    console.log(`Linked group "${title ?? chatId}" (${chatId})`);
   } else if (linked.chat_id === chatId && linked.title !== title) {
     await setSetting("group", { chat_id: chatId, title });
   }
