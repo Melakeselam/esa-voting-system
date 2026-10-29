@@ -238,6 +238,7 @@ try {
   r = await api("GET", "/setup", USERS.admin);
   check("setup: database healthy after migration", r.json?.db?.ok === true);
   check("setup: webhook reported ok", r.json?.webhook?.ok === true, JSON.stringify(r.json?.webhook));
+  check("setup: Telegram API round trip reported", typeof r.json?.telegram_api_ms === "number" && r.json.telegram_api_ms >= 0, JSON.stringify(r.json?.telegram_api_ms));
 
   // ---- 2. Group and topics ("rooms") learned from Telegram ------------------
   await update({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date: 1, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT, can_be_edited: false, is_anonymous: false, can_manage_chat: true, can_delete_messages: true, can_manage_video_chats: false, can_restrict_members: false, can_promote_members: false, can_change_info: false, can_invite_users: false, can_post_stories: false, can_edit_stories: false, can_delete_stories: false } } });

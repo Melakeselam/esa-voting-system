@@ -81,10 +81,33 @@ async function handleWebhook(req: IncomingMessage, res: ServerResponse): Promise
   if (!update || typeof update !== "object") throw new HttpError(400, "Expected a Telegram update");
 
   await ensureBotReady();
-  await bot.handleUpdate(update as Parameters<typeof bot.handleUpdate>[0]);
-  // Serverless: no background scheduler, so piggy-back deadline checks on traffic.
-  if (config.serverless) await tickAutoClose(bot.api);
+  const handling = bot.handleUpdate(update as Parameters<typeof bot.handleUpdate>[0]).catch((err) => {
+    console.error("update handling failed:", err);
+  });
+  if (config.serverless) {
+    // The function is frozen once it answers, so the update must be finished first.
+    await handling;
+    // No background scheduler either, so piggy-back deadline checks on traffic.
+    await tickAutoClose(bot.api);
+  } else {
+    // Telegram delivers updates in order and re-sends any that are not
+    // acknowledged, so one slow handler (an outbound Telegram call from this
+    // host has been seen to take minutes) would hold up every later update.
+    // Answer within a bounded time and let the handler finish in the background.
+    const finished = await Promise.race([handling.then(() => true), delay(WEBHOOK_ACK_MS).then(() => false)]);
+    if (!finished) {
+      const id = (update as { update_id?: number }).update_id ?? "?";
+      console.warn(`Update ${id} still being handled after ${WEBHOOK_ACK_MS / 1000} s — acknowledged to Telegram, handling continues.`);
+    }
+  }
   text(res, 200, "ok");
+}
+
+/** How long a webhook delivery waits for the handler before it is acknowledged anyway. */
+const WEBHOOK_ACK_MS = 8_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms).unref());
 }
 
 /** Accepts `?key=`, `Authorization: Bearer <key>` (Vercel cron sends CRON_SECRET this way). */

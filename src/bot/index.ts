@@ -5,7 +5,23 @@ import { memberComposer } from "./member.js";
 import { config } from "../config.js";
 
 export function createBot(): Bot {
-  const bot = new Bot(config.botToken, config.telegramApiRoot ? { client: { apiRoot: config.telegramApiRoot } } : undefined);
+  // 30 s per API call instead of grammY's 500 s default: a hung call must fail
+  // fast rather than stall the handler (and the webhook queue behind it).
+  const bot = new Bot(config.botToken, {
+    client: { ...(config.telegramApiRoot ? { apiRoot: config.telegramApiRoot } : {}), timeoutSeconds: 30 },
+  });
+
+  // Egress from the hosting cluster to Telegram has been seen to take minutes;
+  // log the slow calls so the logs show it when replies or group updates lag.
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    const t0 = Date.now();
+    try {
+      return await prev(method, payload, signal);
+    } finally {
+      const ms = Date.now() - t0;
+      if (ms >= 5_000) console.warn(`Telegram API ${method} took ${(ms / 1000).toFixed(1)} s`);
+    }
+  });
 
   // Group/topic tracking first (always calls next), then admin commands, then
   // member handlers (order matters: the member text handler is a catch-all

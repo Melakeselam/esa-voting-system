@@ -758,8 +758,13 @@ route("GET", "/setup", true, async (ctx) => {
   const [dbAdmins, db] = await Promise.all([listDbAdmins().catch(() => []), dbStatus()]);
   let webhook = null;
   let webhookError: string | null = null;
+  // Round trip of one Telegram API call from this server — slow egress to
+  // Telegram shows up as late group updates and late replies.
+  let telegramApiMs: number | null = null;
   try {
+    const t0 = Date.now();
     webhook = await webhookStatus(bot);
+    telegramApiMs = Date.now() - t0;
   } catch (err) {
     webhookError = (err as Error).message;
   }
@@ -811,6 +816,7 @@ route("GET", "/setup", true, async (ctx) => {
     webhook,
     webhook_error: webhookError,
     last_update: getLastUpdate(),
+    telegram_api_ms: telegramApiMs,
     webhook_secret_set: Boolean(config.webhookSecret),
     cron_secret_set: Boolean(config.cronSecret),
     tick_path: "/api/tick?key=<CRON_SECRET or WEBHOOK_SECRET>",
