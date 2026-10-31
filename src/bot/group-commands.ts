@@ -2,6 +2,8 @@ import { Composer, InlineKeyboard, Keyboard } from "grammy";
 import type { Api, Context } from "grammy";
 import { findByTelegramId } from "../services/members.js";
 import { getSetting, setSetting, upsertTopic } from "../services/settings.js";
+import { orgWords, type OrgWords } from "../services/orgs.js";
+import { escapeHtml } from "./ui.js";
 
 /**
  * The bot's commands inside the assembly group. Anything personal (ballots,
@@ -37,13 +39,13 @@ export function commandKeyboard(): Keyboard {
 const LABEL_TO_COMMAND = new Map<string, (typeof COMMANDS)[number]["command"]>(COMMANDS.map((c) => [c.label, c.command]));
 
 /** The reference text pinned in the Commands topic, English then Amharic; the /commands in it are tappable. */
-export function commandReference(): string {
+export function commandReference(w: OrgWords): string {
   const en = COMMANDS.map((c) => `/${c.command} — ${c.en}`).join("\n");
   const am = COMMANDS.map((c) => `/${c.command} — ${c.am}`).join("\n");
   return (
-    `📖 <b>Commands — ESA Voting System</b>\n` +
+    `📖 <b>Commands — ${escapeHtml(w.branded)}</b>\n` +
     `Tap a command to run it. Anything personal (your ballots, your status) is answered in your private chat with the bot, never here.\n\n${en}\n\n` +
-    `📖 <b>ትዕዛዞች — የኢስኤ ድምፅ መስጫ ሥርዓት</b>\n` +
+    `📖 <b>ትዕዛዞች — ${escapeHtml(w.nameAm ? `${w.nameAm} (Kene Voting System)` : w.branded)}</b>\n` +
     `ለማስኬድ ትዕዛዙን ይንኩ። የግል የሆነ ማንኛውም ነገር (ድምፆችዎ፣ ሁኔታዎ) እዚህ ሳይሆን ከቦቱ ጋር ባለው የግል ውይይትዎ ውስጥ ይመለሳል።\n\n${am}`
   );
 }
@@ -112,7 +114,7 @@ export async function ensureCommandTopic(
 
   let messageId: number | null = null;
   const post = async () => {
-    const msg = await api.sendMessage(chatId, commandReference(), {
+    const msg = await api.sendMessage(chatId, commandReference(await orgWords()), {
       parse_mode: "HTML",
       message_thread_id: threadId ?? undefined,
       reply_markup: commandKeyboard(),
@@ -215,7 +217,7 @@ async function answerRegister(ctx: Context): Promise<void> {
 }
 
 async function answerHelp(ctx: Context): Promise<void> {
-  await ctx.reply(commandReference(), {
+  await ctx.reply(commandReference(await orgWords()), {
     parse_mode: "HTML",
     message_thread_id: threadOf(ctx),
     reply_markup: new InlineKeyboard()

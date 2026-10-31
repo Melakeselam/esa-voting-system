@@ -118,8 +118,7 @@
       "Enter a Telegram ID": "የቴሌግራም መታወቂያ ያስገቡ",
       "Enter both your token and password.": "ቶከንዎንም የይለፍ ቃልዎንም ያስገቡ።",
       "Enter the number of minutes": "የደቂቃዎችን ብዛት ያስገቡ",
-      "ESA Voting System": "የኢስማ የድምፅ አሰጣጥ ሥርዓት",
-      "ESA Voting — Admin": "የኢስማ ድምፅ አሰጣጥ — አስተዳዳሪ",
+      "Administration": "አስተዳደር",
       "Final results": "የመጨረሻ ውጤቶች",
       "Five wrong passwords lock the token for a while. Problems? Contact the National Office.": "አምስት የተሳሳቱ የይለፍ ቃላት ቶከኑን ለተወሰነ ጊዜ ይቆልፋሉ። ችግር አለ? ብሔራዊ ጽሕፈት ቤቱን ያነጋግሩ።",
       "from ADMIN_TELEGRAM_IDS": "ከ ADMIN_TELEGRAM_IDS",
@@ -178,7 +177,7 @@
       "My registration": "የእኔ ምዝገባ",
       "Name": "ስም",
       "Name (optional)": "ስም (አማራጭ)",
-      "Need more help? Contact the ESA National Office.": "ተጨማሪ እገዛ ይፈልጋሉ? የኢስማ ብሔራዊ ጽሕፈት ቤትን ያነጋግሩ።",
+      "Need more help? Contact the National Office.": "ተጨማሪ እገዛ ይፈልጋሉ? ብሔራዊ ጽሕፈት ቤትን ያነጋግሩ።",
       "New": "አዲስ",
       "New resolution": "አዲስ የውሳኔ ሀሳብ",
       "No assembly group linked": "የተገናኘ የጉባኤ ቡድን የለም",
@@ -595,9 +594,44 @@
   function safeGet() { try { return window.localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
   function safeSet(v) { try { window.localStorage.setItem(STORAGE_KEY, v); } catch (_) { /* private mode */ } }
 
+  // The organisation's own words (Kene Voting System serves several organisations):
+  // what its voters and their bodies are called, and who issues invitations.
+  // Applied to the text templates before values are filled in, so names typed
+  // by people (a council called "… Council") are never changed.
+  var orgCtx = null;
+  var DEFAULT_VOTER = { en: "delegate", en_pl: "delegates", am: "ተወካይ", am_pl: "ተወካዮች", am_def: "ተወካዩ", am_pl_def: "ተወካዮቹ" };
+  var DEFAULT_GROUP = { en: "council", en_pl: "councils", am: "ምክር ቤት", am_pl: "ምክር ቤቶች", am_def: "ምክር ቤቱ", am_pl_def: "ምክር ቤቶቹ" };
+
+  function sameCase(model, word) { return model.charAt(0) === model.charAt(0).toUpperCase() ? word.charAt(0).toUpperCase() + word.slice(1) : word; }
+  function replaceAll(s, from, to) { return from === to ? s : s.split(from).join(to); }
+
+  function localise(s) {
+    if (!orgCtx || typeof s !== "string") return s;
+    var v = orgCtx.voter || DEFAULT_VOTER, g = orgCtx.group || DEFAULT_GROUP;
+    if (lang === "am") {
+      // Longest forms first, so "ተወካዮቹ" is not caught by "ተወካይ".
+      [["am_pl_def", v, DEFAULT_VOTER], ["am_pl", v, DEFAULT_VOTER], ["am_def", v, DEFAULT_VOTER], ["am", v, DEFAULT_VOTER],
+        ["am_pl_def", g, DEFAULT_GROUP], ["am_pl", g, DEFAULT_GROUP], ["am_def", g, DEFAULT_GROUP], ["am", g, DEFAULT_GROUP]].forEach(function (r) {
+        if (r[1][r[0]]) s = replaceAll(s, r[2][r[0]], "\u0000" + r[0] + (r[1] === v ? "v" : "g") + "\u0000");
+      });
+      s = s.replace(/\u0000(am(?:_pl)?(?:_def)?)([vg])\u0000/g, function (m, form, which) { return (which === "v" ? v : g)[form]; });
+      s = replaceAll(s, "ብሔራዊ ጽሕፈት ቤት", orgCtx.office_am || "ጽሕፈት ቤት");
+      return s;
+    }
+    // Placeholders such as {councils} are left alone: only the text between them changes.
+    return s.split(/(\{[a-z]+\})/).map(function (part) {
+      if (/^\{[a-z]+\}$/.test(part)) return part;
+      part = part.replace(/\b(delegate|council)(s?)\b/gi, function (m, word, plural) {
+        var term = word.toLowerCase() === "delegate" ? v : g;
+        return sameCase(m, plural ? term.en_pl : term.en);
+      });
+      return part.replace(/\bESA National Office\b|\bNational Office\b/g, orgCtx.office_en || "organisers");
+    }).join("");
+  }
+
   function t(key, vars) {
     var table = DICT[lang] || {};
-    var s = Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key;
+    var s = localise(Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key);
     if (vars) s = s.replace(/\{([a-z]+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m; });
     return s;
   }
@@ -621,5 +655,9 @@
     nextLabel: function () { var i = LANGS.indexOf(lang); return SHORT[LANGS[(i + 1) % LANGS.length]]; },
     locale: function () { return LOCALES[lang] || "en-GB"; },
     dictionary: function (l) { return DICT[l] || {}; },
+    /** Use an organisation's words: {office_en, office_am, voter: {en, en_pl, am, am_pl, am_def, am_pl_def}, group: {…}}. */
+    setOrg: function (ctx) { orgCtx = ctx || null; },
+    /** Apply the organisation's words to a text that does not come from the dictionary (help pages). */
+    localise: localise,
   };
 })();

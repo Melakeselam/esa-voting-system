@@ -238,7 +238,7 @@ try {
   const menu = calls("setChatMenuButton")[0];
   eq("setup: menu button opens the Mini App", menu?.body.menu_button?.web_app?.url, "https://esa.test/app/");
   check("setup: commands registered", calls("setMyCommands").length >= 1);
-  eq("setup: bot display name applied by the app", calls("setMyName")[0]?.body?.name, "ESA Voting System");
+  eq("setup: bot display name applied by the app", calls("setMyName")[0]?.body?.name, "Kene Voting System");
   check("setup: bot descriptions applied by the app", calls("setMyShortDescription").length >= 1 && calls("setMyDescription").length >= 1);
   eq("setup: reports app url", setup.app_url, "https://esa.test/app/");
 
@@ -1069,6 +1069,15 @@ try {
   await update({ my_chat_member: { chat: AEA_GROUP, from: from(AEA_ADMIN), date: 30, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
   r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
   eq("orgs(group): the group added by AEA's admin becomes AEA's group", r.json?.group?.chat_id, AEA_GROUP.id);
+  const aeaCard = sentTo(AEA_GROUP.id).find((c) => /Sign in/.test(c.body.text ?? ""));
+  check("brand: AEA's sign-in card speaks AEA's words", aeaCard && /Association of Ethiopian Architects \(Kene Voting System\)/.test(aeaCard.body.text) && /Members register once with the invitation code from the Secretariat/.test(aeaCard.body.text) && /AEA-2026-XXXXX/.test(aeaCard.body.text) && !/ESA|National Office|Delegates/.test(aeaCard.body.text), aeaCard?.body.text);
+  const aeaRef = sentTo(AEA_GROUP.id).find((c) => /Commands —/.test(c.body.text ?? ""));
+  check("brand: AEA's command reference carries its name in English and Amharic", aeaRef && /Commands — Association of Ethiopian Architects \(Kene Voting System\)/.test(aeaRef.body.text) && /የኢትዮጵያ አርክቴክቶች ማኅበር \(Kene Voting System\)/.test(aeaRef.body.text), aeaRef?.body.text?.slice(0, 200));
+  const GUEST2 = { id: 7100, first_name: "Newcomer" };
+  await update(textMessage(GUEST2, "/start"));
+  check("brand: with several organisations a newcomer is welcomed by the platform", /Welcome to Kene Voting System/.test(lastTextTo(GUEST2.id)) && !/ESA/.test(lastTextTo(GUEST2.id)), lastTextTo(GUEST2.id));
+  r = await api("POST", "/councils/" + aeaCouncil.id + "/invitations-pdf", AEA_ADMIN, { rows: [aeaInv], separate: true }, null);
+  check("brand: AEA's per-member PDF is named after AEA", r.json?.files?.[0]?.startsWith("aea-invitation-"), JSON.stringify(r.json?.files));
   const OTHER_GROUP = { id: -1000950, type: "supergroup", title: "Mystery group", is_forum: true };
   await update({ my_chat_member: { chat: OTHER_GROUP, from: from(USERS.admin), date: 31, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
   const ask = sentTo(1001).at(-1);

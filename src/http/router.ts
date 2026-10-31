@@ -57,9 +57,9 @@ function landing(res: ServerResponse): void {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
   res.end(
     `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-      `<title>ESA Voting System</title>` +
+      `<title>Kene Voting System</title>` +
       `<body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">` +
-      `<h1>Ethiopia Scout Association — Voting System</h1>` +
+      `<h1>Kene Voting System</h1>` +
       `<p>This service powers the assembly voting bot on Telegram.</p>` +
       `<p><a href="/app/">Open the Mini App</a> (works inside Telegram).</p></body>`,
   );

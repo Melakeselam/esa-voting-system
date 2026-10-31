@@ -91,9 +91,9 @@ function startPlaceholder(): void {
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
-      `<!doctype html><meta charset="utf-8"><title>ESA Voting — not configured</title>` +
+      `<!doctype html><meta charset="utf-8"><title>Kene Voting System — not configured</title>` +
         `<body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">` +
-        `<h1>ESA Voting System</h1><p>The service is deployed but not configured yet.</p>` +
+        `<h1>Kene Voting System</h1><p>The service is deployed but not configured yet.</p>` +
         `<p>Missing environment variable(s): <code>${missing}</code></p>` +
         `<p>Set them in the hosting dashboard and restart the app.</p></body>`,
     );

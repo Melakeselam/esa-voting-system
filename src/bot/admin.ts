@@ -328,17 +328,17 @@ admin.command("report", async (ctx) => {
   const stamp = formatLocal(report.generatedAt).replace(/[: ]/g, "-");
 
   await ctx.replyWithDocument(
-    new InputFile(Buffer.from(csv, "utf8"), `esa-voting-report-${stamp}.csv`),
+    new InputFile(Buffer.from(csv, "utf8"), `${report.words.shortCode.toLowerCase()}-voting-report-${stamp}.csv`),
     { caption: "Raw data — opens in Excel / Google Sheets." },
   );
   await ctx.replyWithDocument(
-    new InputFile(Buffer.from(html, "utf8"), `esa-voting-report-${stamp}.html`),
+    new InputFile(Buffer.from(html, "utf8"), `${report.words.shortCode.toLowerCase()}-voting-report-${stamp}.html`),
     { caption: "Formatted report — open in a browser, print to PDF if needed." },
   );
 
   if (wantEmail) {
     try {
-      const to = await emailReport(html, csv);
+      const to = await emailReport(html, csv, report.words);
       await ctx.reply(`📧 Report emailed to ${to}.`);
     } catch (err) {
       console.error("report email failed:", err);

@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { orgWords, type OrgWords } from "./services/orgs.js";
 import { memberCounts } from "./services/members.js";
 import { listResolutions } from "./services/resolutions.js";
 import { ballotCount, tally } from "./services/votes.js";
@@ -29,6 +30,7 @@ function verdictText(s: ResolutionReport): string {
 
 export interface AssemblyReport {
   generatedAt: Date;
+  words: OrgWords; // the organisation's name and assembly
   membersTotal: number;
   membersRegistered: number;
   sections: ResolutionReport[];
@@ -59,6 +61,7 @@ export async function buildReport(): Promise<AssemblyReport> {
 
   return {
     generatedAt: new Date(),
+    words: await orgWords(),
     membersTotal: counts.total,
     membersRegistered: counts.registered,
     sections,
@@ -188,7 +191,7 @@ export function reportToHtml(report: AssemblyReport): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ESA General Assembly — Voting Report</title>
+<title>${escapeHtml(report.words.name)} — ${escapeHtml(report.words.assembly)} — Voting Report</title>
 <style>
   body { font-family: Georgia, 'Times New Roman', serif; color: #1a1a2e; max-width: 800px; margin: 40px auto; padding: 0 24px; line-height: 1.5; }
   header { border-bottom: 3px solid #4b2e83; padding-bottom: 16px; margin-bottom: 32px; }
@@ -210,8 +213,8 @@ export function reportToHtml(report: AssemblyReport): string {
 </head>
 <body>
 <header>
-  <h1>Ethiopia Scout Association</h1>
-  <p class="sub">General Assembly — Voting Report</p>
+  <h1>${escapeHtml(report.words.name)}</h1>
+  <p class="sub">${escapeHtml(report.words.assembly)} — Voting Report</p>
   <p class="sub">Generated: ${formatLocal(report.generatedAt)} ·
      Registered voters: <strong>${report.membersRegistered}</strong> of ${report.membersTotal} issued tokens ·
      Resolutions: ${report.sections.length}</p>
@@ -220,14 +223,14 @@ ${sections || "<p>No resolutions have been created yet.</p>"}
 <footer>
   Secret-ballot integrity: choices are stored with no link to voter identity; the ballot register
   guarantees one vote per accredited member. Full action history is retained in the system audit log.
-  Report generated automatically by the ESA Voting System.
+  Report generated automatically by Kene Voting System.
 </footer>
 </body>
 </html>`;
 }
 
 /** Email the report via Resend (https://resend.com). Throws on failure. */
-export async function emailReport(html: string, csv: string): Promise<string> {
+export async function emailReport(html: string, csv: string, words?: OrgWords): Promise<string> {
   if (!config.resendApiKey || !config.reportEmailFrom || !config.reportEmailTo) {
     throw new Error(
       "Email is not configured. Set RESEND_API_KEY, REPORT_EMAIL_FROM and REPORT_EMAIL_TO.",
@@ -242,11 +245,11 @@ export async function emailReport(html: string, csv: string): Promise<string> {
     body: JSON.stringify({
       from: config.reportEmailFrom,
       to: [config.reportEmailTo],
-      subject: `ESA General Assembly — Voting Report (${formatLocal(new Date())})`,
+      subject: `${words ? `${words.name} — ${words.assembly}` : "Kene Voting System"} — Voting Report (${formatLocal(new Date())})`,
       html,
       attachments: [
-        { filename: "esa-voting-report.csv", content: Buffer.from(csv, "utf8").toString("base64") },
-        { filename: "esa-voting-report.html", content: Buffer.from(html, "utf8").toString("base64") },
+        { filename: `${(words?.shortCode ?? "kvs").toLowerCase()}-voting-report.csv`, content: Buffer.from(csv, "utf8").toString("base64") },
+        { filename: `${(words?.shortCode ?? "kvs").toLowerCase()}-voting-report.html`, content: Buffer.from(html, "utf8").toString("base64") },
       ],
     }),
   });

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
+import { cap, wordsOf, type OrgWords } from "./services/orgs.js";
 import type { Council } from "./types.js";
 
 /**
@@ -24,7 +25,8 @@ export interface InvitationPdfOptions {
   council: Pick<Council, "name" | "seats">;
   rows: InvitationRow[];
   botUsername: string;
-  assemblyName?: string; // e.g. "General Assembly 2026"
+  assemblyName?: string; // e.g. "General Assembly 2026" (overrides words.assembly)
+  words?: OrgWords; // the organisation's name, office and terms (platform defaults when absent)
 }
 
 /** Deep link that opens the bot and hands it the invitation code. */
@@ -55,11 +57,12 @@ const MARGIN = 36;
 const CARDS_PER_PAGE = 2;
 
 export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer> {
-  const assembly = opts.assemblyName ?? "General Assembly 2026";
+  const w = opts.words ?? wordsOf(null);
+  const assembly = opts.assemblyName ?? w.assembly;
   const doc = new PDFDocument({
     size: "A4",
     margin: MARGIN,
-    info: { Title: `Voting invitations — ${opts.council.name}`, Author: "ESA National Office" },
+    info: { Title: `Voting invitations — ${opts.council.name}`, Author: `${w.name} — ${cap(w.office)}` },
   });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
@@ -150,18 +153,18 @@ export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer
 
     // Header (left column)
     let y = top + pad + 6;
-    y = para("Ethiopia Scout Association", x, y, textW, 14, "#0f0f0f", true) + 1;
+    y = para(w.name, x, y, textW, 14, "#0f0f0f", true) + 1;
     y = para(`${assembly} — Voting invitation`, x, y, textW, 10.5, "#5a6470") + 1;
-    if (am) y = para("የኢትዮጵያ ስካውት ማኅበር ጠቅላላ ጉባኤ — የድምፅ መስጫ ጥሪ", x, y, textW, 10.5, "#5a6470") + 1;
+    if (am && w.nameAm) y = para(`${w.nameAm}${w.assemblyAm ? ` ${w.assemblyAm}` : ""} — የድምፅ መስጫ ጥሪ`, x, y, textW, 10.5, "#5a6470") + 1;
     y += 8;
 
     // Council + delegate
     const seats = opts.council.seats;
-    const delegate = row.full_name ? row.full_name : row.seat_no ? `Delegate ${row.seat_no}${seats ? ` of ${seats}` : ""}` : "Delegate";
-    const labelW = 62;
-    para("Council", x, y, labelW, 10, "#5a6470");
+    const delegate = row.full_name ? row.full_name : row.seat_no ? `${cap(w.voter.en)} ${row.seat_no}${seats ? ` of ${seats}` : ""}` : cap(w.voter.en);
+    const labelW = 86; // room for longer terms ("Representative", "Constituency")
+    para(cap(w.group.en), x, y, labelW, 10, "#5a6470");
     y = para(opts.council.name, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 3;
-    para("Delegate", x, y, labelW, 10, "#5a6470");
+    para(cap(w.voter.en), x, y, labelW, 10, "#5a6470");
     y = para(row.full_name || !row.phone ? delegate : row.phone, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 3;
     if (row.full_name && row.phone) {
       para("Phone", x, y, labelW, 10, "#5a6470");
@@ -198,8 +201,8 @@ export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer
     }
     y += 4;
     y = para(link, x, y, innerW, 8.5, "#2481cc", false, { link, underline: true }) + 8;
-    y = para("Keep this invitation private: anyone holding the code and password can vote in your place. Issued by the ESA National Office.", x, y, innerW, 8.5, "#8a3b3b") + 2;
-    if (am) para("ይህን ጥሪ በግል ያስቀምጡ፦ ኮዱንና የይለፍ ቃሉን የያዘ ማንኛውም ሰው በእርስዎ ምትክ ድምፅ መስጠት ይችላል። በኢስማ ብሔራዊ ጽሕፈት ቤት የተሰጠ።", x, y, innerW, 8.5, "#8a3b3b");
+    y = para(`Keep this invitation private: anyone holding the code and password can vote in your place. Issued by the ${w.office} of ${w.name}.`, x, y, innerW, 8.5, "#8a3b3b") + 2;
+    if (am) para(`ይህን ጥሪ በግል ያስቀምጡ፦ ኮዱንና የይለፍ ቃሉን የያዘ ማንኛውም ሰው በእርስዎ ምትክ ድምፅ መስጠት ይችላል።${w.officeAm ? ` በ${w.officeAm} የተሰጠ።` : ""}`, x, y, innerW, 8.5, "#8a3b3b");
   });
 
   if (opts.rows.length === 0) {

@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { appUrl, config } from "../config.js";
+import { cap, type OrgWords } from "../services/orgs.js";
 import { formatLocal } from "../time.js";
 import { computeOutcome, thresholdLabel } from "../verdict.js";
 import type { Resolution, TallyRow } from "../types.js";
@@ -46,14 +47,14 @@ export function appKeyboard(text = "📱 Open app", path = ""): InlineKeyboard |
 }
 
 /** The sign-in card pinned in the group's "Register / Sign in" topic. */
-export function signInCard(groupTitle: string | null): string {
+export function signInCard(groupTitle: string | null, w: OrgWords): string {
   return (
-    `📝 <b>Sign in${groupTitle ? ` — ${escapeHtml(groupTitle)}` : ""}</b>\n\n` +
-    `Delegates register once with the invitation code from the National Office, then vote from their phone.\n\n` +
+    `📝 <b>Sign in — ${escapeHtml(groupTitle ?? w.name)}</b>\n${escapeHtml(w.branded)}\n\n` +
+    `${escapeHtml(cap(w.voter.en_pl))} register once with the invitation code from the ${escapeHtml(w.office)}, then vote from their phone.\n\n` +
     `1️⃣ Tap <b>Register with your code</b> below.\n` +
-    `2️⃣ Enter your code (ESA-2026-XXXXX) and the password from your invitation sheet. This happens in a private chat with the bot, so nobody here sees it.\n` +
+    `2️⃣ Enter your code (${escapeHtml(w.shortCode)}-2026-XXXXX) and the password from your invitation sheet. This happens in a private chat with the bot, so nobody here sees it.\n` +
     `3️⃣ Done — ballots and results reach you in that private chat; announcements stay here in the group.\n\n` +
-    `Already registered? Nothing more to do. Lost your code? Ask the National Office.`
+    `Already registered? Nothing more to do. Lost your code? Ask the ${escapeHtml(w.office)}.`
   );
 }
 

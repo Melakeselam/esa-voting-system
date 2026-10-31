@@ -53,8 +53,8 @@ export function normalizePhone(raw: string | null | undefined): string | null {
  * Returns the plaintext rows — the ONLY place the passwords exist. Callers
  * must hand them to the National Office securely and never log them.
  */
-export async function generateCredentials(people: Person[], prefix = "ESA-2026"): Promise<CredentialRow[]> {
-  const cleanPrefix = prefix.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "") || "ESA";
+export async function generateCredentials(people: Person[], prefix = "KVS-2026"): Promise<CredentialRow[]> {
+  const cleanPrefix = prefix.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "") || "KVS";
   const rows: CredentialRow[] = [];
   for (const person of people) {
     const password = randomString(10);

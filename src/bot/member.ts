@@ -11,14 +11,14 @@ import { afterRegistrationKeyboard } from "./group-link.js";
 import type { InlineKeyboard } from "grammy";
 import type { Member, Resolution } from "../types.js";
 import { activate, needsActivation } from "../services/activation.js";
-import { setActiveOrg } from "../services/orgs.js";
+import { orgWords, setActiveOrg } from "../services/orgs.js";
 
 /** Member-facing handlers. Everything here runs in private chats only. */
 export const memberComposer = new Composer<Context>();
 const pm = memberComposer.chatType("private");
 
 const HELP =
-  "🗳 <b>ESA Voting Bot — Commands</b>\n\n" +
+  "🗳 <b>Kene Voting System — Commands</b>\n\n" +
   "/vote — show resolutions currently open for voting\n" +
   "/status — your registration and ballots cast\n" +
   "/help — this message\n\n" +
@@ -47,7 +47,7 @@ pm.command("start", async (ctx) => {
         return;
       }
       if (check.status === "conflict") {
-        await ctx.reply("⚠️ This invitation is already registered to another Telegram account. If you believe this is an error, contact the National Office.");
+        await ctx.reply(`⚠️ This invitation is already registered to another Telegram account. If you believe this is an error, contact the ${(await orgWords()).office}.`);
         return;
       }
     }

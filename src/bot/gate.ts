@@ -8,6 +8,7 @@ import { findByTelegramId } from "../services/members.js";
 import { getLinkedGroup, getSetting, setSetting, upsertTopic } from "../services/settings.js";
 import { getGateMode, getPerson, listPeople, personName, seePerson, setPersonStatus } from "../services/group-people.js";
 import { notifyAdmins } from "./notify.js";
+import { orgWords } from "../services/orgs.js";
 import { COMMANDS_TOPIC_NAME, ensureCommandTopic } from "./group-commands.js";
 import { appKeyboard, escapeHtml, signInCard, signInKeyboard } from "./ui.js";
 
@@ -52,7 +53,7 @@ async function tellUserToRegister(api: Api, userId: number, groupTitle: string, 
   try {
     await api.sendMessage(
       userId,
-      `${head}\nRegister first with the invitation code you received from the National Office: send /start to this bot or open the app. ` +
+      `${head}\nRegister first with the invitation code you received from the ${escapeHtml((await orgWords()).office)}: send /start to this bot or open the app. ` +
         `Once registered you can join the group.`,
       { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") },
     );
@@ -166,7 +167,7 @@ export async function ensureSignInTopic(
 
   let messageId: number | null = null;
   const post = async () => {
-    const msg = await api.sendMessage(chatId, signInCard(groupTitle), {
+    const msg = await api.sendMessage(chatId, signInCard(groupTitle, await orgWords()), {
       parse_mode: "HTML",
       message_thread_id: threadId ?? undefined,
       reply_markup: signInKeyboard(me.username),

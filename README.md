@@ -1,11 +1,42 @@
-# ESA General Assembly — Secure Voting System
+# Kene Voting System — Secure Assembly Voting
 
-A Telegram-bot voting system for the Ethiopia Scout Association's nation-wide
-General Assembly. The National Office issues each voting member a **Token ID +
-password**; members register once in a private chat with the bot, then vote on
-resolutions via inline buttons. Resolutions are announced in the assembly's
-Telegram group topics; results are tallied server-side and published back to
-the same topic.
+A Telegram bot and Mini App that runs the votes of associations' general
+assemblies — the Ethiopia Scout Association, the Association of Ethiopian
+Architects, and any other organisation — from **one bot and one database**.
+Each organisation's office issues its voting members a **Token ID + password**;
+members register once in a private chat with the bot, then vote on resolutions
+via inline buttons or the Mini App. Resolutions are announced in the
+organisation's Telegram group topics; results are tallied server-side and
+published back to the same topic.
+
+## Organisations
+
+Every organisation has its own members, councils, resolutions, admins,
+settings, Telegram group and audit trail; the database layer scopes every
+query to the organisation of the request (`src/org-context.ts`, `src/db.ts`),
+so one organisation can never see or change another's data.
+
+- **Platform admins** (`ADMIN_TELEGRAM_IDS`) run Kene Voting System: they
+  create organisations in the Mini App (Organisations screen) and administer
+  every one of them. **Organisation admins** are added per organisation
+  (Setup › Admins, or as the first admin when the organisation is created).
+- An organisation has an English and optional Amharic **name** (shown as
+  "Association of Ethiopian Architects (Kene Voting System)"), a **short code**
+  (invitation codes start with it), the **assembly** and **issuing office**
+  names, and the words it uses for its **voters** (delegate, member,
+  representative, voter) and their **bodies** (council, chapter, region,
+  branch, committee, constituency). The Mini App, help, bot messages, sign-in
+  card, command reference, invitation PDFs and reports use them, in English and
+  Amharic.
+- **Which organisation?** Mini App: the one chosen on the device (organisation
+  bar at the top, picker when a person belongs to several). Bot: a group →
+  the organisation that linked it; vote/quorum buttons → the resolution's
+  organisation; an invitation link or code → the code's organisation (codes
+  are unique platform-wide); a private chat → the person's chosen (`/org`) or
+  only organisation. A group added by a platform admin who runs several
+  organisations asks which one it is for.
+- While only one organisation exists everything resolves to it. Data from
+  before organisations existed was migrated into "Ethiopia Scout Association".
 
 ## Architecture
 

@@ -67,6 +67,7 @@ import {
   brandedName,
   createOrg,
   defaultCodePrefix,
+  orgWords,
   currentOrg,
   getOrg,
   GROUP_TERMS,
@@ -804,7 +805,8 @@ route("POST", `/members/${UUID}/revoke`, true, async (ctx, [id]) => {
   }
   if (telegramId !== null) {
     try {
-      await bot.api.sendMessage(telegramId, "Your voting access for the ESA General Assembly has been revoked by the administrators. Contact the National Office if you think this is a mistake.");
+      const w = await orgWords();
+      await bot.api.sendMessage(telegramId, `Your voting access for the ${w.assembly} of ${w.name} has been revoked by the administrators. Contact the ${w.office} if you think this is a mistake.`);
     } catch {
       // The member blocked the bot or never opened it.
     }
@@ -859,7 +861,7 @@ route("POST", "/members/credentials-file", true, async (ctx) => {
   });
   const stamp = formatLocal(new Date()).replace(/[: ]/g, "-");
   try {
-    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(credentialsCsv(rows), "utf8"), `esa-credentials-${stamp}.csv`), {
+    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(credentialsCsv(rows), "utf8"), `${(await orgWords()).shortCode.toLowerCase()}-credentials-${stamp}.csv`), {
       caption:
         `🔐 ${rows.length} credential(s). This is the ONLY copy of the passwords. ` +
         "Distribute one row per member through a secure channel, then delete this file from the chat.",
@@ -1035,10 +1037,10 @@ route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
   if (body.separate === true) {
     const docs = [];
     for (const [i, row] of rows.entries()) {
-      const pdf = await invitationsPdf({ council: c, rows: [row], botUsername: bot.botInfo.username });
+      const pdf = await invitationsPdf({ council: c, rows: [row], botUsername: bot.botInfo.username, words: await orgWords() });
       const seat = String(row.seat_no ?? i + 1).padStart(2, "0");
       const name = fileSlug(row.full_name || row.phone || null);
-      docs.push({ pdf, file: `esa-invitation-${c.code.toLowerCase()}-${seat}${name ? `-${name}` : ""}.pdf` });
+      docs.push({ pdf, file: `${(await orgWords()).shortCode.toLowerCase()}-invitation-${c.code.toLowerCase()}-${seat}${name ? `-${name}` : ""}.pdf` });
     }
     const caption =
       `🎫 ${rows.length} invitation(s) for ${c.name}, one PDF per delegate — forward each file to its delegate. ` +
@@ -1064,8 +1066,8 @@ route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
     await audit(ctx.user.id, "invitations_pdf_sent", { council: c.name, count: rows.length, separate: true, via: "app" });
     return { ok: true, count: rows.length, files: docs.map((d) => d.file) };
   }
-  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username });
-  const file = `esa-invitations-${c.code.toLowerCase()}-${stamp}.pdf`;
+  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username, words: await orgWords() });
+  const file = `${(await orgWords()).shortCode.toLowerCase()}-invitations-${c.code.toLowerCase()}-${stamp}.pdf`;
   try {
     await bot.api.sendDocument(ctx.user.id, new InputFile(pdf, file), {
       caption:
@@ -1093,10 +1095,10 @@ route("POST", "/report", true, async (ctx) => {
   const html = reportToHtml(report);
   const stamp = formatLocal(report.generatedAt).replace(/[: ]/g, "-");
   try {
-    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(csv, "utf8"), `esa-voting-report-${stamp}.csv`), {
+    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(csv, "utf8"), `${report.words.shortCode.toLowerCase()}-voting-report-${stamp}.csv`), {
       caption: "Raw data — opens in Excel / Google Sheets.",
     });
-    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(html, "utf8"), `esa-voting-report-${stamp}.html`), {
+    await bot.api.sendDocument(ctx.user.id, new InputFile(Buffer.from(html, "utf8"), `${report.words.shortCode.toLowerCase()}-voting-report-${stamp}.html`), {
       caption: "Formatted report — open in a browser, print to PDF if needed.",
     });
   } catch (err) {
@@ -1106,7 +1108,7 @@ route("POST", "/report", true, async (ctx) => {
   let emailError: string | null = null;
   if (wantEmail) {
     try {
-      emailedTo = await emailReport(html, csv);
+      emailedTo = await emailReport(html, csv, report.words);
     } catch (err) {
       console.error("report email failed:", err);
       emailError = "Email delivery failed — check the server logs. The files in your chat are still valid.";
@@ -1369,7 +1371,7 @@ route("POST", "/setup/group/people/(\\d+)/register", true, async (ctx, [uid]) =>
   try {
     await bot.api.sendMessage(
       userId,
-      `✅ The administrators registered you as <b>${escapeHtml(name)}</b>${council ? ` (${escapeHtml(council.name)})` : ""} for the ESA General Assembly` +
+      `✅ The administrators registered you as <b>${escapeHtml(name)}</b>${council ? ` (${escapeHtml(council.name)})` : ""} for the ${escapeHtml((await orgWords()).assembly)} of ${escapeHtml((await orgWords()).name)}` +
         (role === "admin" ? " and made you an administrator" : "") +
         `. You can vote from here when a resolution opens.`,
       { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") },

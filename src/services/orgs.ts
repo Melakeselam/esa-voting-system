@@ -36,20 +36,22 @@ export interface TermForms {
   en_pl: string;
   am: string;
   am_pl: string;
+  am_def: string; // definite: "the delegate"
+  am_pl_def: string; // definite plural: "the delegates"
 }
 export const VOTER_TERMS: Record<string, TermForms> = {
-  delegate: { en: "delegate", en_pl: "delegates", am: "ተወካይ", am_pl: "ተወካዮች" },
-  member: { en: "member", en_pl: "members", am: "አባል", am_pl: "አባላት" },
-  representative: { en: "representative", en_pl: "representatives", am: "ተጠሪ", am_pl: "ተጠሪዎች" },
-  voter: { en: "voter", en_pl: "voters", am: "መራጭ", am_pl: "መራጮች" },
+  delegate: { en: "delegate", en_pl: "delegates", am: "ተወካይ", am_pl: "ተወካዮች", am_def: "ተወካዩ", am_pl_def: "ተወካዮቹ" },
+  member: { en: "member", en_pl: "members", am: "አባል", am_pl: "አባላት", am_def: "አባሉ", am_pl_def: "አባላቱ" },
+  representative: { en: "representative", en_pl: "representatives", am: "ተጠሪ", am_pl: "ተጠሪዎች", am_def: "ተጠሪው", am_pl_def: "ተጠሪዎቹ" },
+  voter: { en: "voter", en_pl: "voters", am: "መራጭ", am_pl: "መራጮች", am_def: "መራጩ", am_pl_def: "መራጮቹ" },
 };
 export const GROUP_TERMS: Record<string, TermForms> = {
-  council: { en: "council", en_pl: "councils", am: "ምክር ቤት", am_pl: "ምክር ቤቶች" },
-  chapter: { en: "chapter", en_pl: "chapters", am: "ቅርንጫፍ", am_pl: "ቅርንጫፎች" },
-  region: { en: "region", en_pl: "regions", am: "ክልል", am_pl: "ክልሎች" },
-  branch: { en: "branch", en_pl: "branches", am: "ቅርንጫፍ ጽሕፈት ቤት", am_pl: "ቅርንጫፍ ጽሕፈት ቤቶች" },
-  committee: { en: "committee", en_pl: "committees", am: "ኮሚቴ", am_pl: "ኮሚቴዎች" },
-  constituency: { en: "constituency", en_pl: "constituencies", am: "የምርጫ ክልል", am_pl: "የምርጫ ክልሎች" },
+  council: { en: "council", en_pl: "councils", am: "ምክር ቤት", am_pl: "ምክር ቤቶች", am_def: "ምክር ቤቱ", am_pl_def: "ምክር ቤቶቹ" },
+  chapter: { en: "chapter", en_pl: "chapters", am: "ቅርንጫፍ", am_pl: "ቅርንጫፎች", am_def: "ቅርንጫፉ", am_pl_def: "ቅርንጫፎቹ" },
+  region: { en: "region", en_pl: "regions", am: "ክልል", am_pl: "ክልሎች", am_def: "ክልሉ", am_pl_def: "ክልሎቹ" },
+  branch: { en: "branch", en_pl: "branches", am: "ቅርንጫፍ ጽሕፈት ቤት", am_pl: "ቅርንጫፍ ጽሕፈት ቤቶች", am_def: "ቅርንጫፍ ጽሕፈት ቤቱ", am_pl_def: "ቅርንጫፍ ጽሕፈት ቤቶቹ" },
+  committee: { en: "committee", en_pl: "committees", am: "ኮሚቴ", am_pl: "ኮሚቴዎች", am_def: "ኮሚቴው", am_pl_def: "ኮሚቴዎቹ" },
+  constituency: { en: "constituency", en_pl: "constituencies", am: "የምርጫ ክልል", am_pl: "የምርጫ ክልሎች", am_def: "የምርጫ ክልሉ", am_pl_def: "የምርጫ ክልሎቹ" },
 };
 export const voterTerm = (o: Pick<Org, "voter_term"> | null): TermForms => VOTER_TERMS[o?.voter_term ?? ""] ?? VOTER_TERMS.delegate;
 export const groupTerm = (o: Pick<Org, "group_term"> | null): TermForms => GROUP_TERMS[o?.group_term ?? ""] ?? GROUP_TERMS.council;
@@ -57,6 +59,42 @@ export const groupTerm = (o: Pick<Org, "group_term"> | null): TermForms => GROUP
 /** "Association of Ethiopian Architects (Kene Voting System)". */
 export function brandedName(o: Pick<Org, "name_en"> | null): string {
   return o ? `${o.name_en} (${PLATFORM_NAME})` : PLATFORM_NAME;
+}
+
+/** Everything a message or document needs to speak in the organisation's own words. */
+export interface OrgWords {
+  name: string; // "Association of Ethiopian Architects" (or the platform name outside any organisation)
+  nameAm: string | null;
+  branded: string; // "… (Kene Voting System)"
+  shortCode: string;
+  assembly: string; // "Annual General Meeting 2026"
+  assemblyAm: string | null;
+  office: string; // "Secretariat"
+  officeAm: string | null;
+  voter: TermForms;
+  group: TermForms;
+}
+
+export const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function wordsOf(o: Org | null): OrgWords {
+  return {
+    name: o?.name_en ?? PLATFORM_NAME,
+    nameAm: o?.name_am ?? null,
+    branded: brandedName(o),
+    shortCode: o?.short_code ?? "KVS",
+    assembly: o?.assembly_en || "General Assembly",
+    assemblyAm: o?.assembly_am ?? null,
+    office: o?.office_en || "organisers",
+    officeAm: o?.office_am ?? null,
+    voter: voterTerm(o),
+    group: groupTerm(o),
+  };
+}
+
+/** The current organisation's words (platform defaults when there is none). */
+export async function orgWords(): Promise<OrgWords> {
+  return wordsOf(await currentOrg());
 }
 
 // ---------------------------------------------------------------- reads (cached briefly)

@@ -1,9 +1,9 @@
 import type { Context } from "grammy";
 import { checkToken, verifyAndBind } from "../services/members.js";
 import { approvePendingJoin } from "./gate.js";
-import { setActiveOrg } from "../services/orgs.js";
+import { currentOrg, PLATFORM_NAME, setActiveOrg, wordsOf } from "../services/orgs.js";
 import { config } from "../config.js";
-import { appKeyboard } from "./ui.js";
+import { appKeyboard, escapeHtml } from "./ui.js";
 import type { Member } from "../types.js";
 
 interface LoginState {
@@ -36,14 +36,23 @@ export function sessionOrgId(userId: number): string | null {
 export async function promptLogin(ctx: Context): Promise<void> {
   beginLogin(ctx.from!.id);
   const kb = appKeyboard("📱 Register in the app");
+  // Inside an organisation the welcome names it; otherwise the code itself will tell which one.
+  const org = await currentOrg();
+  const w = wordsOf(org);
   await ctx.reply(
-    "👋 Welcome to the ESA General Assembly Voting System.\n\n" +
+    `👋 Welcome to ${escapeHtml(org ? `the ${w.assembly} of ${w.name}` : PLATFORM_NAME)} — ${escapeHtml(PLATFORM_NAME)}.\n\n` +
       (kb
         ? "Tap the button below to register in the app, or send your <b>Voting Token ID</b> here now.\n"
         : "To register, please send your <b>Voting Token ID</b> now.\n") +
-      "It was issued to you by the National Office (example format: <code>ESA-2026-K7M2P</code>).",
+      `It is printed on the invitation ${escapeHtml(org ? `the ${w.office} gave you` : "your organisation gave you")} (example format: <code>${escapeHtml(w.shortCode)}-2026-K7M2P</code>).`,
     { parse_mode: "HTML", reply_markup: kb },
   );
+}
+
+/** "the Secretariat" / "your organisation" — who to contact about an invitation. */
+async function contact(): Promise<string> {
+  const org = await currentOrg();
+  return org ? `the ${wordsOf(org).office}` : "your organisation";
 }
 
 /**
@@ -60,11 +69,11 @@ export async function handleLoginMessage(ctx: Context): Promise<Member | null> {
     const check = await checkToken(text, userId);
     switch (check.status) {
       case "unknown_token":
-        await ctx.reply("❌ That token was not recognized. Check for typos and send it again, or contact the National Office.");
+        await ctx.reply(`❌ That token was not recognized. Check for typos and send it again, or contact ${await contact()}.`);
         return null;
       case "conflict":
         sessions.delete(userId);
-        await ctx.reply("⚠️ This token is already registered to another Telegram account. If you believe this is an error, contact the National Office immediately.");
+        await ctx.reply(`⚠️ This token is already registered to another Telegram account. If you believe this is an error, contact ${await contact()} immediately.`);
         return null;
       case "locked":
         await ctx.reply(`🔒 This token is temporarily locked after too many failed attempts. Try again in ${config.lockMinutes} minutes.`);
@@ -99,7 +108,7 @@ export async function handleLoginMessage(ctx: Context): Promise<Member | null> {
       return null;
     case "conflict":
       sessions.delete(userId);
-      await ctx.reply("⚠️ This token was just registered to another Telegram account. Contact the National Office.");
+      await ctx.reply(`⚠️ This token was just registered to another Telegram account. Contact ${await contact()}.`);
       return null;
     default:
       sessions.delete(userId);

@@ -1,4 +1,4 @@
-/* ESA General Assembly Voting — Telegram Mini App (admin panel + member voting).
+/* Kene Voting System — Telegram Mini App (admin panel + member voting).
    Plain JavaScript, no build step. Talks to /api/app/* with Telegram initData auth.
    All user-facing text goes through t() (see i18n.js); the English string is the key. */
 (function () {
@@ -424,7 +424,7 @@
 
   // ---------------------------------------------------------------- ADMIN: home
   views.home = {
-    title: function () { return t("ESA Voting — Admin"); },
+    title: function () { return t("Administration"); },
     action: function () { return { label: "↻", onClick: refresh }; },
     render: async function (content, params, alive) {
       var d = await api("GET", "/dashboard");
@@ -1511,17 +1511,17 @@
       var html = '<div class="card"><p>' + esc(t("Step-by-step guides for everything you can do here. Tap a topic to expand it.")) + "</p>" +
         '<p class="hint">' + esc(t("Language: {lang}", { lang: I18N.label() })) + ' · <button class="btn ghost sm" data-lang>' + esc(t("Switch to {lang}", { lang: I18N.label(I18N.nextLang()) })) + "</button></p></div>";
       sections.forEach(function (sec, i) {
-        html += '<details class="help"' + (sections.length === 1 || i === 0 && role === "guest" ? " open" : "") + "><summary>" + esc(sec.icon ? sec.icon + " " : "") + esc(sec.title) + "</summary><div class=\"help-body\">";
+        html += '<details class="help"' + (sections.length === 1 || i === 0 && role === "guest" ? " open" : "") + "><summary>" + esc(sec.icon ? sec.icon + " " : "") + esc(I18N.localise(sec.title)) + "</summary><div class=\"help-body\">";
         sec.body.forEach(function (block) {
-          if (typeof block === "string") html += "<p>" + esc(block) + "</p>";
-          else if (block.steps) html += "<ol>" + block.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>";
-          else if (block.bullets) html += "<ul>" + block.bullets.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul>";
-          else if (block.tip) html += '<p class="help-tip">💡 ' + esc(block.tip) + "</p>";
-          else if (block.warn) html += '<p class="help-warn">⚠️ ' + esc(block.warn) + "</p>";
+          if (typeof block === "string") html += "<p>" + esc(I18N.localise(block)) + "</p>";
+          else if (block.steps) html += "<ol>" + block.steps.map(function (s) { return "<li>" + esc(I18N.localise(s)) + "</li>"; }).join("") + "</ol>";
+          else if (block.bullets) html += "<ul>" + block.bullets.map(function (s) { return "<li>" + esc(I18N.localise(s)) + "</li>"; }).join("") + "</ul>";
+          else if (block.tip) html += '<p class="help-tip">💡 ' + esc(I18N.localise(block.tip)) + "</p>";
+          else if (block.warn) html += '<p class="help-warn">⚠️ ' + esc(I18N.localise(block.warn)) + "</p>";
         });
         html += "</div></details>";
       });
-      html += '<p class="hint small">' + esc(t("Need more help? Contact the ESA National Office.")) + "</p>";
+      html += '<p class="hint small">' + esc(t("Need more help? Contact the National Office.")) + "</p>";
       content.innerHTML = html;
       content.querySelector("[data-lang]").onclick = switchLanguage;
     },
@@ -1529,7 +1529,7 @@
 
   // ---------------------------------------------------------------- MEMBER: register
   views.register = {
-    title: function () { return t("ESA Voting System"); },
+    title: function () { return state.me && state.me.org ? orgName(state.me.org) : (state.me && state.me.platform ? state.me.platform.name : "Kene Voting System"); },
     render: async function (content, params, alive) {
       // Code from the link, or the invitation the bot recognised when the member scanned their QR code.
       var inv = params.inv || null;
@@ -1539,7 +1539,7 @@
       }
       content.innerHTML = '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>" +
         (inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +
-        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="ESA-2026-K7M2P" value="' + esc(inv || "") + '"' + (inv ? " readonly" : "") + "></div>" +
+        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="' + esc(((state.me && state.me.org && state.me.org.short_code) || "ABC") + "-2026-K7M2P") + '" value="' + esc(inv || "") + '"' + (inv ? " readonly" : "") + "></div>" +
         (inv ? '<p class="hint small"><a href="#" data-other>' + esc(t("Use a different code")) + "</a></p>" : "") +
         '<div class="field"><label>' + esc(t("Password")) + '</label><input type="password" data-pass autocomplete="off" placeholder="' + esc(t("from your credential slip")) + '"></div>' +
         '<p class="err hint" data-err hidden></p></div>' +
@@ -1874,6 +1874,10 @@
     start = start || {};
     state.orgId = state.me.org ? state.me.org.id : null;
     saveOrg(state.orgId);
+    // The organisation's own words in every text: its office, what it calls voters and their bodies.
+    var o = state.me.org;
+    I18N.setOrg(o ? { office_en: o.office_en, office_am: o.office_am, voter: o.terms && o.terms.voter, group: o.terms && o.terms.group } : null);
+    try { document.title = o ? orgName(o) + " · " + state.me.platform.name : state.me.platform.name; } catch (_) { /* ignore */ }
     if (state.me.org_required) return go("orgpick", {}, { root: true });
     if (!state.me.org && state.me.platform && state.me.platform.admin) return go("orgs", {}, { root: true });
     if (state.me.role === "admin") {

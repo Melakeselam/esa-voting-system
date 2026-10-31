@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Api } from "grammy";
 import { appUrl } from "../config.js";
 import { getLinkedGroup, getSetting, setSetting } from "../services/settings.js";
+import { currentOrg } from "../services/orgs.js";
 
 interface GroupLink {
   chat_id: number;
@@ -25,7 +26,7 @@ export async function groupInviteLink(api: Api): Promise<string | null> {
     if (chat.username) {
       link = `https://t.me/${chat.username}`;
     } else {
-      const invite = await api.createChatInviteLink(linked.chat_id, { name: "ESA Voting — registered members", creates_join_request: true });
+      const invite = await api.createChatInviteLink(linked.chat_id, { name: `${(await currentOrg())?.short_code ?? "Kene"} — registered`.slice(0, 32), creates_join_request: true });
       link = invite.invite_link;
     }
     await setSetting("group_link", { chat_id: linked.chat_id, link } satisfies GroupLink);
