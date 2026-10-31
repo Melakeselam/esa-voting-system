@@ -4,6 +4,7 @@ import { groupComposer } from "./group.js";
 import { gateComposer } from "./gate.js";
 import { groupCommandsComposer } from "./group-commands.js";
 import { resetComposer } from "./reset-flow.js";
+import { quorumComposer } from "./quorum-flow.js";
 import { memberComposer } from "./member.js";
 import { config } from "../config.js";
 
@@ -33,6 +34,7 @@ export function createBot(): Bot {
   bot.use(gateComposer);
   bot.use(groupCommandsComposer);
   bot.use(resetComposer);
+  bot.use(quorumComposer);
   bot.use(adminComposer);
   bot.use(memberComposer);
 

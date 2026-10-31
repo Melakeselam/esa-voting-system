@@ -38,6 +38,7 @@ export interface Resolution {
   eligible_count: number | null; // active members when voting closed; null while open
   activation_required: boolean; // voters must enter the 4-digit code shown in the meeting
   activation_code: string | null; // set when voting opens (if required); never sent to members
+  awaiting_quorum_since: string | null; // deadline passed without quorum; still open, admins decide
   threshold: Threshold;
   status: ResolutionStatus;
   announce_chat_id: number | null;

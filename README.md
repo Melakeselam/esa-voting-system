@@ -235,6 +235,16 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   the labels are answered like the commands), and listed with descriptions in a pinned "📖 Commands /
   ትዕዛዞች" topic the bot creates when it becomes admin (tapping a command
   in the text runs it). Setup › "Post command reference" re-posts it.
+- **Deadline without quorum:** at the deadline a resolution closes only if
+  quorum is met (ballots, abstentions included). Otherwise it stays open,
+  `awaiting_quorum_since` is set, every admin gets a private message with
+  "+5/+10/+15/+30 min", "Extend by other minutes…" (the bot asks for a
+  number), "Close as not valid" and "Close and redo", and registered delegates
+  who have not voted get one reminder with the ballot. The Mini App shows the
+  same choices (`POST /resolutions/:id/extend {minutes}`,
+  `POST /resolutions/:id/close {redo: true}` — redo closes as not valid and
+  creates a draft copy with the same wording and rules). If quorum is reached
+  meanwhile, the next scheduler tick closes it as valid.
 - **Activation code (presence check):** every resolution requires, by default,
   a 4-digit code that is generated when voting opens (`activation_code`,
   regenerated on each open; "Require activation code" switch on the draft,

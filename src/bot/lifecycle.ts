@@ -39,20 +39,27 @@ export async function closeResolution(
   return text;
 }
 
-/** Close every open resolution whose deadline has passed; notify admins. Returns how many closed. */
+/**
+ * Close every open resolution whose deadline has passed and whose quorum is
+ * met; one without quorum stays open and the admins decide (quorum-flow.ts).
+ * Returns how many closed.
+ */
 export async function autoCloseDue(api: Api): Promise<number> {
+  const { handleDeadline } = await import("./quorum-flow.js"); // circular import: quorum-flow uses closeResolution
   const due = await listDueForClose();
   let closed = 0;
   for (const res of due) {
-    const text = await closeResolution(api, res, "system:auto-close");
+    const text = await handleDeadline(api, res);
     if (!text) continue;
     closed++;
-    console.log(`auto-closed ${res.code} (deadline reached)`);
+    console.log(`auto-closed ${res.code} (${res.awaiting_quorum_since ? "quorum reached after the deadline" : "deadline reached"})`);
     for (const adminId of config.adminIds) {
       try {
         await api.sendMessage(
           adminId,
-          `⏰ <b>${res.code}</b> reached its deadline and was closed automatically.\n\n${text}`,
+          (res.awaiting_quorum_since
+            ? `✅ <b>${res.code}</b> reached quorum after its deadline and was closed automatically.\n\n${text}`
+            : `⏰ <b>${res.code}</b> reached its deadline and was closed automatically.\n\n${text}`),
           { parse_mode: "HTML" },
         );
       } catch {

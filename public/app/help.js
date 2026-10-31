@@ -115,6 +115,7 @@
         body: [
           { steps: [
             "Open the resolution and tap “Close voting now”, or wait for the deadline.",
+            "If the deadline passes before quorum is reached (abstentions count), voting stays open: the resolution shows “Deadline passed without quorum”, every admin gets a message, and delegates who have not voted get one reminder. Choose “Extend voting…” (any number of minutes), “Close as not valid”, or “Close and redo” (closes it and prepares the same resolution as a new draft). If quorum is reached meanwhile, it closes by itself.",
             "Final results are posted automatically to the topic where the resolution was announced.",
             "Use “Post final results to a topic” to publish them in another topic as well.",
             "Closed too early or by mistake? Tap “Reopen voting” on the closed resolution and choose a new deadline (or none). Ballots already cast are kept, members who have not voted can vote, and the final results are published again when it closes.",
@@ -276,6 +277,7 @@
         body: [
           { steps: [
             "የውሳኔ ሀሳቡን ከፍተው «ድምፅ መስጠትን አሁን ዝጋ»ን ይንኩ፣ ወይም የመዝጊያ ሰዓቱን ይጠብቁ።",
+            "ምልዓተ ጉባኤ ከመሟላቱ በፊት (ድምፀ ተአቅቦ ይቆጠራል) የመዝጊያ ሰዓቱ ካለፈ ድምፅ መስጠት ክፍት ይቆያል፦ የውሳኔ ሀሳቡ «የመዝጊያ ሰዓቱ ያለ ምልዓተ ጉባኤ አልፏል» ያሳያል፣ ለእያንዳንዱ አስተዳዳሪ መልዕክት ይደርሳል፣ ያልመረጡ ተወካዮችም አንድ ማሳሰቢያ ይደርሳቸዋል። «ድምፅ መስጠትን አራዝም…» (የፈለጉትን ያህል ደቂቃ)፣ «ልክ እንዳልሆነ ዝጋ»፣ ወይም «ዝጋ እና እንደገና አዘጋጅ» (ዘግቶ ያንኑ የውሳኔ ሀሳብ እንደ አዲስ ረቂቅ ያዘጋጃል) ይምረጡ። በዚህ መሀል ምልዓተ ጉባኤ ከተሟላ በራሱ ይዘጋል።",
             "የመጨረሻ ውጤቶች የውሳኔ ሀሳቡ በታወቀበት ርዕስ ውስጥ በራስ-ሰር ይለጠፋሉ።",
             "በሌላ ርዕስ ውስጥም ለማተም «የመጨረሻ ውጤቶችን ወደ ርዕስ ለጥፍ»ን ይጠቀሙ።",
             "ቀድሞ ወይም በስህተት ተዘግቷል? በተዘጋው የውሳኔ ሀሳብ ላይ «ድምፅ መስጠትን እንደገና ክፈት»ን ይንኩና አዲስ የመዝጊያ ሰዓት (ወይም ምንም) ይምረጡ። ቀደም ሲል የተሰጡ ድምፆች ይቆያሉ፣ ያልመረጡ አባላት መምረጥ ይችላሉ፣ ሲዘጋም የመጨረሻ ውጤቶች እንደገና ይታተማሉ።",

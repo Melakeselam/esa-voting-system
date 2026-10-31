@@ -11,6 +11,7 @@ import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
 import { ensureCommandTopic } from "../bot/group-commands.js";
+import { closeWaiting, extendVote } from "../bot/quorum-flow.js";
 import { assemblySummary, getResetMode, resetAssembly, setResetMode } from "../services/reset.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
@@ -508,12 +509,27 @@ route("POST", `/resolutions/${UUID}/reopen`, true, async (ctx, [id]) => {
   return { ...(await enrich((await getById(res.id))!, true, true)), notified };
 });
 
+/** Close now; with `redo: true` also create a fresh draft copy (used when quorum was not reached). */
 route("POST", `/resolutions/${UUID}/close`, true, async (ctx, [id]) => {
   const res = await requireResolution(id);
   if (res.status !== "open") throw new HttpError(409, "Voting is not open.");
-  const text = await closeResolution(bot.api, res, ctx.user.id);
+  const b = await ctx.body().catch(() => ({}) as Record<string, unknown>);
+  const { text, draft } = await closeWaiting(bot.api, res, ctx.user.id, b.redo === true);
   if (!text) throw new HttpError(409, "The resolution was already closed.");
-  return { ...(await enrich((await getById(res.id))!, true, true)), published: Boolean(res.announce_chat_id) };
+  return {
+    ...(await enrich((await getById(res.id))!, true, true)),
+    published: Boolean(res.announce_chat_id),
+    redo_draft: draft ? { id: draft.id, code: draft.code } : null,
+  };
+});
+
+/** Extend voting by `minutes` from now (any open vote; typically one waiting for quorum after its deadline). */
+route("POST", `/resolutions/${UUID}/extend`, true, async (ctx, [id]) => {
+  const res = await requireResolution(id);
+  if (res.status !== "open") throw new HttpError(409, "Voting is not open.");
+  const minutes = int((await ctx.body()).minutes, "Minutes", { min: 1, max: 24 * 60 })!;
+  await extendVote(res, minutes, ctx.user.id);
+  return enrich((await getById(res.id))!, true, true);
 });
 
 route("POST", `/resolutions/${UUID}/announce`, true, async (ctx, [id]) => {

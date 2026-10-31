@@ -210,6 +210,10 @@ alter table resolutions add column if not exists eligible_count int;
 -- they are present. Generated when voting opens; who entered it is recorded.
 alter table resolutions add column if not exists activation_required boolean not null default true;
 alter table resolutions add column if not exists activation_code text;
+-- Set when the deadline passed without quorum: the vote stays open, the admins
+-- decide (extend / close as not valid / close and redo), and it closes on its
+-- own as soon as quorum is reached.
+alter table resolutions add column if not exists awaiting_quorum_since timestamptz;
 create table if not exists vote_activations (
   resolution_id uuid not null references resolutions(id) on delete cascade,
   member_id     uuid not null references members(id) on delete cascade,

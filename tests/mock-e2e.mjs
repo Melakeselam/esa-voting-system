@@ -733,6 +733,72 @@ try {
   await api("POST", "/resolutions/" + RA.id + "/close", USERS.admin);
   await api("POST", "/resolutions/" + RN.id + "/close", USERS.admin);
 
+  // ---- Deadline passes without quorum ---------------------------------------
+  const pastDue = async (id) => {
+    const past = new Date(Date.now() - 1000).toISOString();
+    if (REAL) await realDb.supabase.from("resolutions").update({ closes_at: past }).eq("id", id);
+    else db().tables.resolutions.find((x) => x.id === id).closes_at = past;
+  };
+  const tick = async () => (await (await fetch(base + "/api/tick?key=wh-secret-123")).json()).closed;
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Amend the constitution, article 7", options: ["Yes", "No", "Abstain"], quorum: 100, activation_required: false });
+  const RQ = r.json;
+  await api("POST", "/resolutions/" + RQ.id + "/open", USERS.admin, { minutes: 5 });
+  await api("POST", "/vote", USERS.sara, { resolution_id: RQ.id, choice_index: 2 }); // an abstention counts toward quorum
+  await pastDue(RQ.id);
+  const adminMsgsBefore = sentTo(1001).length;
+  eq("quorum: deadline without quorum does not close the vote", await tick(), 0);
+  r = await api("GET", "/resolutions/" + RQ.id, USERS.admin);
+  check("quorum: the vote stays open and is marked as waiting", r.json?.status === "open" && r.json.awaiting_quorum_since && r.json.outcome?.quorumMet === false && r.json.ballots === 1, JSON.stringify([r.json?.status, r.json?.awaiting_quorum_since, r.json?.ballots]));
+  const waitMsg = sentTo(1001).slice(adminMsgsBefore).find((c) => /without quorum/.test(c.body.text));
+  check("quorum: admins asked with extend / close as not valid / close and redo", waitMsg && ["qx|" + RQ.id + "|10", "qx|" + RQ.id + "|custom", "qc|" + RQ.id, "qr|" + RQ.id].every((d) => JSON.stringify(waitMsg.body.reply_markup).includes(d)), JSON.stringify(waitMsg?.body));
+  check("quorum: delegates who have not voted are reminded once, the voter is not", sentTo(2005).some((c) => /still open/.test(c.body.text) && JSON.stringify(c.body.reply_markup).includes(`v|${RQ.id}|`)) && !sentTo(USERS.sara.id).some((c) => /still open/.test(c.body.text)));
+  await tick();
+  eq("quorum: no second alert on the next tick", sentTo(1001).filter((c) => /without quorum/.test(c.body.text) && c.body.text.includes(RQ.code)).length, 1);
+  // Extend from the chat: preset button, then a custom number of minutes.
+  await update(callback(USERS.admin, `qx|${RQ.id}|10`));
+  r = await api("GET", "/resolutions/" + RQ.id, USERS.admin);
+  check("quorum: '+10 min' extends the deadline and clears the waiting state", r.json?.awaiting_quorum_since === null && new Date(r.json.closes_at).getTime() > Date.now() + 9 * 60_000, JSON.stringify([r.json?.awaiting_quorum_since, r.json?.closes_at]));
+  await update(callback(USERS.admin, `qx|${RQ.id}|custom`));
+  check("quorum: 'other minutes' asks how many", /how many minutes/.test(lastTextTo(1001)), lastTextTo(1001));
+  await update(textMessage(USERS.admin, "25"));
+  r = await api("GET", "/resolutions/" + RQ.id, USERS.admin);
+  check("quorum: the admin's number of minutes is applied", /extended by 25 min/.test(lastTextTo(1001)) && new Date(r.json.closes_at).getTime() > Date.now() + 24 * 60_000, lastTextTo(1001));
+  await update(callback(USERS.guest, `qx|${RQ.id}|5`));
+  r = await api("GET", "/resolutions/" + RQ.id, USERS.admin);
+  check("quorum: non-admins cannot extend", new Date(r.json.closes_at).getTime() > Date.now() + 24 * 60_000);
+  // Extend from the app, then close and redo.
+  r = await api("POST", "/resolutions/" + RQ.id + "/extend", USERS.admin, { minutes: 7 });
+  check("quorum: the app extends by any number of minutes", r.status === 200 && Math.abs(new Date(r.json.closes_at).getTime() - (Date.now() + 7 * 60_000)) < 60_000, JSON.stringify([r.status, r.json?.closes_at]));
+  r = await api("POST", "/resolutions/" + RQ.id + "/extend", USERS.admin, { minutes: 0 });
+  eq("quorum: zero minutes rejected", r.status, 400);
+  await pastDue(RQ.id);
+  await tick();
+  r = await api("POST", "/resolutions/" + RQ.id + "/close", USERS.admin, { redo: true });
+  check("quorum: 'close and redo' closes as not valid and creates a fresh draft", r.json?.status === "closed" && r.json.outcome?.quorumMet === false && r.json.redo_draft?.code && r.json.redo_draft.code !== RQ.code, JSON.stringify([r.json?.status, r.json?.redo_draft]));
+  const redoId = r.json.redo_draft.id;
+  r = await api("GET", "/resolutions/" + redoId, USERS.admin);
+  check("quorum: the redo draft has the same wording and rules", r.json?.status === "draft" && r.json.title === RQ.title && JSON.stringify(r.json.options) === JSON.stringify(RQ.options) && r.json.quorum === 100 && r.json.activation_required === false && r.json.ballots === 0, JSON.stringify(r.json));
+  await api("DELETE", "/resolutions/" + redoId, USERS.admin);
+  // Close as not valid from the chat button.
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Second waiting vote", options: ["Yes", "No"], quorum: 100, activation_required: false });
+  const RQ2 = r.json;
+  await api("POST", "/resolutions/" + RQ2.id + "/open", USERS.admin, { minutes: 5 });
+  await pastDue(RQ2.id);
+  await tick();
+  await update(callback(USERS.admin, `qc|${RQ2.id}`));
+  r = await api("GET", "/resolutions/" + RQ2.id, USERS.admin);
+  check("quorum: 'close as not valid' from the chat closes it with quorum not met", r.json?.status === "closed" && r.json.outcome?.quorumMet === false && /not valid/.test(lastTextTo(1001)), JSON.stringify([r.json?.status, lastTextTo(1001)]));
+  // Quorum reached after the deadline: it closes by itself.
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Late quorum vote", options: ["Yes", "No"], quorum: 1, activation_required: false });
+  const RQ3 = r.json;
+  await api("POST", "/resolutions/" + RQ3.id + "/open", USERS.admin, { minutes: 5 });
+  await pastDue(RQ3.id);
+  eq("quorum: no ballots yet → waits", await tick(), 0);
+  await api("POST", "/vote", USERS.sara, { resolution_id: RQ3.id, choice_index: 0 });
+  eq("quorum: reached after the deadline → closes on the next tick", await tick(), 1);
+  r = await api("GET", "/resolutions/" + RQ3.id, USERS.admin);
+  check("quorum: closed and valid, admins told it reached quorum", r.json?.status === "closed" && r.json.outcome?.quorumMet === true && r.json.awaiting_quorum_since === null, JSON.stringify([r.json?.status, r.json?.outcome?.quorumMet]));
+
   // ---- Group gate: people in the group who are not registered --------------
   const memberUpd = (u, oldStatus, newStatus, by = USERS.admin) => ({ chat_member: { chat: GROUP, from: from(by), date: 20, old_chat_member: { status: oldStatus, user: from(u) }, new_chat_member: { status: newStatus, user: { ...from(u), username: u.username } } } });
   const stranger = { id: 3001, first_name: "Stranger", username: "str4nger" };
@@ -908,7 +974,7 @@ try {
 
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "deadline_without_quorum", "resolution_extended", "resolution_redo", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

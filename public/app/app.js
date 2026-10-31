@@ -309,6 +309,23 @@
     });
   }
 
+  /** "Extend by how many minutes?" Resolves a number of minutes, or null when cancelled. */
+  function pickExtension(code) {
+    var html = "<h2>" + esc(t("Extend voting on {code}", { code: code })) + "</h2>" +
+      '<p class="hint">' + esc(t("Voting stays open for this many more minutes from now.")) + "</p>" +
+      '<div class="chips">' + [5, 10, 15, 30, 60].map(function (m) { return '<button class="chip" data-min="' + m + '">' + esc(t("+{n} min", { n: m })) + "</button>"; }).join("") + "</div>" +
+      '<div class="inline-fields"><div class="field"><label>' + esc(t("Minutes")) + '</label><input type="number" min="1" max="1440" inputmode="numeric" data-custom placeholder="' + esc(t("e.g. 20")) + '"></div>' +
+      '<div class="field"><label>&nbsp;</label><button class="btn block" data-go>' + esc(t("Extend")) + "</button></div></div>";
+    return openSheet(html, function (sheet, close) {
+      on(sheet, "[data-min]", "click", function (e) { close(Number(e.currentTarget.dataset.min)); });
+      sheet.querySelector("[data-go]").onclick = function () {
+        var m = Math.round(Number(sheet.querySelector("[data-custom]").value));
+        if (!m || m < 1 || m > 1440) return toast(t("Enter the number of minutes"), "err");
+        close(m);
+      };
+    });
+  }
+
   /** Run a batched server job (broadcast, notify) with a progress sheet. */
   function runBatches(title, step) {
     return openSheet(
@@ -458,7 +475,7 @@
         '<p class="hint">' + esc(resolutionMeta(e)) + "</p>";
       var kv = [];
       if (e.opened_at_local) kv.push([t("Opened"), e.opened_at_local]);
-      if (e.status === "open") kv.push([t("Closes"), e.closes_at_local || t("manually (no deadline)")]);
+      if (e.status === "open") kv.push([t("Closes"), e.awaiting_quorum_since ? t("deadline passed — waiting for quorum") : (e.closes_at_local || t("manually (no deadline)"))]);
       if (e.closed_at_local) kv.push([t("Closed"), e.closed_at_local]);
       if (e.announce_chat_id) {
         var tp = e.topics.filter(function (x) { return x.chat_id === e.announce_chat_id && x.thread_id === (e.announce_thread_id || 0); })[0];
@@ -474,6 +491,14 @@
           '<button class="btn secondary block" data-act="edit">✏️ ' + esc(t("Edit")) + "</button>" +
           '<button class="btn danger block" data-act="delete">🗑 ' + esc(t("Delete draft")) + "</button></div>";
       } else {
+        if (e.status === "open" && e.awaiting_quorum_since) {
+          var oq = e.outcome || {};
+          html += '<div class="card waiting"><h3>⏳ ' + esc(t("Deadline passed without quorum")) + "</h3>" +
+            "<p>" + esc(t("{ballots} of {required} ballots needed so far. Voting stays open and closes by itself as soon as quorum is reached. Delegates who have not voted were reminded.", { ballots: e.ballots, required: oq.quorumRequired != null ? oq.quorumRequired : "?" })) + "</p>" +
+            '<div class="actions"><button class="btn block" data-act="extend">⏱ ' + esc(t("Extend voting…")) + "</button>" +
+            '<button class="btn secondary block" data-act="closeinvalid">✖️ ' + esc(t("Close as not valid")) + "</button>" +
+            '<button class="btn secondary block" data-act="redo">🔁 ' + esc(t("Close and redo")) + "</button></div></div>";
+        }
         if (e.status === "open" && e.activation_required && e.activation_code) {
           html += activationCardHtml(e).replace(/<\/div>$/, '<button class="btn secondary sm" data-act="newcode">🔄 ' + esc(t("New code")) + "</button></div>");
         }
@@ -483,6 +508,7 @@
             '<button class="btn block" data-act="announce">📢 ' + esc(t("Announce in a topic")) + "</button>" +
             '<button class="btn secondary block" data-act="notify">📨 ' + esc(t("Send ballot to all members")) + "</button>" +
             '<button class="btn secondary block" data-act="publish">📊 ' + esc(t("Post interim results")) + "</button>" +
+            (e.awaiting_quorum_since ? "" : '<button class="btn secondary block" data-act="extend">⏱ ' + esc(t("Extend voting…")) + "</button>") +
             '<button class="btn danger block" data-act="close">🔴 ' + esc(t("Close voting now")) + "</button></div>";
         } else {
           html += '<div class="actions"><button class="btn secondary block" data-act="publish">📊 ' + esc(t("Post final results to a topic")) + "</button>" +
@@ -497,6 +523,24 @@
         haptic("light");
         try {
           if (act === "edit") return go("resform", { id: e.id });
+          if (act === "extend") {
+            var mins = await pickExtension(e.code);
+            if (!mins) return;
+            var ex = await api("POST", "/resolutions/" + e.id + "/extend", { minutes: mins });
+            haptic("success"); toast(t("Voting is open until {time}", { time: ex.closes_at_local }), "ok");
+            return refresh();
+          }
+          if (act === "closeinvalid" || act === "redo") {
+            var redo = act === "redo";
+            if (!(await confirmDialog(redo
+              ? t("Close {code} as not valid (quorum not reached) and create a new draft with the same wording, ready to vote again?", { code: e.code })
+              : t("Close {code} as not valid (quorum not reached)? The result is published as not valid.", { code: e.code })))) return;
+            var cr = await api("POST", "/resolutions/" + e.id + "/close", { redo: redo });
+            haptic("success");
+            if (cr.redo_draft) { toast(t("Closed. New draft {code} is ready.", { code: cr.redo_draft.code }), "ok"); return go("resolution", { id: cr.redo_draft.id }); }
+            toast(t("Voting closed"), "ok");
+            return refresh();
+          }
           if (act === "newcode") {
             if (!(await confirmDialog(t("Replace the activation code for {code}? Show the new code in the meeting. Members who already entered the old one can still vote.", { code: e.code })))) return;
             await api("POST", "/resolutions/" + e.id + "/activation-code");
@@ -1454,7 +1498,8 @@
     var html = '<div class="card" id="res-' + e.id + '"><h2>' + esc(e.code) + " — " + esc(e.title) + "</h2>" +
       (e.description ? "<p>" + esc(e.description) + "</p>" : "") +
       '<p class="hint">' + esc(e.anonymous ? "🔒 " + t("Secret ballot — your choice is anonymous and final.") : "✏️ " + t("Open ballot — you may change your vote until voting closes.")) +
-      (e.closes_at_local ? "<br>⏰ " + esc(t("Closes {time}", { time: e.closes_at_local })) : "") + "</p>";
+      (e.awaiting_quorum_since ? "<br>⏳ " + esc(t("Not enough delegates have voted yet — voting continues until quorum is reached.")) :
+        e.closes_at_local ? "<br>⏰ " + esc(t("Closes {time}", { time: e.closes_at_local })) : "") + "</p>";
     if (e.needs_activation && !(e.voted && e.anonymous)) {
       // Presence check: the code shown in the meeting unlocks this ballot.
       html += '<div class="activate"><p>🔑 ' + esc(t("Enter the 4-digit activation code shown in the meeting (on the screen or in the video-call chat) to vote.")) + "</p>" +

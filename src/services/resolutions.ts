@@ -67,7 +67,7 @@ export async function setStatus(
   status: ResolutionStatus,
   closesAt?: Date | null,
 ): Promise<void> {
-  const patch: Record<string, unknown> = { status };
+  const patch: Record<string, unknown> = { status, awaiting_quorum_since: null };
   if (status === "open") {
     patch.opened_at = new Date().toISOString();
     patch.closes_at = closesAt ? closesAt.toISOString() : null;
@@ -92,7 +92,7 @@ export async function claimClose(id: string): Promise<{ eligible: number } | nul
   const eligible = (await memberCounts()).active;
   const { data, error } = await supabase
     .from("resolutions")
-    .update({ status: "closed", closed_at: new Date().toISOString(), eligible_count: eligible })
+    .update({ status: "closed", closed_at: new Date().toISOString(), eligible_count: eligible, awaiting_quorum_since: null })
     .eq("id", id)
     .eq("status", "open")
     .select("id");
@@ -107,7 +107,7 @@ export async function claimClose(id: string): Promise<{ eligible: number } | nul
  */
 export async function reopenResolution(id: string, closesAt: Date | null): Promise<boolean> {
   const current = await getById(id);
-  const patch: Record<string, unknown> = { status: "open", closes_at: closesAt ? closesAt.toISOString() : null, closed_at: null, eligible_count: null };
+  const patch: Record<string, unknown> = { status: "open", closes_at: closesAt ? closesAt.toISOString() : null, closed_at: null, eligible_count: null, awaiting_quorum_since: null };
   if (current?.activation_required && !current.activation_code) patch.activation_code = newActivationCode();
   const { data, error } = await supabase
     .from("resolutions")
@@ -129,6 +129,40 @@ export async function listDueForClose(): Promise<Resolution[]> {
     .lte("closes_at", new Date().toISOString());
   if (error) throw error;
   return data as Resolution[];
+}
+
+/** Mark an open resolution as past its deadline without quorum. Returns false if it was already marked. */
+export async function markAwaitingQuorum(id: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("resolutions")
+    .update({ awaiting_quorum_since: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "open")
+    .is("awaiting_quorum_since", null)
+    .select("id");
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
+/** Give an open resolution a new deadline `minutes` from now (and stop waiting for quorum). */
+export async function extendDeadline(id: string, minutes: number): Promise<Date> {
+  const closesAt = new Date(Date.now() + minutes * 60_000);
+  const { data, error } = await supabase
+    .from("resolutions")
+    .update({ closes_at: closesAt.toISOString(), awaiting_quorum_since: null })
+    .eq("id", id)
+    .eq("status", "open")
+    .select("id");
+  if (error) throw error;
+  if ((data?.length ?? 0) === 0) throw new Error("Voting is not open.");
+  return closesAt;
+}
+
+/** A fresh draft with the same wording and rules — for voting again after a vote without quorum. */
+export async function duplicateAsDraft(res: Resolution): Promise<Resolution> {
+  const copy = await createResolution({ title: res.title, description: res.description, options: res.options, anonymous: res.anonymous });
+  await updateResolution(copy.id, { quorum: res.quorum, threshold: res.threshold, activation_required: res.activation_required });
+  return (await getById(copy.id))!;
 }
 
 /** New activation code for an open resolution (the old one leaked, or a new session started). Returns it. */

@@ -221,3 +221,6 @@ details.help .help-warn { background: rgba(217, 162, 27, 0.18); border-radius: 1
 .activation .act-code { font-size: 44px; font-weight: 800; letter-spacing: 0.25em; text-align: center; padding: 10px 0; font-variant-numeric: tabular-nums; user-select: all; }
 .activate { background: var(--bg2); border-radius: 12px; padding: 10px 12px; }
 .activate input { font-size: 22px; letter-spacing: 0.3em; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ---- vote waiting for quorum after its deadline ---- */
+.card.waiting { border: 1.5px solid rgba(217, 162, 27, 0.6); background: rgba(217, 162, 27, 0.08); }
