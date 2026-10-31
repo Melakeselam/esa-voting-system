@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
-import { audit, supabase } from "../db.js";
+import { audit, rawDb, supabase } from "../db.js";
+import { currentOrgId, withOrg } from "../org-context.js";
 import { config } from "../config.js";
 import type { Member } from "../types.js";
 import { normalizePhone } from "./credentials.js";
@@ -8,8 +9,13 @@ export function normalizeToken(raw: string): string {
   return raw.trim().toUpperCase();
 }
 
+/**
+ * Find an invitation by its code in ANY organisation: codes are unique across
+ * the platform, so the code itself tells which organisation it belongs to.
+ * Use member.org_id to continue in that organisation.
+ */
 export async function findByToken(token: string): Promise<Member | null> {
-  const { data, error } = await supabase
+  const { data, error } = await rawDb
     .from("members")
     .select("*")
     .eq("token_id", normalizeToken(token))
@@ -24,7 +30,9 @@ export async function findById(id: string): Promise<Member | null> {
   return data as Member | null;
 }
 
+/** The member this Telegram account is in the current organisation (null when no organisation is selected). */
 export async function findByTelegramId(telegramId: number): Promise<Member | null> {
+  if (!currentOrgId()) return null;
   const { data, error } = await supabase
     .from("members")
     .select("*")
@@ -82,20 +90,26 @@ export type LoginResult =
   | { status: "ok"; member: Member }
   | { status: "unknown_token" | "conflict" | "locked" | "wrong_password" | "locked_now" };
 
-/** Step 1: is this token usable by this Telegram account? */
+/** Step 1: is this token usable by this Telegram account? (Any organisation: the code says which.) */
 export async function checkToken(token: string, telegramId: number): Promise<TokenCheck> {
   const member = await findByToken(token);
   if (!member || !member.is_active) return { status: "unknown_token" };
-  if (member.telegram_user_id !== null && member.telegram_user_id !== telegramId) {
-    await audit(telegramId, "login_token_conflict", { token: member.token_id });
-    return { status: "conflict" };
-  }
-  if (isLocked(member)) return { status: "locked" };
-  return { status: "ok", member };
+  return withOrg(member.org_id, async (): Promise<TokenCheck> => {
+    if (member.telegram_user_id !== null && member.telegram_user_id !== telegramId) {
+      await audit(telegramId, "login_token_conflict", { token: member.token_id });
+      return { status: "conflict" };
+    }
+    if (isLocked(member)) return { status: "locked" };
+    return { status: "ok", member };
+  });
 }
 
-/** Step 2: verify the password and bind the Telegram account. Re-reads the member first. */
+/** Step 2: verify the password and bind the Telegram account, in the invitation's organisation. */
 export async function verifyAndBind(member: Member, password: string, telegramId: number): Promise<LoginResult> {
+  return withOrg(member.org_id, () => verifyAndBindInOrg(member, password, telegramId));
+}
+
+async function verifyAndBindInOrg(member: Member, password: string, telegramId: number): Promise<LoginResult> {
   const fresh = await findByToken(member.token_id);
   if (!fresh || !fresh.is_active) return { status: "unknown_token" };
   if (isLocked(fresh)) return { status: "locked" };

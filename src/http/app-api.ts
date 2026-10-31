@@ -52,7 +52,7 @@ import {
   getTopic,
   listTopics,
   renameTopic,
-  setSetting,
+  setLinkedGroup,
   upsertTopic,
 } from "../services/settings.js";
 import { ballotCount, castVote, memberBallots, memberChoices, tally } from "../services/votes.js";
@@ -62,6 +62,24 @@ import type { Member, Resolution, Threshold } from "../types.js";
 import { computeOutcome } from "../verdict.js";
 import { eligibleFor } from "../services/resolutions.js";
 import { verifyInitData, type TgUser } from "./auth.js";
+import { requireOrgId, withOrg } from "../org-context.js";
+import {
+  brandedName,
+  createOrg,
+  defaultCodePrefix,
+  currentOrg,
+  getOrg,
+  GROUP_TERMS,
+  isPlatformAdmin,
+  listOrgs,
+  resolveUserOrg,
+  setActiveOrg,
+  updateOrg,
+  userOrgIds,
+  VOTER_TERMS,
+  PLATFORM_NAME,
+  type OrgInput,
+} from "../services/orgs.js";
 import { asObject, bool, HttpError, int, json, readJsonBody, str } from "./util.js";
 
 // ---------------------------------------------------------------------------
@@ -106,28 +124,41 @@ export async function handleAppApi(
   if (!verified) throw new HttpError(401, "Your session is invalid or expired. Close and reopen the app.", "bad_auth");
 
   await ensureBotReady();
-  const isAdmin = await isAdminUser(verified.user.id);
+
+  // Which organisation this request is about: the one the app asks for (if the
+  // person belongs to it), else their chosen / only one, else — while the
+  // platform serves a single organisation — that one.
+  const requested = String(req.headers["x-org-id"] ?? "").trim() || null;
+  const orgId = await resolveUserOrg(verified.user.id, requested);
 
   for (const r of routes) {
     if (r.method !== method) continue;
     const m = r.pattern.exec(path);
     if (!m) continue;
-    if (r.admin && !isAdmin) throw new HttpError(403, "Admin access required.", "forbidden");
-    let cached: Record<string, unknown> | null = null;
-    const ctx: Ctx = {
-      req,
-      user: verified.user,
-      isAdmin,
-      query,
-      startParam: verified.startParam,
-      body: async () => (cached ??= asObject((await readJsonBody(req)) ?? {})),
-    };
-    const result = await r.handler(ctx, m.slice(1));
-    json(res, 200, result ?? { ok: true });
-    return;
+    return withOrg(orgId, async () => {
+      if (!orgId && !ORGLESS.some((p) => p.test(path))) {
+        throw new HttpError(409, "Choose an organisation first.", "org_required");
+      }
+      const isAdmin = await isAdminUser(verified.user.id);
+      if (r.admin && !isAdmin) throw new HttpError(403, "Admin access required.", "forbidden");
+      let cached: Record<string, unknown> | null = null;
+      const ctx: Ctx = {
+        req,
+        user: verified.user,
+        isAdmin,
+        query,
+        startParam: verified.startParam,
+        body: async () => (cached ??= asObject((await readJsonBody(req)) ?? {})),
+      };
+      const result = await r.handler(ctx, m.slice(1));
+      json(res, 200, result ?? { ok: true });
+    });
   }
   throw new HttpError(404, `No route for ${method} ${path}`);
 }
+
+/** Routes that work without an organisation (they pick one themselves, or manage organisations). */
+const ORGLESS = [/^\/me$/, /^\/register$/, /^\/register\/pending$/, /^\/orgs(\/.*)?$/];
 
 // ---------------------------------------------------------------------------
 // Shared shapes
@@ -255,14 +286,44 @@ async function dmBatch(ids: number[], offset: number, send: (id: number) => Prom
 // Everyone (member + admin)
 // ---------------------------------------------------------------------------
 
+/** Organisation as the app shows it: names, terms and the person's role in it. */
+async function orgSummary(id: string, telegramId: number) {
+  const o = await getOrg(id);
+  if (!o) return null;
+  const mine = await userOrgIds(telegramId);
+  return {
+    id: o.id,
+    name_en: o.name_en,
+    name_am: o.name_am,
+    branded: brandedName(o),
+    short_code: o.short_code,
+    assembly_en: o.assembly_en,
+    assembly_am: o.assembly_am,
+    office_en: o.office_en,
+    office_am: o.office_am,
+    voter_term: o.voter_term,
+    group_term: o.group_term,
+    terms: { voter: VOTER_TERMS[o.voter_term] ?? VOTER_TERMS.delegate, group: GROUP_TERMS[o.group_term] ?? GROUP_TERMS.council },
+    role: mine.admin.includes(o.id) ? "admin" : mine.member.includes(o.id) ? "member" : "guest",
+  };
+}
+
 route("GET", "/me", false, async (ctx) => {
   const member = await findByTelegramId(ctx.user.id);
+  const mine = await userOrgIds(ctx.user.id);
+  const ids = [...new Set([...mine.admin, ...mine.member])];
+  const orgs = (await Promise.all(ids.map((id) => orgSummary(id, ctx.user.id)))).filter(Boolean);
+  const org = await currentOrg();
   return {
     user: ctx.user,
     role: ctx.isAdmin ? "admin" : member ? "member" : "guest",
     member: member ? safeMember(member) : null,
     start_param: ctx.startParam ?? null,
-    group_link: member || ctx.isAdmin ? await groupInviteLink(bot.api) : null,
+    platform: { name: PLATFORM_NAME, admin: isPlatformAdmin(ctx.user.id) },
+    org: org ? await orgSummary(org.id, ctx.user.id) : null,
+    orgs,
+    org_required: !org && orgs.length > 1,
+    group_link: org && (member || ctx.isAdmin) ? await groupInviteLink(bot.api) : null,
     app: {
       bot_username: bot.botInfo.username,
       tz_label: config.tzLabel,
@@ -271,6 +332,73 @@ route("GET", "/me", false, async (ctx) => {
       serverless: config.serverless,
     },
   };
+});
+
+// ---------------------------------------------------------------------------
+// Organisations (Kene Voting System serves several assemblies)
+// ---------------------------------------------------------------------------
+
+function parseOrgBody(b: Record<string, unknown>, partial: boolean): Partial<OrgInput> {
+  const out: Partial<OrgInput> = {};
+  const name = str(b.name_en, "Organisation name", { optional: partial, min: 2, max: 160 });
+  if (name) out.name_en = name;
+  const code = str(b.short_code, "Short code", { optional: partial, min: 2, max: 8 });
+  if (code) out.short_code = code;
+  for (const k of ["name_am", "assembly_en", "assembly_am", "office_en", "office_am"] as const) {
+    if (b[k] !== undefined) out[k] = str(b[k], k, { optional: true, max: 160 }) || null;
+  }
+  if (b.voter_term !== undefined) {
+    if (!VOTER_TERMS[String(b.voter_term)]) throw new HttpError(400, "Unknown voter term.");
+    out.voter_term = String(b.voter_term);
+  }
+  if (b.group_term !== undefined) {
+    if (!GROUP_TERMS[String(b.group_term)]) throw new HttpError(400, "Unknown group term.");
+    out.group_term = String(b.group_term);
+  }
+  return out;
+}
+
+/** The term presets the setup form offers. */
+route("GET", "/orgs/terms", false, async () => ({ voter: VOTER_TERMS, group: GROUP_TERMS, platform: PLATFORM_NAME }));
+
+/** Organisations this person can open (all of them for platform admins). */
+route("GET", "/orgs", false, async (ctx) => {
+  const mine = await userOrgIds(ctx.user.id);
+  const ids = isPlatformAdmin(ctx.user.id) ? (await listOrgs()).map((o) => o.id) : [...new Set([...mine.admin, ...mine.member])];
+  return { items: (await Promise.all(ids.map((id) => orgSummary(id, ctx.user.id)))).filter(Boolean), platform_admin: isPlatformAdmin(ctx.user.id) };
+});
+
+/** A new organisation (platform admins only). The creator administers it; another first admin may be named. */
+route("POST", "/orgs", false, async (ctx) => {
+  if (!isPlatformAdmin(ctx.user.id)) throw new HttpError(403, "Only the platform administrators can create organisations.", "forbidden");
+  const b = await ctx.body();
+  const org = await createOrg(parseOrgBody(b, false) as OrgInput);
+  await withOrg(org.id, async () => {
+    const firstAdmin = int(b.admin_telegram_id, "First admin's Telegram ID", { optional: true, min: 1 });
+    if (firstAdmin !== null) await addDbAdmin(firstAdmin, str(b.admin_name, "Admin name", { optional: true, max: 120 }) || null, ctx.user.id);
+    await audit(ctx.user.id, "organization_created", { name: org.name_en, short_code: org.short_code, first_admin: firstAdmin, via: "app" });
+  });
+  await setActiveOrg(ctx.user.id, org.id);
+  return { org: await orgSummary(org.id, ctx.user.id) };
+});
+
+/** Edit an organisation's identity and terms (its admins, or platform admins). */
+route("PATCH", `/orgs/${UUID}`, false, async (ctx, [id]) => {
+  const mine = await userOrgIds(ctx.user.id);
+  if (!isPlatformAdmin(ctx.user.id) && !mine.admin.includes(id)) throw new HttpError(403, "Admin access required.", "forbidden");
+  if (!(await getOrg(id))) throw new HttpError(404, "Organisation not found.");
+  const patch = parseOrgBody(await ctx.body(), true);
+  await updateOrg(id, patch);
+  await withOrg(id, () => audit(ctx.user.id, "organization_edited", { ...patch, via: "app" }));
+  return { org: await orgSummary(id, ctx.user.id) };
+});
+
+/** Remember the organisation picked in the app, so the bot chat follows it too. */
+route("POST", `/orgs/${UUID}/select`, false, async (ctx, [id]) => {
+  const mine = await userOrgIds(ctx.user.id);
+  if (!isPlatformAdmin(ctx.user.id) && !mine.admin.includes(id) && !mine.member.includes(id)) throw new HttpError(403, "You are not part of that organisation.", "forbidden");
+  await setActiveOrg(ctx.user.id, id);
+  return { ok: true };
 });
 
 /**
@@ -300,21 +428,26 @@ route("POST", "/register", false, async (ctx) => {
   if (existing) return { status: "ok", member: safeMember(existing), already: true };
   const result = await loginWithCredentials(token, password, ctx.user.id);
   if (result.status === "ok") {
-    await clearInvitation(ctx.user.id);
-    void approvePendingJoin(bot.api, ctx.user.id); // waiting at the group door? let them in
-    const groupLink = await groupInviteLink(bot.api);
-    // Same confirmation in the chat as the chat registration gives, with the way into the group.
-    try {
-      await bot.api.sendMessage(
-        ctx.user.id,
-        `🎉 Registration complete, <b>${escapeHtml(result.member.full_name ?? result.member.token_id)}</b>!\n\n` +
-          `Announcements and discussion happen in the assembly group — open it below. Ballots and results reach you here.`,
-        { parse_mode: "HTML", reply_markup: await afterRegistrationKeyboard(bot.api) },
-      );
-    } catch {
-      // The member may not have opened the bot chat yet.
-    }
-    return { status: "ok", member: safeMember(result.member), group_link: groupLink };
+    const member = result.member;
+    // The code decided the organisation; carry on (and stay) in it.
+    return withOrg(member.org_id, async () => {
+      await clearInvitation(ctx.user.id);
+      await setActiveOrg(ctx.user.id, member.org_id);
+      void approvePendingJoin(bot.api, ctx.user.id); // waiting at the group door? let them in
+      const groupLink = await groupInviteLink(bot.api);
+      // Same confirmation in the chat as the chat registration gives, with the way into the group.
+      try {
+        await bot.api.sendMessage(
+          ctx.user.id,
+          `🎉 Registration complete, <b>${escapeHtml(member.full_name ?? member.token_id)}</b>!\n\n` +
+            `Announcements and discussion happen in the assembly group — open it below. Ballots and results reach you here.`,
+          { parse_mode: "HTML", reply_markup: await afterRegistrationKeyboard(bot.api) },
+        );
+      } catch {
+        // The member may not have opened the bot chat yet.
+      }
+      return { status: "ok", member: safeMember(member), group_link: groupLink, org_id: member.org_id };
+    });
   }
   return { status: result.status, lock_minutes: config.lockMinutes };
 });
@@ -681,7 +814,7 @@ route("POST", `/members/${UUID}/revoke`, true, async (ctx, [id]) => {
  */
 route("POST", "/members/generate", true, async (ctx) => {
   const b = await ctx.body();
-  const prefix = str(b.prefix, "Prefix", { optional: true, max: 20 }) || "ESA-2026";
+  const prefix = str(b.prefix, "Prefix", { optional: true, max: 20 }) || (await defaultCodePrefix());
   let people: Person[];
   if (Array.isArray(b.people)) {
     people = b.people.map((p) => {
@@ -1133,7 +1266,7 @@ route("POST", "/setup/group", true, async (ctx) => {
   const b = await ctx.body();
   const chatId = int(b.chat_id, "chat_id")!;
   const title = str(b.title, "Title", { optional: true, max: 200 }) || null;
-  await setSetting("group", { chat_id: chatId, title });
+  await setLinkedGroup(chatId, title);
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
   await audit(ctx.user.id, "group_linked", { chat_id: chatId, via: "app" });
   return { ok: true };
@@ -1212,7 +1345,7 @@ route("POST", "/setup/group/people/(\\d+)/register", true, async (ctx, [uid]) =>
   if (councilId && !council) throw new HttpError(404, "Council not found.");
   const [row] = await generateCredentials(
     [{ name, region: null, council_id: council?.id ?? null, vote_weight: council?.vote_weight ?? 1 }],
-    council?.code ?? "ESA-2026",
+    council?.code ?? (await defaultCodePrefix()),
   );
   const member = await findByToken(row.token_id);
   if (!member) throw new HttpError(500, "Member record not found after creation.");
@@ -1346,6 +1479,7 @@ route("GET", "/audit", true, async (ctx) => {
   const { data, error } = await supabase
     .from("audit_log")
     .select("id, actor, action, details, created_at")
+    .eq("org_id", requireOrgId()) // this organisation's trail only
     .order("id", { ascending: false })
     .limit(limit);
   if (error) throw error;

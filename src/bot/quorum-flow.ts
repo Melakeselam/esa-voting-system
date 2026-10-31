@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from "grammy";
 import type { Api, Context } from "grammy";
 import { audit, supabase } from "../db.js";
 import { isAdminUser } from "../services/admins.js";
+import { setActiveOrg } from "../services/orgs.js";
 import { duplicateAsDraft, eligibleFor, extendDeadline, getById, markAwaitingQuorum } from "../services/resolutions.js";
 import { ballotCount } from "../services/votes.js";
 import { quorumRequired } from "../verdict.js";
@@ -140,6 +141,7 @@ quorumComposer.callbackQuery(/^qx\|([0-9a-f-]{36})\|(\d+|custom)$/, async (ctx) 
   if (!res) return;
   if (ctx.match[2] === "custom") {
     awaitingMinutes.set(ctx.from.id, res.id);
+    await setActiveOrg(ctx.from.id, res.org_id); // the reply (the minutes) must land in this organisation
     await ctx.answerCallbackQuery();
     await ctx.reply(`⏱ By how many minutes should voting on <b>${escapeHtml(res.code)}</b> be extended? Send a number, e.g. <code>20</code>.`, { parse_mode: "HTML" });
     return;

@@ -245,3 +245,122 @@ create table if not exists group_people (
 alter table group_people enable row level security;
 create index if not exists members_by_council on members (council_id);
 alter table councils enable row level security;
+
+-- =============================================================
+-- Organisations. Kene Voting System serves several assemblies (Ethiopia Scout
+-- Association, Association of Ethiopian Architects, ...) from one bot and one
+-- database; every assembly row below belongs to one organisation, and the
+-- application scopes every query to the organisation of the request.
+-- =============================================================
+create table if not exists organizations (
+  id            uuid primary key default gen_random_uuid(),
+  name_en       text not null,                    -- "Association of Ethiopian Architects"
+  name_am       text,                             -- Amharic name, optional
+  short_code    text not null,                    -- invitation-code prefix, e.g. AEA
+  assembly_en   text,                             -- "General Assembly 2026"
+  assembly_am   text,
+  office_en     text,                             -- who issues invitations: "National Office", "Secretariat"
+  office_am     text,
+  voter_term    text not null default 'delegate', -- preset key (src/services/orgs.ts)
+  group_term    text not null default 'council',  -- preset key
+  group_chat_id bigint unique,                    -- the linked Telegram group
+  group_title   text,
+  created_at    timestamptz not null default now()
+);
+alter table organizations enable row level security;
+
+alter table members      add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table councils     add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table resolutions  add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table chat_topics  add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table group_people add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table admins       add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table app_settings add column if not exists org_id uuid references organizations(id) on delete cascade;
+alter table audit_log    add column if not exists org_id uuid references organizations(id) on delete set null;
+
+-- Data created before organisations existed belongs to the Ethiopia Scout Association.
+insert into organizations (id, name_en, name_am, short_code, assembly_en, assembly_am, office_en, office_am)
+select '00000000-0000-4000-8000-00000000e5a0', 'Ethiopia Scout Association', 'የኢትዮጵያ ስካውት ማኅበር', 'ESA',
+       'General Assembly 2026', 'ጠቅላላ ጉባኤ 2026', 'National Office', 'ብሔራዊ ጽሕፈት ቤት'
+ where not exists (select 1 from organizations)
+   and (exists (select 1 from members) or exists (select 1 from resolutions) or exists (select 1 from councils)
+        or exists (select 1 from app_settings) or exists (select 1 from admins) or exists (select 1 from chat_topics));
+update members      set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update councils     set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update resolutions  set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update chat_topics  set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update group_people set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update admins       set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update app_settings set org_id = '00000000-0000-4000-8000-00000000e5a0' where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+update audit_log    set org_id = '00000000-0000-4000-8000-00000000e5a0'
+ where org_id is null and exists (select 1 from organizations where id = '00000000-0000-4000-8000-00000000e5a0');
+-- The linked group moved from the 'group' setting to the organisation row.
+update organizations o
+   set group_chat_id = (s.value->>'chat_id')::bigint, group_title = s.value->>'title'
+  from app_settings s
+ where s.org_id = o.id and s.key = 'group' and o.group_chat_id is null
+   and not exists (select 1 from organizations x where x.group_chat_id = (s.value->>'chat_id')::bigint);
+delete from app_settings where key = 'group';
+
+alter table members      alter column org_id set not null;
+alter table councils     alter column org_id set not null;
+alter table resolutions  alter column org_id set not null;
+alter table chat_topics  alter column org_id set not null;
+alter table group_people alter column org_id set not null;
+alter table admins       alter column org_id set not null;
+alter table app_settings alter column org_id set not null;
+
+-- Uniqueness is now per organisation: R1 exists in every assembly, a council
+-- name may repeat across organisations, and one Telegram account can be a
+-- member (or admin) of several organisations. Invitation codes stay unique
+-- everywhere, so a code alone tells which organisation it belongs to.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'members_telegram_user_id_key') then
+    alter table members drop constraint members_telegram_user_id_key;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'resolutions_code_key') then
+    alter table resolutions drop constraint resolutions_code_key;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'councils_name_key') then
+    alter table councils drop constraint councils_name_key;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'councils_code_key') then
+    alter table councils drop constraint councils_code_key;
+  end if;
+  if exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid
+              where t.relname = 'app_settings' and c.contype = 'p' and array_length(c.conkey, 1) = 1) then
+    alter table app_settings drop constraint app_settings_pkey;
+    alter table app_settings add primary key (org_id, key);
+  end if;
+  if exists (select 1 from pg_constraint c join pg_class t on t.oid = c.conrelid
+              where t.relname = 'admins' and c.contype = 'p' and array_length(c.conkey, 1) = 1) then
+    alter table admins drop constraint admins_pkey;
+    alter table admins add primary key (org_id, telegram_user_id);
+  end if;
+end $$;
+create unique index if not exists members_org_telegram on members (org_id, telegram_user_id);
+create unique index if not exists resolutions_org_code on resolutions (org_id, code);
+create unique index if not exists councils_org_name on councils (org_id, name);
+create unique index if not exists councils_org_code on councils (org_id, code);
+create index if not exists members_by_org on members (org_id);
+create index if not exists resolutions_by_org on resolutions (org_id);
+create index if not exists audit_by_org on audit_log (org_id, created_at);
+
+-- Invitation recognised in the bot chat (QR scanned) but not completed yet.
+-- Kept outside any organisation: the code itself says which one it is.
+create table if not exists pending_invitations (
+  telegram_user_id bigint primary key,
+  token_id         text not null,
+  created_at       timestamptz not null default now()
+);
+alter table pending_invitations enable row level security;
+
+-- Which organisation a person's private chat with the bot is about, when they
+-- belong to several (chosen with /org).
+create table if not exists user_active_org (
+  telegram_user_id bigint primary key,
+  org_id           uuid not null references organizations(id) on delete cascade,
+  updated_at       timestamptz not null default now()
+);
+alter table user_active_org enable row level security;

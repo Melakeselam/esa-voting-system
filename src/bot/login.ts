@@ -27,6 +27,11 @@ export function inLogin(userId: number): boolean {
   return sessions.has(userId);
 }
 
+/** The organisation of the invitation this person is registering with, once the code has been recognised. */
+export function sessionOrgId(userId: number): string | null {
+  return sessions.get(userId)?.member?.org_id ?? null;
+}
+
 export async function promptLogin(ctx: Context): Promise<void> {
   beginLogin(ctx.from!.id);
   const kb = appKeyboard("📱 Register in the app");

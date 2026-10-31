@@ -2,6 +2,8 @@ import type { Api } from "grammy";
 import { audit } from "../db.js";
 import { config } from "../config.js";
 import { claimClose, listDueForClose } from "../services/resolutions.js";
+import { listOrgs } from "../services/orgs.js";
+import { withOrg } from "../org-context.js";
 import { ballotCount, tally } from "../services/votes.js";
 import { resultsText } from "./ui.js";
 import type { Resolution } from "../types.js";
@@ -45,6 +47,13 @@ export async function closeResolution(
  * Returns how many closed.
  */
 export async function autoCloseDue(api: Api): Promise<number> {
+  // Deadlines of every organisation, each handled inside its own organisation.
+  let closed = 0;
+  for (const org of await listOrgs()) closed += await withOrg(org.id, () => autoCloseDueInOrg(api));
+  return closed;
+}
+
+async function autoCloseDueInOrg(api: Api): Promise<number> {
   const { handleDeadline } = await import("./quorum-flow.js"); // circular import: quorum-flow uses closeResolution
   const due = await listDueForClose();
   let closed = 0;

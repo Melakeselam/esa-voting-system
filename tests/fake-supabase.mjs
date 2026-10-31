@@ -20,23 +20,33 @@ const DEFAULTS = {
   councils: () => ({ id: randomUUID(), seats: 1, vote_weight: 1, created_at: now() }),
   group_people: () => ({ first_name: null, last_name: null, username: null, status: "member", source: null, added_by: null, first_seen_at: now(), last_seen_at: now() }),
   vote_activations: () => ({ activated_at: now() }),
+  organizations: () => ({ id: randomUUID(), name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
+  pending_invitations: () => ({ created_at: now() }),
+  user_active_org: () => ({ updated_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
-  app_settings: ["key"], chat_topics: ["chat_id", "thread_id"], admins: ["telegram_user_id"], councils: ["id"],
+  app_settings: ["org_id", "key"], chat_topics: ["chat_id", "thread_id"], admins: ["org_id", "telegram_user_id"], councils: ["id"],
   group_people: ["chat_id", "user_id"],
   vote_activations: ["resolution_id", "member_id"],
+  organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"],
 };
+// Mirrors db/schema.sql: uniqueness is per organisation, invitation codes are unique everywhere.
 const UNIQUE = {
-  members: [["token_id"], ["telegram_user_id"]],
-  resolutions: [["code"]],
+  members: [["token_id"], ["org_id", "telegram_user_id"]],
+  resolutions: [["org_id", "code"]],
   ballots: [["resolution_id", "member_id"]],
   votes: [["resolution_id", "member_id"]],
-  app_settings: [["key"]],
+  app_settings: [["org_id", "key"]],
   chat_topics: [["chat_id", "thread_id"]],
-  admins: [["telegram_user_id"]],
-  councils: [["name"], ["code"]],
+  admins: [["org_id", "telegram_user_id"]],
+  councils: [["org_id", "name"], ["org_id", "code"]],
+  organizations: [["group_chat_id"]],
+  pending_invitations: [["telegram_user_id"]],
+  user_active_org: [["telegram_user_id"]],
 };
+// Organisation tables: an insert without org_id is a bug the real database would reject (NOT NULL).
+const NEEDS_ORG = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings"]);
 
 function now() { return new Date().toISOString(); }
 function same(a, b) { return a === b || (a != null && b != null && String(a) === String(b)); }
@@ -81,6 +91,9 @@ class FakeClient {
   _insert(table, row) {
     const full = { ...DEFAULTS[table](), ...row, _seq: ++this.seq };
     if (table === "audit_log") full.id = this.seq;
+    if (NEEDS_ORG.has(table) && !full.org_id) {
+      return { error: { message: `null value in column "org_id" of relation "${table}" violates not-null constraint`, code: "23502" } };
+    }
     for (const cols of UNIQUE[table] ?? []) {
       if (cols.some((c) => full[c] == null)) continue;
       if (this.tables[table].some((r) => cols.every((c) => same(r[c], full[c])))) {

@@ -1,4 +1,5 @@
 import { supabase } from "../db.js";
+import { currentOrg, setOrgGroup } from "./orgs.js";
 
 /** Small key/value store for app-level configuration (e.g. the linked group). */
 export async function getSetting<T>(key: string): Promise<T | null> {
@@ -19,8 +20,14 @@ export interface LinkedGroup {
   title: string | null;
 }
 
+/** The current organisation's linked Telegram group (stored on the organisation row). */
 export async function getLinkedGroup(): Promise<LinkedGroup | null> {
-  return getSetting<LinkedGroup>("group");
+  const org = await currentOrg();
+  return org?.group_chat_id ? { chat_id: Number(org.group_chat_id), title: org.group_title } : null;
+}
+
+export async function setLinkedGroup(chatId: number, title: string | null): Promise<void> {
+  await setOrgGroup(chatId, title);
 }
 
 export interface ChatTopic {
@@ -99,7 +106,7 @@ export async function deleteSetting(key: string): Promise<void> {
 export async function unlinkGroup(chatId?: number): Promise<void> {
   const linked = await getLinkedGroup();
   if (chatId !== undefined && linked && linked.chat_id !== chatId) return;
-  if (linked) await deleteSetting("group");
+  if (linked) await setOrgGroup(null, null);
   await deleteSetting("signin_topic");
   await deleteSetting("commands_topic");
   await deleteSetting("group_link");

@@ -11,6 +11,7 @@ import { afterRegistrationKeyboard } from "./group-link.js";
 import type { InlineKeyboard } from "grammy";
 import type { Member, Resolution } from "../types.js";
 import { activate, needsActivation } from "../services/activation.js";
+import { setActiveOrg } from "../services/orgs.js";
 
 /** Member-facing handlers. Everything here runs in private chats only. */
 export const memberComposer = new Composer<Context>();
@@ -162,6 +163,7 @@ const awaitingCode = new Map<number, string>();
 /** Ask the member for the meeting's activation code before they can vote on `res`. */
 async function askForCode(ctx: Context, res: Resolution): Promise<void> {
   awaitingCode.set(ctx.from!.id, res.id);
+  await setActiveOrg(ctx.from!.id, res.org_id); // the reply (the code) must land in this organisation
   await ctx.reply(
     `🔑 <b>${escapeHtml(res.code)} — ${escapeHtml(res.title)}</b>\n` +
       `Voting on this resolution needs the <b>4-digit activation code</b> shown in the meeting ` +

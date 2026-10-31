@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { Api, Context } from "grammy";
 import { isAdminUser } from "../services/admins.js";
+import { requireOrgId } from "../org-context.js";
 import { assemblySummary, getResetMode, resetAssembly, summaryText } from "../services/reset.js";
 import { notifyAdmins } from "./notify.js";
 import { escapeHtml } from "./ui.js";
@@ -25,7 +26,7 @@ export async function onBotRemoved(api: Api, groupTitle: string | null, byUserId
     return;
   }
   const s = await assemblySummary();
-  const kb = new InlineKeyboard().text("🗑 Reset assembly data", "reset|ask").text("Keep", "reset|keep");
+  const kb = new InlineKeyboard().text("🗑 Reset assembly data", `reset|ask|${requireOrgId()}`).text("Keep", `reset|keep|${requireOrgId()}`);
   await notifyAdmins(
     api,
     `👋 I was removed from <b>${escapeHtml(title)}</b>. The assembly data is kept: ${escapeHtml(summaryText(s))}.\n` +
@@ -37,7 +38,7 @@ export async function onBotRemoved(api: Api, groupTitle: string | null, byUserId
 
 export const resetComposer = new Composer<Context>();
 
-resetComposer.callbackQuery(/^reset\|(ask|yes|keep)$/, async (ctx) => {
+resetComposer.callbackQuery(/^reset\|(ask|yes|keep)(?:\|[0-9a-f-]{36})?$/, async (ctx) => {
   const action = ctx.match[1];
   if (!(await isAdminUser(ctx.from.id))) {
     await ctx.answerCallbackQuery({ text: "Admins only.", show_alert: true });
@@ -55,7 +56,7 @@ resetComposer.callbackQuery(/^reset\|(ask|yes|keep)$/, async (ctx) => {
       `⚠️ This deletes ${escapeHtml(summaryText(s))}, the learned group and its topics. Admin accounts and the audit log stay. <b>This cannot be undone.</b>`,
       {
         parse_mode: "HTML",
-        reply_markup: new InlineKeyboard().text("✅ Yes, wipe everything", "reset|yes").text("↩️ Cancel", "reset|keep"),
+        reply_markup: new InlineKeyboard().text("✅ Yes, wipe everything", `reset|yes|${requireOrgId()}`).text("↩️ Cancel", `reset|keep|${requireOrgId()}`),
       },
     );
     return;

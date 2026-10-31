@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import { audit } from "../db.js";
+import { currentOrgId, requireOrgId } from "../org-context.js";
 import { config } from "../config.js";
 import { isAdminUser } from "../services/admins.js";
 import { notifyAdmins } from "./notify.js";
@@ -8,7 +9,7 @@ import { escapeHtml } from "./ui.js";
 import { lockGroupPermissions } from "./group-lock.js";
 import { onBotPromoted } from "./gate.js";
 import { onBotRemoved } from "./reset-flow.js";
-import { getLinkedGroup, setSetting, unlinkGroup, upsertTopic } from "../services/settings.js";
+import { getLinkedGroup, setLinkedGroup, unlinkGroup, upsertTopic } from "../services/settings.js";
 
 /**
  * Learns the assembly group and its forum topics from the updates the bot
@@ -66,6 +67,8 @@ groupComposer.use(async (ctx, next) => {
 async function track(ctx: Context): Promise<void> {
   const chat = ctx.chat ?? ctx.myChatMember?.chat;
   if (!chat || (chat.type !== "supergroup" && chat.type !== "group")) return;
+  // A group no organisation claims (and nobody who could claim it): nothing to learn.
+  if (!currentOrgId()) return;
   const title = "title" in chat ? chat.title : null;
 
   // Bot added to (or promoted in) a group.
@@ -172,7 +175,7 @@ async function linkOrSwitch(ctx: Context, chatId: number, title: string | null):
       await notifyAdmins(
         ctx.api,
         `ℹ️ I was added to <b>${escapeHtml(title ?? String(chatId))}</b>, but <b>${escapeHtml(linked.title ?? String(linked.chat_id))}</b> is still the assembly group, so I set nothing up in the new one.`,
-        new InlineKeyboard().text("🔁 Use the new group instead", `gswitch|${chatId}`),
+        new InlineKeyboard().text("🔁 Use the new group instead", `gswitch|${chatId}|${requireOrgId()}`),
       );
       console.log(`Added to "${title ?? chatId}" (${chatId}) while "${linked.title ?? linked.chat_id}" is still linked — asked the admins`);
       return;
@@ -186,7 +189,7 @@ async function linkOrSwitch(ctx: Context, chatId: number, title: string | null):
 }
 
 /** "Use the new group instead": unlink the current group and set up the new one as if the bot had just been promoted there. */
-groupComposer.callbackQuery(/^gswitch\|(-?\d+)$/, async (ctx) => {
+groupComposer.callbackQuery(/^gswitch\|(-?\d+)(?:\|[0-9a-f-]{36})?$/, async (ctx) => {
   if (!(await isAdminUser(ctx.from.id))) {
     await ctx.answerCallbackQuery({ text: "Admins only.", show_alert: true });
     return;
@@ -233,10 +236,10 @@ async function linkGroupIfUnset(chatId: number, title: string | null): Promise<v
   if (seen.has(memo)) return;
   const linked = await getLinkedGroup();
   if (!linked) {
-    await setSetting("group", { chat_id: chatId, title });
+    await setLinkedGroup(chatId, title);
     console.log(`Linked group "${title ?? chatId}" (${chatId})`);
   } else if (linked.chat_id === chatId && linked.title !== title) {
-    await setSetting("group", { chat_id: chatId, title });
+    await setLinkedGroup(chatId, title);
   }
   seen.add(memo);
 }

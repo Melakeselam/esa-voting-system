@@ -139,24 +139,24 @@ const REAL = Boolean(process.env.TEST_DATABASE_URL);
 if (!REAL) register("./hooks.mjs", import.meta.url);
 const { handleHttp } = await import(pathToFileURL(resolve(root, "dist/http/router.js")).href);
 const realDb = REAL ? await import(pathToFileURL(resolve(root, "dist/db.js")).href) : null;
-const TABLES = ["members", "resolutions", "ballots", "votes", "audit_log", "app_settings", "chat_topics", "admins", "councils"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations"];
 if (REAL) {
   await realDb.ensureSchema();
-  await realDb.supabase.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
+  await realDb.rawDb.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
   console.log(`Running against PostgreSQL: ${process.env.TEST_DATABASE_URL.replace(/\/\/.*@/, "//***@")}`);
 }
 const db = () => globalThis.__fakeSupabase;
 /** Raw rows of a table (fake: in-memory array; real: SELECT *). */
 async function rows(table) {
   if (!REAL) return db().tables[table];
-  const { data, error } = await realDb.supabase.from(table).select("*");
+  const { data, error } = await realDb.rawDb.from(table).select("*");
   if (error) throw error;
   return data;
 }
 /** Pretend a table is missing (fake: flag; real: rename it away and back). */
 async function hideTable(table, hidden) {
   if (!REAL) { hidden ? db().missing.add(table) : db().missing.delete(table); return; }
-  await realDb.supabase.exec(hidden ? `ALTER TABLE ${table} RENAME TO ${table}_hidden` : `ALTER TABLE ${table}_hidden RENAME TO ${table}`);
+  await realDb.rawDb.exec(hidden ? `ALTER TABLE ${table} RENAME TO ${table}_hidden` : `ALTER TABLE ${table}_hidden RENAME TO ${table}`);
 }
 
 const appServer = createServer((req, res) => handleHttp(req, res));
@@ -242,6 +242,13 @@ try {
 
   eq("webhook: wrong secret rejected", await update(textMessage(USERS.guest, "/start"), "nope"), 401);
   eq("webhook: no secret rejected", await (await fetch(base + "/telegram", { method: "POST", body: "{}" })).status, 401);
+
+  // ---- Organisation: Kene Voting System hosts several; the scenario runs in one ----
+  r = await api("POST", "/orgs", USERS.guest, { name_en: "Intruders", short_code: "INT" });
+  eq("org: only platform admins create organisations", r.status, 403);
+  r = await api("POST", "/orgs", USERS.admin, { name_en: "Ethiopia Scout Association", name_am: "የኢትዮጵያ ስካውት ማኅበር", short_code: "ESA", assembly_en: "General Assembly 2026", office_en: "National Office" });
+  const ORG = r.json?.org;
+  check("org: platform admin creates the organisation", r.status === 200 && ORG?.id && ORG.branded === "Ethiopia Scout Association (Kene Voting System)" && ORG.role === "admin", JSON.stringify(r.json));
 
   // Roles & auth
   r = await api("GET", "/me", USERS.admin);
@@ -573,7 +580,7 @@ try {
 
   // Auto-close: pretend R2's deadline has passed
   const pastDeadline = new Date(Date.now() - 1000).toISOString();
-  if (REAL) await realDb.supabase.from("resolutions").update({ closes_at: pastDeadline }).eq("id", R2.id);
+  if (REAL) await realDb.rawDb.from("resolutions").update({ closes_at: pastDeadline }).eq("id", R2.id);
   else db().tables.resolutions.find((x) => x.id === R2.id).closes_at = pastDeadline;
   r = await fetch(base + "/api/tick");
   eq("tick: unauthenticated rejected", r.status, 401);
@@ -736,7 +743,7 @@ try {
   // ---- Deadline passes without quorum ---------------------------------------
   const pastDue = async (id) => {
     const past = new Date(Date.now() - 1000).toISOString();
-    if (REAL) await realDb.supabase.from("resolutions").update({ closes_at: past }).eq("id", id);
+    if (REAL) await realDb.rawDb.from("resolutions").update({ closes_at: past }).eq("id", id);
     else db().tables.resolutions.find((x) => x.id === id).closes_at = past;
   };
   const tick = async () => (await (await fetch(base + "/api/tick?key=wh-secret-123")).json()).closed;
@@ -987,7 +994,8 @@ try {
 
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "deadline_without_quorum", "resolution_extended", "resolution_redo", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: platform actions stay out of the organisation log", (await rows("audit_log")).some((a) => a.action === "webhook_registered" && a.org_id == null) && !actions.has("webhook_registered"));
+  check("audit: key actions recorded", ["organization_created", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "deadline_without_quorum", "resolution_extended", "resolution_redo", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 
@@ -1005,7 +1013,7 @@ try {
 
 appServer.close();
 tgServer.close();
-if (REAL) await realDb.supabase.end();
+if (REAL) await realDb.rawDb.end();
 
 // ---------------------------------------------------------------- report
 let failed = 0;

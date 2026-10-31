@@ -1,5 +1,6 @@
 export interface Member {
   id: string;
+  org_id: string; // the organisation (assembly) this invitation belongs to
   token_id: string;
   password_hash: string;
   full_name: string | null;
@@ -30,6 +31,7 @@ export type Threshold = "simple" | "two_thirds";
 
 export interface Resolution {
   id: string;
+  org_id: string;
   code: string;
   title: string;
   description: string | null;

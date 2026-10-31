@@ -1,6 +1,7 @@
 import { audit, supabase } from "../db.js";
 import { memberCounts } from "./members.js";
 import { getSetting, setSetting } from "./settings.js";
+import { setOrgGroup } from "./orgs.js";
 
 /**
  * Wiping an assembly: councils, members (registered and invited), resolutions
@@ -38,10 +39,17 @@ async function wipe(table: string, notNullColumn: string): Promise<void> {
 
 export async function resetAssembly(by: string | number, reason: string): Promise<AssemblySummary> {
   const before = await assemblySummary();
-  // Children first (the real database also cascades, the fake one does not).
-  await wipe("votes", "id");
-  await wipe("ballots", "resolution_id");
-  await wipe("vote_activations", "resolution_id");
+  // Ballots, votes and activations hang off this organisation's resolutions
+  // (they carry no org_id): remove them resolution by resolution, children
+  // first (the real database also cascades, the fake one does not).
+  const { data: resRows, error: rErr } = await supabase.from("resolutions").select("id");
+  if (rErr) throw rErr;
+  for (const r of resRows ?? []) {
+    for (const t of ["votes", "ballots", "vote_activations"]) {
+      const { error } = await supabase.from(t).delete().eq("resolution_id", r.id);
+      if (error) throw error;
+    }
+  }
   await wipe("resolutions", "id");
   await wipe("members", "id");
   await wipe("councils", "id");
@@ -51,6 +59,7 @@ export async function resetAssembly(by: string | number, reason: string): Promis
   for (const k of KEEP_SETTINGS) q = q.neq("key", k);
   const { error } = await q;
   if (error) throw error;
+  await setOrgGroup(null, null); // the organisation itself stays; its group link goes
   await audit(by, "assembly_reset", { ...before, reason });
   return before;
 }
