@@ -77,6 +77,9 @@ const tgServer = createServer(async (req, res) => {
     case "getChat":
       result = { id: Number(body.chat_id), type: "supergroup", title: GROUP.title, is_forum: true, permissions: { ...chatPermissions } };
       break;
+    case "createForumTopic":
+      result = { message_thread_id: 44, name: body.name, icon_color: 0x6fb9f0 };
+      break;
     case "setChatPermissions":
       if (!lockRights) {
         res.writeHead(400, { "content-type": "application/json" });
@@ -263,6 +266,13 @@ try {
   await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 33, is_topic_message: true, text: "hello" } });
   r = await api("GET", "/setup", USERS.admin);
   eq("rooms: group linked", r.json?.group?.chat_id, GROUP.id);
+  check("signin: a Register / Sign in topic was created when the bot became admin", calls("createForumTopic", (b) => Number(b.chat_id) === GROUP.id && /Sign in/.test(b.name)).length === 1, JSON.stringify(calls("createForumTopic").map((c) => c.body)));
+  check("signin: card posted in that topic with a register button", sentTo(GROUP.id, 44).some((c) => /Register with your code/.test(c.body.text) && JSON.stringify(c.body.reply_markup).includes("start=register")), JSON.stringify(sentTo(GROUP.id, 44).map((c) => c.body.text)));
+  check("signin: card pinned", calls("pinChatMessage", (b) => Number(b.chat_id) === GROUP.id).length === 1);
+  check("signin: admins told where members sign in", /Register \/ Sign in/.test(lastTextTo(1001)) && /cannot check the people already inside/.test(lastTextTo(1001)), lastTextTo(1001));
+  r = await api("POST", "/setup/group/signin", USERS.admin);
+  check("signin: re-posted from Setup into the same topic", r.json?.thread_id === 44 && r.json.note === null && sentTo(GROUP.id, 44).length === 2 && calls("createForumTopic").length === 1, JSON.stringify(r.json));
+  r = await api("GET", "/setup", USERS.admin);
   check("lock: member permissions locked when the bot was made admin", calls("setChatPermissions", (b) => Number(b.chat_id) === GROUP.id && b.permissions?.can_invite_users === false && b.permissions?.can_manage_topics === false && b.permissions?.can_change_info === false && b.permissions?.can_pin_messages === false && b.permissions?.can_send_messages === true && b.use_independent_chat_permissions === true).length === 1, JSON.stringify(calls("setChatPermissions").map((c) => c.body)));
   check("lock: Setup reports the group as locked", r.json?.group_lock?.locked === true && r.json?.group_rights?.can_restrict_members === true, JSON.stringify([r.json?.group_lock, r.json?.group_rights]));
   chatPermissions.can_invite_users = true; // someone re-enabled it by hand
@@ -277,7 +287,8 @@ try {
   r = await api("GET", "/setup", USERS.admin);
   check("rooms: bot's rights in the group reported", r.json?.group_rights?.is_admin === true && r.json?.group_rights?.can_manage_topics === true, JSON.stringify(r.json?.group_rights));
   const topicNames = Object.fromEntries((r.json?.topics ?? []).map((t) => [t.thread_id, t.name]));
-  eq("rooms: General + 3 topics known", Object.keys(topicNames).length, 4);
+  eq("rooms: General + sign-in topic + 3 topics known", Object.keys(topicNames).length, 5);
+  eq("rooms: sign-in topic listed by name", topicNames[44], "📝 Register / Sign in");
   eq("rooms: topic names learned", [topicNames[0], topicNames[11], topicNames[22], topicNames[33]], ["General", "Day 1 — Resolutions", "JOTA-JOTI", null]);
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/33", USERS.admin, { name: "Announcements" });
   eq("rooms: topic renamed from app", r.status, 200);
@@ -700,7 +711,7 @@ try {
   eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

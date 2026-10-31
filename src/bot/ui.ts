@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import { appUrl } from "../config.js";
+import { appUrl, config } from "../config.js";
 import { formatLocal } from "../time.js";
 import { computeOutcome, thresholdLabel } from "../verdict.js";
 import type { Resolution, TallyRow } from "../types.js";
@@ -42,6 +42,30 @@ export function appKeyboard(text = "📱 Open app", path = ""): InlineKeyboard |
   const url = appUrl();
   if (!url) return undefined;
   return new InlineKeyboard().webApp(text, `${url}${path}`);
+}
+
+/** The sign-in card pinned in the group's "Register / Sign in" topic. */
+export function signInCard(groupTitle: string | null): string {
+  return (
+    `📝 <b>Sign in${groupTitle ? ` — ${escapeHtml(groupTitle)}` : ""}</b>\n\n` +
+    `Delegates register once with the invitation code from the National Office, then vote from their phone.\n\n` +
+    `1️⃣ Tap <b>Register with your code</b> below.\n` +
+    `2️⃣ Enter your code (ESA-2026-XXXXX) and the password from your invitation sheet. This happens in a private chat with the bot, so nobody here sees it.\n` +
+    `3️⃣ Done — ballots and results reach you in that private chat; announcements stay here in the group.\n\n` +
+    `Already registered? Nothing more to do. Lost your code? Ask the National Office.`
+  );
+}
+
+/** Buttons under the sign-in card. Inline web-app buttons do not work in groups, so these are links. */
+export function signInKeyboard(botUsername: string): InlineKeyboard {
+  const chat = `https://t.me/${botUsername}?start=register`;
+  if (config.miniAppShortName) {
+    return new InlineKeyboard()
+      .url("📝 Register with your code", `https://t.me/${botUsername}/${config.miniAppShortName}?startapp=register`)
+      .row()
+      .url("💬 Open a private chat with the bot", chat);
+  }
+  return new InlineKeyboard().url("📝 Register with your code", chat);
 }
 
 export function announceKeyboard(res: Resolution, botUsername: string): InlineKeyboard {

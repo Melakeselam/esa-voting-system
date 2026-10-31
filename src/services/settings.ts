@@ -100,6 +100,7 @@ export async function unlinkGroup(chatId?: number): Promise<void> {
   const linked = await getLinkedGroup();
   if (chatId !== undefined && linked && linked.chat_id !== chatId) return;
   if (linked) await deleteSetting("group");
+  await deleteSetting("signin_topic");
   // Only one group is ever linked, so every learned topic goes — including
   // rows that were added by hand under a wrong chat id.
   const { error } = await supabase.from("chat_topics").delete().neq("thread_id", -1);

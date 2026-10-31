@@ -35,6 +35,8 @@ export const config = {
   telegramApiRoot: env("TELEGRAM_API_ROOT") || null,
   /** Lock member permissions (add members, change info, pin, topics, polls) when the bot becomes admin of the linked group. LOCK_GROUP_PERMISSIONS=off disables it. */
   lockGroupPermissions: !/^(0|false|off|no)$/i.test(env("LOCK_GROUP_PERMISSIONS")),
+  /** Short name of the Mini App in BotFather (t.me/<bot>/<name>). When set, the sign-in button in the group opens the app directly. */
+  miniAppShortName: env("MINI_APP_SHORT_NAME") || null,
   /** PostgreSQL connection string (postgres://user:pass@host:5432/db). */
   databaseUrl: required("DATABASE_URL"),
   /** Set DATABASE_SSL=1 if the database requires TLS (self-signed certificates are accepted). */

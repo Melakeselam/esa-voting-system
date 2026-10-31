@@ -86,7 +86,7 @@ async function track(ctx: Context): Promise<void> {
     if (status === "administrator") {
       // Made admin of the assembly group: tell the room and the admins what happens now.
       const linked = await getLinkedGroup();
-      if (linked?.chat_id === chat.id) await onBotPromoted(ctx.api, chat.id, title);
+      if (linked?.chat_id === chat.id) await onBotPromoted(ctx.api, chat.id, title, "is_forum" in chat && Boolean(chat.is_forum));
     }
     if (status === "administrator" && config.lockGroupPermissions) {
       // Made admin of the assembly group: take the admin-only switches away from members.

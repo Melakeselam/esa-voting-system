@@ -5,7 +5,7 @@ import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
 import { forgetChatMemo, getLastUpdate } from "../bot/group.js";
 import { lockGroupPermissions, readLockState, type GroupLockState } from "../bot/group-lock.js";
-import { approveJoin, approvePendingJoin, declineJoin, kickFromGroup, unregisteredPeople } from "../bot/gate.js";
+import { approveJoin, approvePendingJoin, declineJoin, ensureSignInTopic, kickFromGroup, unregisteredPeople } from "../bot/gate.js";
 import { getGateMode, getPerson, personName, setGateMode } from "../services/group-people.js";
 import { bindTelegram, findByToken } from "../services/members.js";
 import { closeResolution } from "../bot/lifecycle.js";
@@ -936,6 +936,16 @@ route("POST", "/setup/group", true, async (ctx) => {
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
   await audit(ctx.user.id, "group_linked", { chat_id: chatId, via: "app" });
   return { ok: true };
+});
+
+/** (Re)create the "Register / Sign in" topic and post the pinned sign-in card there. */
+route("POST", "/setup/group/signin", true, async (ctx) => {
+  const group = await getLinkedGroup();
+  if (!group) throw new HttpError(409, "No group is linked.");
+  const chat = (await bot.api.getChat(group.chat_id)) as unknown as { is_forum?: boolean };
+  const result = await ensureSignInTopic(bot.api, group.chat_id, group.title, Boolean(chat.is_forum), { repost: true });
+  await audit(ctx.user.id, "signin_card_posted", { chat_id: group.chat_id, thread_id: result.thread_id, created: result.created, via: "app" });
+  return result;
 });
 
 // ---- People in the group (bot/gate.ts) ------------------------------------

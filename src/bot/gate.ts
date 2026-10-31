@@ -5,10 +5,10 @@ import { audit } from "../db.js";
 import { appUrl } from "../config.js";
 import { isAdminUser } from "../services/admins.js";
 import { findByTelegramId } from "../services/members.js";
-import { getLinkedGroup } from "../services/settings.js";
+import { getLinkedGroup, getSetting, setSetting, upsertTopic } from "../services/settings.js";
 import { getGateMode, getPerson, listPeople, personName, seePerson, setPersonStatus } from "../services/group-people.js";
 import { notifyAdmins } from "./notify.js";
-import { appKeyboard, escapeHtml } from "./ui.js";
+import { appKeyboard, escapeHtml, signInCard, signInKeyboard } from "./ui.js";
 
 /**
  * Guards the door of the assembly group. Only registered members (and admins)
@@ -102,31 +102,124 @@ export async function approvePendingJoin(api: Api, userId: number): Promise<bool
   }
 }
 
+// ---------------------------------------------------------------- sign-in topic
+
+export const SIGNIN_TOPIC_NAME = "📝 Register / Sign in";
+
+interface SignInTopic {
+  chat_id: number;
+  thread_id: number | null; // null = main chat (no topics)
+  message_id: number | null;
+}
+
+export interface SignInResult {
+  thread_id: number | null;
+  message_id: number | null;
+  created: boolean; // a new topic was created this time
+  note: string | null; // what could not be done, for the admins
+}
+
 /**
- * The bot was just made admin of the assembly group: tell the room how to
- * register and tell the admins what the bot can and cannot see.
+ * Make sure the group has a "Register / Sign in" topic with the sign-in card
+ * pinned in it. Creates the topic when it does not exist yet (forum groups,
+ * needs the "Manage topics" right), falls back to the main chat otherwise.
+ * With `repost`, posts the card again even if one was posted before.
  */
-export async function onBotPromoted(api: Api, chatId: number, groupTitle: string | null): Promise<void> {
-  const title = groupTitle ?? "this group";
-  const url = appUrl();
-  try {
-    await api.sendMessage(
-      chatId,
-      `📋 <b>${escapeHtml(title)}</b> is now managed by the ESA Voting System.\n` +
-        `Members: register with your invitation code to vote — open the bot and send /start. ` +
-        `People who are not registered may be removed by the administrators.`,
-      { parse_mode: "HTML", reply_markup: url ? new InlineKeyboard().url("🗳 Open the bot", `https://t.me/${(await api.getMe()).username}?start=register`) : undefined },
-    );
-  } catch (err) {
-    console.error("could not post the registration notice in the group:", err);
+export async function ensureSignInTopic(
+  api: Api,
+  chatId: number,
+  groupTitle: string | null,
+  isForum: boolean,
+  opts: { repost?: boolean } = {},
+): Promise<SignInResult> {
+  const me = await api.getMe();
+  let saved = await getSetting<SignInTopic>("signin_topic");
+  if (saved && saved.chat_id !== chatId) saved = null;
+  let threadId = saved?.thread_id ?? null;
+  let created = false;
+  const notes: string[] = [];
+
+  const createTopic = async (): Promise<boolean> => {
+    try {
+      const topic = await api.createForumTopic(chatId, SIGNIN_TOPIC_NAME);
+      threadId = topic.message_thread_id;
+      created = true;
+      await upsertTopic({ chat_id: chatId, thread_id: threadId, name: SIGNIN_TOPIC_NAME, chat_title: groupTitle });
+      return true;
+    } catch (err) {
+      notes.push(
+        `Could not create the “${SIGNIN_TOPIC_NAME}” topic (${(err as Error).message}); the sign-in card went to the main chat instead. ` +
+          `Give the bot the “Manage topics” right and tap “Post sign-in topic” in Setup.`,
+      );
+      threadId = null;
+      return false;
+    }
+  };
+
+  if (threadId === null && isForum) await createTopic();
+  else if (!isForum) notes.push("The group has topics switched off, so the sign-in card was posted in the main chat.");
+
+  if (saved?.message_id && !opts.repost && !created) {
+    return { thread_id: threadId, message_id: saved.message_id, created: false, note: null };
   }
+
+  let messageId: number | null = null;
+  const post = async () => {
+    const msg = await api.sendMessage(chatId, signInCard(groupTitle), {
+      parse_mode: "HTML",
+      message_thread_id: threadId ?? undefined,
+      reply_markup: signInKeyboard(me.username),
+    });
+    messageId = msg.message_id;
+  };
+  try {
+    await post();
+  } catch (err) {
+    // The remembered topic was deleted by hand: make a new one and try once more.
+    if (isForum && /thread not found|TOPIC_DELETED|TOPIC_ID_INVALID/i.test((err as Error).message) && (await createTopic())) {
+      try {
+        await post();
+      } catch (err2) {
+        notes.push(`Could not post the sign-in card: ${(err2 as Error).message}`);
+      }
+    } else {
+      notes.push(`Could not post the sign-in card: ${(err as Error).message}`);
+    }
+  }
+  if (messageId !== null) {
+    try {
+      await api.pinChatMessage(chatId, messageId, { disable_notification: true });
+    } catch {
+      notes.push("The card could not be pinned (the bot lacks the “Pin messages” right).");
+    }
+  }
+  await setSetting("signin_topic", { chat_id: chatId, thread_id: threadId, message_id: messageId } satisfies SignInTopic);
+  return { thread_id: threadId, message_id: messageId, created, note: notes.length ? notes.join(" ") : null };
+}
+
+/**
+ * The bot was just made admin of the assembly group: set up the sign-in topic
+ * and tell the admins what the bot can and cannot see.
+ */
+export async function onBotPromoted(api: Api, chatId: number, groupTitle: string | null, isForum: boolean): Promise<void> {
+  const title = groupTitle ?? "this group";
+  let signin: SignInResult | null = null;
+  try {
+    signin = await ensureSignInTopic(api, chatId, groupTitle, isForum);
+  } catch (err) {
+    console.error("setting up the sign-in topic failed:", err);
+  }
+  const where =
+    signin?.thread_id != null
+      ? `A “${SIGNIN_TOPIC_NAME}” topic is ready with the sign-in card pinned in it: members tap “Register with your code” there and finish in their private chat with me.`
+      : `The sign-in card is posted in the main chat: members tap “Register with your code” and finish in their private chat with me.`;
   await notifyAdmins(
     api,
-    `🛡 I am now an administrator of <b>${escapeHtml(title)}</b>.\n` +
-      `Telegram does not let a bot list a group's members, so I cannot check the people already inside. ` +
+    `🛡 I am now an administrator of <b>${escapeHtml(title)}</b>.\n${escapeHtml(where)}` +
+      (signin?.note ? `\n⚠️ ${escapeHtml(signin.note)}` : "") +
+      `\n\nTelegram does not let a bot list a group's members, so I cannot check the people already inside. ` +
       `They appear in Setup › “People in the group” as they post or join, marked when they are not registered; ` +
-      `from there you can register them (choose their council and role) or remove them. ` +
-      `New joiners are checked on entry.`,
+      `from there you can register them (choose their council and role) or remove them. New joiners are checked on entry.`,
     setupKeyboard(),
   );
 }

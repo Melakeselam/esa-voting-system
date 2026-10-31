@@ -1098,6 +1098,7 @@
         });
       }
       html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
+        (s.group ? ' <button class="btn secondary sm" data-act="signin">📝 ' + esc(t("Post sign-in topic")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
 
@@ -1144,6 +1145,12 @@
             if (!v) return;
             if (!v.telegram_user_id) return toast(t("Enter a Telegram ID"), "err");
             await api("POST", "/setup/admins", v); haptic("success"); toast(t("Admin added"), "ok"); return refresh();
+          }
+          if (act === "signin") {
+            if (!(await confirmDialog(t("Post the sign-in card in the group? The bot creates a “Register / Sign in” topic if there is none yet and pins the card there.")))) return;
+            var si = await api("POST", "/setup/group/signin");
+            if (si.note) toast(si.note, "warn"); else { haptic("success"); toast(t("Sign-in card posted"), "ok"); }
+            return refresh();
           }
           if (act === "lockgroup") {
             if (!(await confirmDialog(t("Take these away from ordinary members of the group: adding members, changing the group info, pinning messages, creating topics and posting polls? Admins keep them.")))) return;

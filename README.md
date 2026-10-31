@@ -197,6 +197,14 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   pinning, creating topics, posting polls — so only admins keep them; Setup
   shows the state and has a "Lock group for members" button to re-apply it.
   `LOCK_GROUP_PERMISSIONS=off` disables the automatic lock.
+- **Sign-in topic:** when the bot becomes admin of the linked (forum) group it
+  creates a "📝 Register / Sign in" topic, posts a sign-in card there and pins
+  it. The card's "Register with your code" button opens the bot's private
+  chat (`t.me/<bot>?start=register`) — or the Mini App directly when
+  `MINI_APP_SHORT_NAME` names the app configured in BotFather — where the
+  member enters code and password unseen by the group. Setup › "Post sign-in
+  topic" re-posts it; without topics or the "Manage topics" right the card
+  goes to the main chat.
 - **Group gate:** only registered members and admins belong in the assembly
   group. The bot receives `chat_member` and `chat_join_request` updates: a
   join request from a registered member is approved at once; anyone else is
