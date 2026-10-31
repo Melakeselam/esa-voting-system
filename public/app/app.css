@@ -167,7 +167,11 @@ a { color: var(--link); }
 
 /* ---- sheet (bottom modal) ---- */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 20; display: flex; align-items: flex-end; }
-.sheet { background: var(--section); width: 100%; border-radius: 18px 18px 0 0; padding: 14px var(--pad) calc(16px + var(--safe-bottom)); max-height: 85vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.sheet { background: var(--section); width: 100%; border-radius: 18px 18px 0 0; padding: 14px var(--pad) calc(16px + var(--safe-bottom)); max-height: 85vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
+/* Keep every part of a sheet at its natural height so a tall sheet scrolls
+   instead of squeezing its rows (the deadline chips used to collapse to a sliver). */
+.sheet > * { flex-shrink: 0; }
+.sheet .chips { flex-wrap: wrap; overflow-x: visible; }
 .sheet h2 { margin: 0 0 4px; font-size: 18px; }
 .sheet .handle { width: 40px; height: 4px; border-radius: 2px; background: var(--sep); margin: 0 auto 6px; }
 
