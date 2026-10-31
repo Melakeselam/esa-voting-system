@@ -2,6 +2,7 @@ import { Composer } from "grammy";
 import type { Context } from "grammy";
 import { audit } from "../db.js";
 import { checkToken, findByTelegramId } from "../services/members.js";
+import { rememberInvitation } from "../services/pending.js";
 import { getById, listResolutions } from "../services/resolutions.js";
 import { castVote, memberBallots } from "../services/votes.js";
 import { beginLoginWithToken, handleLoginMessage, inLogin, promptLogin } from "./login.js";
@@ -30,11 +31,14 @@ pm.command("start", async (ctx) => {
       const check = await checkToken(token, ctx.from!.id);
       if (check.status === "ok") {
         beginLoginWithToken(ctx.from!.id, check.member);
+        // Remembered server-side too, so the app fills the code in even when opened from the menu button.
+        await rememberInvitation(ctx.from!.id, check.member.token_id);
         await ctx.reply(
           `🎫 Invitation code <b>${escapeHtml(check.member.token_id)}</b> recognised` +
             (check.member.region ? ` — ${escapeHtml(check.member.region)}` : "") +
-            ".\n\nSend your <b>password</b> here now (the message is deleted right after checking), or open the app and enter it there.",
-          { parse_mode: "HTML", reply_markup: appKeyboard("📱 Register in the app", `?inv=${encodeURIComponent(check.member.token_id)}`) },
+            ".\n\nOpen the app — your code is already filled in — and enter the <b>password</b> printed on your invitation. " +
+            "Or send the password here (the message is deleted right after checking).",
+          { parse_mode: "HTML", reply_markup: appKeyboard("📱 Enter my password in the app", `?inv=${encodeURIComponent(check.member.token_id)}`) },
         );
         return;
       }

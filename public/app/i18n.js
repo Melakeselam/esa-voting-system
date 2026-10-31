@@ -237,6 +237,7 @@
       "Reopen voting": "ድምፅ መስጠትን እንደገና ክፈት",
       "Ban users": "ተጠቃሚዎችን አግድ",
       "People in the group": "በቡድኑ ውስጥ ያሉ ሰዎች",
+      "Use a different code": "ሌላ ኮድ ተጠቀም",
       "Post sign-in topic": "የመግቢያ ርዕስ ለጥፍ",
       "Post the sign-in card in the group? The bot creates a “Register / Sign in” topic if there is none yet and pins the card there.": "የመግቢያ ካርዱ በቡድኑ ውስጥ ይለጠፍ? ገና ከሌለ ቦቱ «ይመዝገቡ / ይግቡ» የሚል ርዕስ ፈጥሮ ካርዱን እዚያ ይሰካል።",
       "Sign-in card posted": "የመግቢያ ካርድ ተለጥፏል",

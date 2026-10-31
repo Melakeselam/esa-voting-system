@@ -372,8 +372,21 @@ try {
   await update(textMessage(USERS.delegate2, "/start inv_AARC-NOPE1"));
   check("invitation(chat): unknown code falls back to the normal prompt", /Voting Token ID/.test(lastTextTo(2006)), lastTextTo(2006));
   // App registration with the code from the QR link (?inv= is client-side; the API call is the same)
-  r = await api("POST", "/register", USERS.delegate2, { token: inv[2].token_id, password: inv[2].password });
-  eq("invitation(app): second delegate registers with code + password", [r.json?.status, r.json?.member?.full_name], ["ok", "Yonas Bekele"]);
+  // Scanned the QR (bot recognised the code) → the app fills the code in and asks for the password only.
+  r = await api("GET", "/register/pending", USERS.delegate2);
+  eq("invitation(app): nothing pending before scanning", r.json?.token_id, null);
+  await update(textMessage(USERS.delegate2, "/start inv_" + inv[2].token_id));
+  check("invitation(chat): the reply tells the member the code is filled in", /already filled in/.test(lastTextTo(2006)), lastTextTo(2006));
+  r = await api("GET", "/register/pending", USERS.delegate2);
+  eq("invitation(app): the scanned code is offered to the app", [r.json?.token_id, r.json?.full_name], [inv[2].token_id, "Yonas Bekele"]);
+  r = await api("POST", "/register", USERS.delegate2, { password: "wrong" });
+  eq("invitation(app): wrong password with the remembered code", r.json?.status, "wrong_password");
+  r = await api("POST", "/register", USERS.delegate2, { password: inv[2].password });
+  eq("invitation(app): second delegate registers with the password alone", [r.json?.status, r.json?.member?.full_name], ["ok", "Yonas Bekele"]);
+  r = await api("GET", "/register/pending", USERS.delegate2);
+  check("invitation(app): pending code cleared after registration", r.json?.token_id === null && r.json?.registered === true, JSON.stringify(r.json));
+  r = await api("POST", "/register", USERS.guest, { password: "x" });
+  eq("invitation(app): password alone without a scanned code is refused", r.status, 400);
   r = await api("GET", "/councils", USERS.admin);
   eq("councils: registered count updated", r.json?.items?.find((c) => c.code === "AARC")?.registered, 2);
   // Reissue: only the unregistered seat gets a new password; registered ones keep theirs

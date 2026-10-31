@@ -1286,10 +1286,17 @@
   // ---------------------------------------------------------------- MEMBER: register
   views.register = {
     title: function () { return t("ESA Voting System"); },
-    render: async function (content, params) {
+    render: async function (content, params, alive) {
+      // Code from the link, or the invitation the bot recognised when the member scanned their QR code.
+      var inv = params.inv || null;
+      if (!inv) {
+        try { var pend = await api("GET", "/register/pending"); if (pend && pend.token_id) inv = pend.token_id; } catch (_) { /* fall back to typing the code */ }
+        if (alive && !alive()) return;
+      }
       content.innerHTML = '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>" +
-        (params.inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +
-        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="ESA-2026-K7M2P" value="' + esc(params.inv || "") + '"></div>' +
+        (inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +
+        '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="ESA-2026-K7M2P" value="' + esc(inv || "") + '"' + (inv ? " readonly" : "") + "></div>" +
+        (inv ? '<p class="hint small"><a href="#" data-other>' + esc(t("Use a different code")) + "</a></p>" : "") +
         '<div class="field"><label>' + esc(t("Password")) + '</label><input type="password" data-pass autocomplete="off" placeholder="' + esc(t("from your credential slip")) + '"></div>' +
         '<p class="err hint" data-err hidden></p></div>' +
         '<button class="btn block" data-go>' + esc(t("Register")) + "</button>" +
@@ -1304,7 +1311,8 @@
         locked_now: t("Wrong password — the token is now locked for a while."),
       };
       content.querySelector("[data-help]").onclick = function () { go("help"); };
-      if (params.inv) setTimeout(function () { try { content.querySelector("[data-pass]").focus(); } catch (_) { /* ignore */ } }, 100);
+      if (content.querySelector("[data-other]")) content.querySelector("[data-other]").onclick = function (ev) { ev.preventDefault(); var tk = content.querySelector("[data-token]"); tk.readOnly = false; tk.value = ""; tk.focus(); ev.currentTarget.parentNode.remove(); };
+      if (inv) setTimeout(function () { try { content.querySelector("[data-pass]").focus(); } catch (_) { /* ignore */ } }, 100);
       content.querySelector("[data-go]").onclick = async function () {
         var token = content.querySelector("[data-token]").value.trim().toUpperCase();
         var pass = content.querySelector("[data-pass]").value;

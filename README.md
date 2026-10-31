@@ -143,8 +143,10 @@ row whose token starts with the council code (`AARC-K7M2P`), and the bot
 sends the admin one **PDF per council**: two A4 cards per page with council,
 delegate, invitation code, password, a **QR code** and a deep link
 (`https://t.me/<bot>?start=inv_<code>`). Scanning the code opens the bot,
-which recognises the invitation and only asks for the password; the Mini App
-link pre-fills the code too. Lost sheet: "New passwords for unregistered
+which recognises the invitation and only asks for the password. The
+recognised code is remembered for that Telegram account (72 h, `app_settings`
+key `pending_inv:<id>`), so the Mini App fills it in whichever way it is
+opened — inline button or menu button — and asks for the password only. Lost sheet: "New passwords for unregistered
 delegates" reissues the PDF without touching registered members. The PDF
 **Vote weight:** each council also sets the votes per delegate (default 1), so
 6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes. The weight

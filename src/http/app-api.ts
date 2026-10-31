@@ -8,6 +8,7 @@ import { lockGroupPermissions, readLockState, type GroupLockState } from "../bot
 import { approveJoin, approvePendingJoin, declineJoin, ensureSignInTopic, kickFromGroup, unregisteredPeople } from "../bot/gate.js";
 import { getGateMode, getPerson, personName, setGateMode } from "../services/group-people.js";
 import { bindTelegram, findByToken } from "../services/members.js";
+import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -258,14 +259,34 @@ route("GET", "/me", false, async (ctx) => {
   };
 });
 
+/**
+ * Invitation this Telegram account scanned in the bot chat (/start inv_<code>)
+ * but has not completed yet: the app fills the code in and asks for the
+ * password only.
+ */
+route("GET", "/register/pending", false, async (ctx) => {
+  if (await findByTelegramId(ctx.user.id)) return { token_id: null, registered: true };
+  const tokenId = await pendingInvitation(ctx.user.id);
+  if (!tokenId) return { token_id: null };
+  const member = await findByToken(tokenId);
+  if (!member || member.telegram_user_id !== null || !member.is_active) {
+    await clearInvitation(ctx.user.id); // used by someone else or revoked meanwhile
+    return { token_id: null };
+  }
+  return { token_id: member.token_id, full_name: member.full_name, region: member.region };
+});
+
 route("POST", "/register", false, async (ctx) => {
   const b = await ctx.body();
-  const token = str(b.token, "Token", { min: 3, max: 40 });
+  // The token may be left out when the bot already recognised an invitation for this account.
+  const token = str(b.token, "Token", { optional: true, max: 40 }) || (await pendingInvitation(ctx.user.id)) || "";
+  if (token.length < 3) throw new HttpError(400, "Token is required");
   const password = str(b.password, "Password", { min: 1, max: 100 });
   const existing = await findByTelegramId(ctx.user.id);
   if (existing) return { status: "ok", member: safeMember(existing), already: true };
   const result = await loginWithCredentials(token, password, ctx.user.id);
   if (result.status === "ok") {
+    await clearInvitation(ctx.user.id);
     void approvePendingJoin(bot.api, ctx.user.id); // waiting at the group door? let them in
     return { status: "ok", member: safeMember(result.member) };
   }
