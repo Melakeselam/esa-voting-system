@@ -924,9 +924,14 @@
             params.rows = rr.rows; toast(t("{n} passwords renewed", { n: rr.rows.length }), "ok"); return refresh();
           }
           if (act === "pdf") {
-            e.currentTarget.disabled = true;
-            await api("POST", "/councils/" + c.id + "/invitations-pdf", { rows: params.rows });
-            haptic("success"); toast(t("PDF sent to your chat"), "ok"); e.currentTarget.disabled = false; return;
+            // Keep the button itself: the event's currentTarget is null once the handler has awaited.
+            var pdfBtn = e.currentTarget;
+            pdfBtn.disabled = true;
+            try {
+              await api("POST", "/councils/" + c.id + "/invitations-pdf", { rows: params.rows });
+              haptic("success"); toast(t("PDF sent to your chat"), "ok");
+            } finally { pdfBtn.disabled = false; }
+            return;
           }
           if (act === "csv") {
             await api("POST", "/members/credentials-file", { rows: params.rows.map(function (r) { return { token_id: r.token_id, password: r.password, full_name: r.full_name, region: c.name }; }) });
