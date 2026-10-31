@@ -447,7 +447,8 @@
             '<button class="btn secondary block" data-act="publish">📊 ' + esc(t("Post interim results")) + "</button>" +
             '<button class="btn danger block" data-act="close">🔴 ' + esc(t("Close voting now")) + "</button></div>";
         } else {
-          html += '<div class="actions"><button class="btn secondary block" data-act="publish">📊 ' + esc(t("Post final results to a topic")) + "</button></div>";
+          html += '<div class="actions"><button class="btn secondary block" data-act="publish">📊 ' + esc(t("Post final results to a topic")) + "</button>" +
+            '<button class="btn secondary block" data-act="reopen">🔁 ' + esc(t("Reopen voting")) + "</button></div>";
         }
       }
       content.innerHTML = html;
@@ -488,6 +489,15 @@
             var out = await runBatches(t("Sending ballot…"), function (offset) { return api("POST", "/resolutions/" + e.id + "/notify", { offset: offset }); });
             if (out) await alertDialog(t("Ballot delivered to {sent} of {total} members.", { sent: out.sent, total: out.total }) + (out.failed ? " " + t("{n} could not be reached (they must open the bot first).", { n: out.failed }) : ""));
             return;
+          }
+          if (act === "reopen") {
+            if (!(await confirmDialog(t("Reopen voting on {code}? Ballots already cast are kept; members who have not voted yet can vote until it closes again, and the results are published again then.", { code: e.code })))) return;
+            var rdl = await pickDeadline(e.code);
+            if (rdl === null) return;
+            var rr = await api("POST", "/resolutions/" + e.id + "/reopen", rdl);
+            haptic("success");
+            toast(rr.closes_at_local ? t("Voting is open again until {time}", { time: rr.closes_at_local }) : t("Voting is open again"), "ok");
+            return refresh();
           }
           if (act === "close") {
             if (!(await confirmDialog(t("Close voting on {code} now? Final results will be published", { code: e.code }) + (e.announce_chat_id ? " " + t("to the announcement topic.") : ".")))) return;

@@ -96,6 +96,22 @@ export async function claimClose(id: string): Promise<{ eligible: number } | nul
   return (data?.length ?? 0) > 0 ? { eligible } : null;
 }
 
+/**
+ * Put a closed resolution back to open (closed too early, or by mistake).
+ * Ballots already cast are kept; the frozen eligible count is cleared so the
+ * quorum is measured again when it closes. Returns false if it was not closed.
+ */
+export async function reopenResolution(id: string, closesAt: Date | null): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("resolutions")
+    .update({ status: "open", closes_at: closesAt ? closesAt.toISOString() : null, closed_at: null, eligible_count: null })
+    .eq("id", id)
+    .eq("status", "closed")
+    .select("id");
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
 /** Open resolutions whose auto-close deadline has passed. */
 export async function listDueForClose(): Promise<Resolution[]> {
   const { data, error } = await supabase

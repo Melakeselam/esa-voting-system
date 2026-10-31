@@ -494,6 +494,16 @@ try {
   r = await api("GET", "/resolutions/" + R2.id, USERS.admin);
   check("auto-close: R2 adopted Hawassa (2/2 votes ≥ 2/3, quorum 10% met)", r.json?.status === "closed" && r.json.outcome?.adopted && r.json.outcome.winner === "Hawassa" && r.json.outcome.quorumMet, JSON.stringify(r.json?.outcome));
   check("auto-close: eligible member count frozen on the resolution", Number.isInteger(r.json?.eligible_count) && r.json.eligible_count > 0 && r.json.outcome?.eligible === r.json.eligible_count && r.json.outcome.quorumRequired === Math.max(1, Math.ceil(r.json.eligible_count * 10 / 100)), JSON.stringify([r.json?.eligible_count, r.json?.outcome]));
+  // ---- Reopen a closed resolution --------------------------------------------
+  r = await api("POST", "/resolutions/" + R2.id + "/reopen", USERS.admin, { minutes: 30 });
+  check("reopen: R2 is open again with a new deadline, ballots kept, eligible count cleared", r.status === 200 && r.json?.status === "open" && r.json.closes_at && r.json.closed_at === null && r.json.eligible_count === null && r.json.ballots === 2, JSON.stringify([r.status, r.json?.status, r.json?.closed_at, r.json?.eligible_count, r.json?.ballots]));
+  check("reopen: members told in the announce topic", sentTo(GROUP.id, 22).some((c) => /reopened/.test(c.body.text)));
+  r = await api("POST", "/resolutions/" + R2.id + "/reopen", USERS.admin, {});
+  eq("reopen: an open resolution cannot be reopened", r.status, 409);
+  r = await api("POST", "/resolutions/" + R2.id + "/open", USERS.admin, {});
+  eq("reopen: /open on an open resolution still 409", r.status, 409);
+  r = await api("POST", "/resolutions/" + R2.id + "/close", USERS.admin);
+  check("reopen: closed again with the eligible count frozen anew", r.json?.status === "closed" && Number.isInteger(r.json.eligible_count) && r.json.outcome?.adopted, JSON.stringify([r.json?.status, r.json?.eligible_count]));
   const { computeOutcome } = await import(pathToFileURL(resolve(root, "dist/verdict.js")).href);
   const qres = { options: ["Yes", "No"], threshold: "simple", quorum: 50 };
   eq("quorum: 50% of 12 members needs 6 ballots", computeOutcome(qres, [4, 1], 5, 12).quorumRequired, 6);
@@ -610,7 +620,7 @@ try {
   eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

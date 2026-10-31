@@ -6,7 +6,7 @@ import { bot, ensureBotReady } from "../bot/instance.js";
 import { forgetChatMemo, getLastUpdate } from "../bot/group.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
-import { announceKeyboard, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
+import { announceKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
 import { credentialsCsv, generateCredentials, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
@@ -31,6 +31,7 @@ import {
   listResolutions,
   setAnnounceTarget,
   setStatus,
+  reopenResolution,
   updateResolution,
   type ResolutionPatch,
 } from "../services/resolutions.js";
@@ -372,21 +373,55 @@ route("DELETE", `/resolutions/${UUID}`, true, async (ctx, [id]) => {
 
 route("POST", `/resolutions/${UUID}/open`, true, async (ctx, [id]) => {
   const res = await requireResolution(id);
-  if (res.status === "closed") throw new HttpError(409, "A closed resolution cannot be reopened. Create a new one.");
+  if (res.status === "closed") throw new HttpError(409, "Voting is closed. Use “Reopen voting” to open it again.");
   if (res.status === "open") throw new HttpError(409, "Voting is already open.");
-  const b = await ctx.body();
-  let closesAt: Date | null = null;
-  const minutes = int(b.minutes, "minutes", { optional: true, min: 1, max: 60 * 24 * 30 });
-  if (minutes !== null) closesAt = new Date(Date.now() + minutes * 60_000);
-  else if (b.closes_at) {
-    const d = new Date(String(b.closes_at));
-    if (Number.isNaN(d.getTime())) throw new HttpError(400, "Invalid deadline.");
-    if (d.getTime() <= Date.now() + 30_000) throw new HttpError(400, "The deadline must be in the future.");
-    closesAt = d;
-  }
+  const closesAt = parseDeadlineBody(await ctx.body());
   await setStatus(res.id, "open", closesAt);
   await audit(ctx.user.id, "resolution_opened", { code: res.code, closes_at: closesAt?.toISOString() ?? null, via: "app" });
   return enrich((await getById(res.id))!, true);
+});
+
+/** Deadline from an open/reopen body: `minutes` from now, an ISO `closes_at`, or none. */
+function parseDeadlineBody(b: Record<string, unknown>): Date | null {
+  const minutes = int(b.minutes, "minutes", { optional: true, min: 1, max: 60 * 24 * 30 });
+  if (minutes !== null) return new Date(Date.now() + minutes * 60_000);
+  if (b.closes_at) {
+    const d = new Date(String(b.closes_at));
+    if (Number.isNaN(d.getTime())) throw new HttpError(400, "Invalid deadline.");
+    if (d.getTime() <= Date.now() + 30_000) throw new HttpError(400, "The deadline must be in the future.");
+    return d;
+  }
+  return null;
+}
+
+/**
+ * Reopen a closed resolution (closed too early or by mistake). Ballots already
+ * cast stay; members who have not voted can vote until it closes again, when
+ * the results are published once more.
+ */
+route("POST", `/resolutions/${UUID}/reopen`, true, async (ctx, [id]) => {
+  const res = await requireResolution(id);
+  if (res.status !== "closed") throw new HttpError(409, "Only a closed resolution can be reopened.");
+  const closesAt = parseDeadlineBody(await ctx.body());
+  if (!(await reopenResolution(res.id, closesAt))) throw new HttpError(409, "The resolution is no longer closed.");
+  await audit(ctx.user.id, "resolution_reopened", { code: res.code, closes_at: closesAt?.toISOString() ?? null, via: "app" });
+  let notified = false;
+  if (res.announce_chat_id) {
+    // Tell the room where it was announced, with the vote button, so members know they can still vote.
+    try {
+      await bot.api.sendMessage(
+        res.announce_chat_id,
+        `🔁 Voting on <b>${escapeHtml(res.code)} — ${escapeHtml(res.title)}</b> has been <b>reopened</b>.` +
+          (closesAt ? `\n⏰ It closes again at <b>${formatLocal(closesAt)}</b>.` : "") +
+          "\nBallots already cast are kept.",
+        { parse_mode: "HTML", message_thread_id: res.announce_thread_id ?? undefined, reply_markup: announceKeyboard(res, bot.botInfo.username) },
+      );
+      notified = true;
+    } catch (err) {
+      console.error(`failed to post the ${res.code} reopening to its announce chat:`, err);
+    }
+  }
+  return { ...(await enrich((await getById(res.id))!, true)), notified };
 });
 
 route("POST", `/resolutions/${UUID}/close`, true, async (ctx, [id]) => {

@@ -217,6 +217,7 @@ work in a private chat with the bot, except `/announce`, which you run
 /broadcast Voting on R1 (JOTA-JOTI host city) is now open — tap /vote
 /results R1           (interim tally, admin-only)
 /close R1             (closes voting; final results auto-post to the topic)
+/reopen R1 [for 30m]  (closed too early? reopen; ballots already cast are kept)
 ```
 
 **Scheduled auto-close** — give `/open` a deadline instead of closing manually

@@ -16,6 +16,7 @@ import {
   setQuorum,
   eligibleFor,
   setStatus,
+  reopenResolution,
   setThreshold,
 } from "../services/resolutions.js";
 import { thresholdLabel } from "../verdict.js";
@@ -41,6 +42,7 @@ const ADMIN_HELP =
   "<code>/open R1 until 17:00</code> — open with an auto-close deadline\n" +
   "<code>/open R1 until 2026-08-14 17:00</code> · <code>/open R1 for 90m</code>\n" +
   "<code>/close R1</code> — close voting now and publish results\n" +
+  "<code>/reopen R1 [until 17:00 | for 30m]</code> — reopen a closed vote; ballots already cast are kept\n" +
   "<code>/announce R1</code> — post the resolution here (run inside the assembly topic)\n" +
   "<code>/results R1</code> — show tally (interim or final)\n" +
   "/report — full assembly report as CSV + HTML files\n" +
@@ -195,7 +197,7 @@ admin.command("open", async (ctx) => {
   const res = await requireResolution(ctx, codeArg ?? "");
   if (!res) return;
   if (res.status === "closed") {
-    await ctx.reply(`${res.code} is closed and cannot be reopened. Create a new resolution instead.`);
+    await ctx.reply(`${res.code} is closed. Use <code>/reopen ${res.code}</code> to open it again.`, { parse_mode: "HTML" });
     return;
   }
 
@@ -219,6 +221,35 @@ admin.command("open", async (ctx) => {
         : ` — close it manually with <code>/close ${res.code}</code>.\n`) +
       `Post it to the assembly with <code>/announce ${res.code}</code> in the right topic, ` +
       `and optionally notify all members with <code>/broadcast ...</code>`,
+    { parse_mode: "HTML" },
+  );
+});
+
+admin.command("reopen", async (ctx) => {
+  const input = ctx.match.trim();
+  const [codeArg] = input.split(/\s+/);
+  const res = await requireResolution(ctx, codeArg ?? "");
+  if (!res) return;
+  if (res.status !== "closed") {
+    await ctx.reply(`${res.code} is not closed (${res.status}).`);
+    return;
+  }
+  const parsed = parseDeadline(input.slice(codeArg.length).trim());
+  if (parsed && "error" in parsed) {
+    await ctx.reply(parsed.error);
+    return;
+  }
+  const closesAt = parsed?.date ?? null;
+  if (!(await reopenResolution(res.id, closesAt))) {
+    await ctx.reply(`${res.code} is no longer closed.`);
+    return;
+  }
+  await audit(ctx.from!.id, "resolution_reopened", { code: res.code, closes_at: closesAt?.toISOString() ?? null });
+  await ctx.reply(
+    `🔁 Voting on <b>${res.code}</b> is OPEN again` +
+      (closesAt ? `, closing automatically at <b>${formatLocal(closesAt)}</b>.` : ` — close it with <code>/close ${res.code}</code>.`) +
+      `\nBallots already cast are kept; members who have not voted can vote now. ` +
+      `Announce it again with <code>/announce ${res.code}</code> if needed.`,
     { parse_mode: "HTML" },
   );
 });
