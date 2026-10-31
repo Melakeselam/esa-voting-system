@@ -191,7 +191,12 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   without it the new name is kept as an app-side label and the admin is told so.
   When the bot is removed from the group, the group and its topics are
   forgotten (also checked whenever Setup loads); Setup has an "Unlink group"
-  button for doing it by hand.
+  button for doing it by hand. When the bot is made an administrator of the
+  linked group (with the "Ban users" right) it locks the member permissions
+  Telegram switches on by default — adding members, changing the group info,
+  pinning, creating topics, posting polls — so only admins keep them; Setup
+  shows the state and has a "Lock group for members" button to re-apply it.
+  `LOCK_GROUP_PERMISSIONS=off` disables the automatic lock.
 - **Tests:** `npm run test:mock` runs a 145-check end-to-end scenario against
   an in-memory database and a mocked Telegram API (setup, rooms, login,
   lockout, voting in both ballot types, auto-close, reports, admin management).

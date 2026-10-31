@@ -1,6 +1,8 @@
 import { Composer } from "grammy";
 import type { Context } from "grammy";
 import { audit } from "../db.js";
+import { config } from "../config.js";
+import { lockGroupPermissions } from "./group-lock.js";
 import { getLinkedGroup, setSetting, unlinkGroup, upsertTopic } from "../services/settings.js";
 
 /**
@@ -80,6 +82,24 @@ async function track(ctx: Context): Promise<void> {
     await linkGroupIfUnset(chat.id, title);
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
     seen.add(`${chat.id}:0`);
+    if (status === "administrator" && config.lockGroupPermissions) {
+      // Made admin of the assembly group: take the admin-only switches away from members.
+      const linked = await getLinkedGroup();
+      if (linked?.chat_id === chat.id) {
+        const result = await lockGroupPermissions(ctx.api, chat.id);
+        console.log(
+          result.ok
+            ? `Locked member permissions in "${title ?? chat.id}" (${chat.id})`
+            : `Could not lock member permissions in "${title ?? chat.id}" (${chat.id}): ${result.reason}`,
+        );
+        await audit(ctx.myChatMember.from.id, "group_locked", {
+          chat_id: chat.id,
+          ok: result.ok,
+          reason: result.ok ? null : result.reason,
+          via: "promoted",
+        });
+      }
+    }
     return;
   }
 

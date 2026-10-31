@@ -33,6 +33,8 @@ export const config = {
   botToken: required("BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
   /** Override the Bot API base URL (local Bot API server, or the mock used by tests). */
   telegramApiRoot: env("TELEGRAM_API_ROOT") || null,
+  /** Lock member permissions (add members, change info, pin, topics, polls) when the bot becomes admin of the linked group. LOCK_GROUP_PERMISSIONS=off disables it. */
+  lockGroupPermissions: !/^(0|false|off|no)$/i.test(env("LOCK_GROUP_PERMISSIONS")),
   /** PostgreSQL connection string (postgres://user:pass@host:5432/db). */
   databaseUrl: required("DATABASE_URL"),
   /** Set DATABASE_SSL=1 if the database requires TLS (self-signed certificates are accepted). */

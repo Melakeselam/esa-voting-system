@@ -208,6 +208,10 @@
     return Object.keys(groups).map(function (k) { return groups[k]; });
   }
   function topicName(tp) { return tp.name || (tp.thread_id === 0 ? t("General") : t("Topic #{id}", { id: tp.thread_id })); }
+  /** Human label for a member permission the group lock controls. */
+  function permLabel(key) {
+    return { can_invite_users: t("add members"), can_change_info: t("change group info"), can_pin_messages: t("pin messages"), can_manage_topics: t("create topics"), can_send_polls: t("post polls") }[key] || key;
+  }
 
   /** Let the admin choose a group topic. Resolves {chat_id, thread_id, name} or null. */
   function pickTopic(topics, title) {
@@ -1079,7 +1083,10 @@
       html += '<div class="card"><h3>' + esc(t("Assembly group & topics")) + "</h3>" +
         (s.group ? "<p>" + esc(t("Linked group:")) + " <b>" + esc(s.group.title || s.group.chat_id) + '</b> <span class="hint">(' + s.group.chat_id + ")</span></p>" +
           (s.group_rights ? '<p class="hint">' + esc(t("Bot in the group:")) + " " + esc(s.group_rights.is_admin ? t("administrator") : t("not an administrator")) + " · " + esc(t("Manage topics")) + " " +
-            (s.group_rights.can_manage_topics ? "✅" : "❌ — " + esc(t("without this right, renaming a topic here does not rename it in the group"))) + "</p>" : "") :
+            (s.group_rights.can_manage_topics ? "✅" : "❌ — " + esc(t("without this right, renaming a topic here does not rename it in the group"))) +
+            " · " + esc(t("Ban users")) + " " + (s.group_rights.can_restrict_members ? "✅" : "❌ — " + esc(t("without this right the bot cannot lock member permissions"))) + "</p>" : "") +
+          (s.group_lock ? '<p class="hint">' + esc(t("Member permissions:")) + " " + (s.group_lock.locked ? "✅ " + esc(t("locked — only admins can add members, change the group, pin messages, create topics or post polls")) :
+            "⚠️ " + esc(t("members can still: {list}", { list: s.group_lock.open.map(permLabel).join(", ") }))) + "</p>" : "") :
           '<p class="hint">' + esc(t("No group linked yet. Add the bot to the assembly supergroup as an administrator (it will link automatically), or post any message in the group.")) + "</p>") +
         '<p class="hint">' + esc(t("Topics appear here once the bot sees a message in them. Post a short message in each topic, then tap ↻. Names are learned when a topic is created or edited; you can rename them here.")) + "</p>";
       if (s.topics.length) {
@@ -1091,6 +1098,7 @@
         });
       }
       html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
+        (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
 
       // Admins
@@ -1119,6 +1127,14 @@
             if (!v) return;
             if (!v.telegram_user_id) return toast(t("Enter a Telegram ID"), "err");
             await api("POST", "/setup/admins", v); haptic("success"); toast(t("Admin added"), "ok"); return refresh();
+          }
+          if (act === "lockgroup") {
+            if (!(await confirmDialog(t("Take these away from ordinary members of the group: adding members, changing the group info, pinning messages, creating topics and posting polls? Admins keep them.")))) return;
+            var lk = await api("POST", "/setup/group/lock");
+            if (lk.ok) { haptic("success"); toast(t("Member permissions locked"), "ok"); }
+            else if (lk.code === "no_rights") toast(t("The bot needs the “Ban users” administrator right to change member permissions."), "warn");
+            else toast(lk.reason || t("Something went wrong"), "err");
+            return refresh();
           }
           if (act === "unlinkgroup") {
             if (!(await confirmDialog(t("Unlink this group? Its topics are removed from the list. The bot links a group again as soon as it sees a message there.")))) return;

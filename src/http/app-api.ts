@@ -4,6 +4,7 @@ import { appUrl, config, emailConfigured } from "../config.js";
 import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
 import { forgetChatMemo, getLastUpdate } from "../bot/group.js";
+import { lockGroupPermissions, readLockState, type GroupLockState } from "../bot/group-lock.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -806,7 +807,9 @@ route("GET", "/setup", true, async (ctx) => {
   }
   // How the bot stands in the linked group, so the admin can see why a topic
   // rename stayed app-side (it needs the "Manage topics" administrator right).
-  let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean } | null = null;
+  let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean; can_restrict_members: boolean } | null = null;
+  // Which admin-only switches members of the linked group still have (see group-lock.ts).
+  let groupLock: GroupLockState | null = null;
   if (group?.chat_id) {
     const linkedChatId = group.chat_id;
     const forget = async (reason: string) => {
@@ -831,7 +834,9 @@ route("GET", "/setup", true, async (ctx) => {
           can_manage_topics: owner || (isAdmin && Boolean(m.can_manage_topics)),
           can_delete_messages: owner || (isAdmin && Boolean(m.can_delete_messages)),
           can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
+          can_restrict_members: owner || (isAdmin && Boolean(m.can_restrict_members)),
         };
+        groupLock = await readLockState(bot.api, linkedChatId);
       }
     } catch (err) {
       // Telegram answers for a removed bot with an error rather than a "left"
@@ -844,6 +849,8 @@ route("GET", "/setup", true, async (ctx) => {
   }
   return {
     group_rights: groupRights,
+    group_lock: groupLock,
+    group_lock_auto: config.lockGroupPermissions,
     mode: config.serverless ? "serverless" : "server",
     polling: !config.publicUrl,
     public_url: config.publicUrl,
@@ -904,6 +911,15 @@ route("POST", "/setup/group", true, async (ctx) => {
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
   await audit(ctx.user.id, "group_linked", { chat_id: chatId, via: "app" });
   return { ok: true };
+});
+
+/** Take the admin-only switches (add members, change info, pin, topics, polls) away from members of the linked group. */
+route("POST", "/setup/group/lock", true, async (ctx) => {
+  const group = await getLinkedGroup();
+  if (!group) throw new HttpError(409, "No group is linked.");
+  const result = await lockGroupPermissions(bot.api, group.chat_id);
+  await audit(ctx.user.id, "group_locked", { chat_id: group.chat_id, ok: result.ok, reason: result.ok ? null : result.reason, via: "app" });
+  return { ...result, lock: await readLockState(bot.api, group.chat_id) };
 });
 
 route("DELETE", "/setup/group", true, async (ctx) => {

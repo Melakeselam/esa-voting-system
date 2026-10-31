@@ -30,6 +30,9 @@ process.chdir(root);
 const BOT_TOKEN = "777000:MOCKTOKENabcdef";
 const BOT = { id: 777000, is_bot: true, first_name: "ESA Voting (mock)", username: "esa_mock_bot" };
 let botMembership = "administrator"; // what getChatMember reports for the bot in the group
+// Member permissions of the group as Telegram would report them (all on for a new group).
+let chatPermissions = { can_send_messages: true, can_send_polls: true, can_change_info: true, can_invite_users: true, can_pin_messages: true, can_manage_topics: true };
+let lockRights = true; // whether the bot holds "Ban users" (setChatPermissions succeeds)
 const tgCalls = [];
 let webhookUrl = "";
 let nextMessageId = 100;
@@ -69,7 +72,18 @@ const tgServer = createServer(async (req, res) => {
         res.end(JSON.stringify({ ok: false, error_code: 403, description: "Forbidden: bot is not a member of the supergroup chat" }));
         return;
       }
-      result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true };
+      result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true, can_restrict_members: true };
+      break;
+    case "getChat":
+      result = { id: Number(body.chat_id), type: "supergroup", title: GROUP.title, is_forum: true, permissions: { ...chatPermissions } };
+      break;
+    case "setChatPermissions":
+      if (!lockRights) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error_code: 400, description: "Bad Request: not enough rights to change chat permissions" }));
+        return;
+      }
+      chatPermissions = { ...body.permissions };
       break;
     case "setWebhook": webhookUrl = body.url; break;
     case "deleteWebhook": webhookUrl = ""; break;
@@ -249,6 +263,18 @@ try {
   await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 33, is_topic_message: true, text: "hello" } });
   r = await api("GET", "/setup", USERS.admin);
   eq("rooms: group linked", r.json?.group?.chat_id, GROUP.id);
+  check("lock: member permissions locked when the bot was made admin", calls("setChatPermissions", (b) => Number(b.chat_id) === GROUP.id && b.permissions?.can_invite_users === false && b.permissions?.can_manage_topics === false && b.permissions?.can_change_info === false && b.permissions?.can_pin_messages === false && b.permissions?.can_send_messages === true && b.use_independent_chat_permissions === true).length === 1, JSON.stringify(calls("setChatPermissions").map((c) => c.body)));
+  check("lock: Setup reports the group as locked", r.json?.group_lock?.locked === true && r.json?.group_rights?.can_restrict_members === true, JSON.stringify([r.json?.group_lock, r.json?.group_rights]));
+  chatPermissions.can_invite_users = true; // someone re-enabled it by hand
+  r = await api("GET", "/setup", USERS.admin);
+  eq("lock: Setup lists what members can still do", r.json?.group_lock, { locked: false, open: ["can_invite_users"] });
+  lockRights = false;
+  r = await api("POST", "/setup/group/lock", USERS.admin);
+  check("lock: without the Ban users right the app says so", r.status === 200 && r.json?.ok === false && r.json.code === "no_rights", JSON.stringify(r.json));
+  lockRights = true;
+  r = await api("POST", "/setup/group/lock", USERS.admin);
+  check("lock: re-applied from Setup", r.json?.ok === true && r.json.lock?.locked === true, JSON.stringify(r.json));
+  r = await api("GET", "/setup", USERS.admin);
   check("rooms: bot's rights in the group reported", r.json?.group_rights?.is_admin === true && r.json?.group_rights?.can_manage_topics === true, JSON.stringify(r.json?.group_rights));
   const topicNames = Object.fromEntries((r.json?.topics ?? []).map((t) => [t.thread_id, t.name]));
   eq("rooms: General + 3 topics known", Object.keys(topicNames).length, 4);
@@ -620,7 +646,7 @@ try {
   eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 
