@@ -61,6 +61,7 @@ const tgServer = createServer(async (req, res) => {
     if (fn) body.filename = fn[1];
     body.filenames = [...raw.matchAll(/filename="?([^"\r\n]+)"?/g)].map((x) => x[1]);
     body.pdf_count = raw.split("%PDF-").length - 1;
+    body.uri_count = raw.split("/URI").length - 1; // link annotations in the PDF(s)
     const media = new RegExp(`name="media"\\r?\\n\\r?\\n([^\\r\\n]*)`).exec(raw);
     if (media) { try { body.media = JSON.parse(media[1]); } catch { /* not JSON */ } }
     body.bytes = raw.length;
@@ -371,6 +372,7 @@ try {
   r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv });
   const pdfCall = calls("sendDocument", (b) => Number(b.chat_id) === 1001 && /invitations-aarc/.test(b.filename ?? "") && /\.pdf$/.test(b.filename ?? ""));
   check("invitations: PDF sent to the admin chat", r.status === 200 && pdfCall.length === 1 && pdfCall[0].body.is_pdf && pdfCall[0].body.bytes > 10000, JSON.stringify([r.status, r.json, pdfCall.map((c) => c.body)]));
+  check("invitations: every invitation has clickable links (QR, register button, link text)", pdfCall[0].body.uri_count >= 3 * inv.length, JSON.stringify(pdfCall[0].body.uri_count));
   r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv, separate: true });
   const albums = calls("sendMediaGroup", (b) => Number(b.chat_id) === 1001);
   check("invitations: one PDF per delegate, sent as one album", r.status === 200 && r.json?.files?.length === inv.length && albums.length === 1 && albums[0].body.pdf_count === inv.length && albums[0].body.media?.length === inv.length && albums[0].body.media.every((m) => m.type === "document"), JSON.stringify([r.status, r.json, albums.map((c) => [c.body.pdf_count, c.body.media?.length])]));
@@ -785,6 +787,32 @@ try {
   r = await api("POST", "/setup/group/people/3002/remove", USERS.admin);
   check("gate: remove from Setup", r.json?.ok === true && calls("banChatMember", (b) => Number(b.user_id) === 3002).length === 1);
 
+  // ---- Revoking invitations and access ----------------------------------------
+  r = await api("POST", "/councils", USERS.admin, { name: "Revoke Test Council", seats: 2 });
+  const RTC = r.json.council;
+  r = await api("POST", "/councils/" + RTC.id + "/invitations", USERS.admin, { count: 1 });
+  const revInv = r.json.rows[0];
+  r = await api("GET", "/councils/" + RTC.id, USERS.admin);
+  const revRow = r.json.invitations[0];
+  r = await api("DELETE", "/members/" + revRow.id, USERS.admin);
+  eq("revoke: an unused invitation can be revoked", r.json?.ok, true);
+  r = await api("GET", "/councils/" + RTC.id, USERS.admin);
+  eq("revoke: it is gone from the council", r.json?.invitations?.length, 0);
+  r = await api("POST", "/register", USERS.guest, { token: revInv.token_id, password: revInv.password });
+  eq("revoke: the revoked code no longer registers", r.json?.status, "unknown_token");
+  r = await api("GET", "/members?q=Stranger", USERS.admin);
+  const strangerRow = r.json.items.find((m) => m.telegram_user_id === 3001);
+  r = await api("DELETE", "/members/" + strangerRow.id, USERS.admin);
+  check("revoke: a registered member is never deleted outright", r.status === 409 && r.json?.code === "registered", JSON.stringify([r.status, r.json]));
+  const bansBefore = calls("banChatMember", (b) => Number(b.user_id) === 3001).length;
+  r = await api("POST", "/members/" + strangerRow.id + "/revoke", USERS.admin);
+  check("revoke: access revoked — removed from the group and told", r.json?.ok === true && r.json.removed_from_group === true && calls("banChatMember", (b) => Number(b.user_id) === 3001).length === bansBefore + 1 && /revoked/.test(lastTextTo(3001)), JSON.stringify([r.json, lastTextTo(3001)]));
+  r = await api("GET", "/members?q=Stranger", USERS.admin);
+  const revoked = r.json.items.find((m) => m.id === strangerRow.id);
+  check("revoke: member deactivated and Telegram account detached", revoked && revoked.is_active === false && revoked.telegram_user_id === null, JSON.stringify(revoked));
+  r = await api("GET", "/me", { id: 3001, first_name: "Stranger" });
+  eq("revoke: the person is a guest again", r.json?.role, "guest");
+
   // ---- Bot removed from the group ----------------------------------------
   const botStatus = (oldStatus, newStatus, date) => ({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
   await update(botStatus("administrator", "left", 2));
@@ -880,7 +908,7 @@ try {
 
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

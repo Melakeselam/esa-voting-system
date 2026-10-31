@@ -151,7 +151,16 @@ delegates" reissues the PDF without touching registered members. The PDF can
 be one file per council or one file per delegate (`separate: true`, the
 default in the bulk import), named `esa-invitation-<council>-<seat>-<name>.pdf`
 and sent as albums of up to 10 documents, so each file can be forwarded to
-its delegate on its own. The PDF
+its delegate on its own. Each card has three clickable links to the bot: the
+QR code itself, a blue "Tap here to register" button, and the printed URL.
+
+**Revoking:** tapping a delegate (council page or Members) offers Suspend /
+Reactivate, Unlock, Detach Telegram, and — for an unused invitation —
+"Revoke invitation" (`DELETE /members/:id`: the row is deleted, the code stops
+working, the seat is freed), or — for a registered member — "Revoke access"
+(`POST /members/:id/revoke`: deactivated, Telegram account detached, removed
+from the assembly group, told by private message; ballots already cast stay
+counted, so registered members are never deleted). The PDF
 **Vote weight:** each council also sets the votes per delegate (default 1), so
 6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes. The weight
 is stamped on each vote when cast (secret ballots keep no member id), the SQL

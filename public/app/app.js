@@ -627,6 +627,51 @@
 
   // ---------------------------------------------------------------- ADMIN: members
   var memQ = "", memFilter = "all";
+  /**
+   * Actions on one member or invitation (Members list and council page).
+   * Returns true when something changed, so the caller refreshes.
+   */
+  async function manageMember(m) {
+    var registered = Boolean(m.telegram_user_id);
+    var html = "<h2>" + esc(m.full_name || (m.seat_no ? t("Delegate {n}", { n: m.seat_no }) : m.token_id)) + '</h2><dl class="kv"><dt>' + esc(t("Token")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd>" +
+      (m.region ? "<dt>" + esc(t("Region")) + "</dt><dd>" + esc(m.region) + "</dd>" : "") +
+      (m.link ? "<dt>" + esc(t("Link")) + '</dt><dd><a href="' + esc(m.link) + '" target="_blank">' + esc(m.link) + "</a></dd>" : "") +
+      "<dt>" + esc(t("Status")) + "</dt><dd>" + esc(registered ? t("Registered") + " " + (m.registered_at ? fmtDate(m.registered_at) : "") : t("Not registered yet")) + (m.is_active ? "" : " · " + esc(t("deactivated"))) + "</dd>" +
+      (m.locked ? "<dt>" + esc(t("Lock")) + "</dt><dd>" + esc(t("Locked until {time}", { time: fmtTime(m.locked_until) })) + "</dd>" : "") + "</dl>" +
+      '<div class="actions">' +
+      (registered ? '<button class="btn secondary block" data-a="unbind">🔓 ' + esc(t("Detach Telegram account (lost phone)")) + "</button>" : "") +
+      (m.locked ? '<button class="btn secondary block" data-a="unlock">🔑 ' + esc(t("Unlock now")) + "</button>" : "") +
+      (m.is_active ? '<button class="btn secondary block" data-a="deactivate">⏸ ' + esc(t("Suspend (can be reactivated)")) + "</button>" : '<button class="btn block" data-a="activate">✅ ' + esc(t("Reactivate token")) + "</button>") +
+      (registered
+        ? '<button class="btn danger block" data-a="revoke">⛔ ' + esc(t("Revoke access")) + "</button>"
+        : '<button class="btn danger block" data-a="delete">🗑 ' + esc(t("Revoke invitation")) + "</button>") +
+      "</div>";
+    var a = await openSheet(html, function (sheet, close) { on(sheet, "[data-a]", "click", function (e2) { close(e2.currentTarget.dataset.a); }); });
+    if (!a) return false;
+    try {
+      if (a === "unbind") {
+        if (!(await confirmDialog(t("Detach {token} from its Telegram account? The member can then register again with the same credentials.", { token: m.token_id })))) return false;
+        await api("POST", "/members/" + m.id + "/unbind");
+      } else if (a === "unlock") {
+        await api("POST", "/members/" + m.id + "/unlock");
+      } else if (a === "deactivate") {
+        if (!(await confirmDialog(t("Deactivate {token}? The member will not be able to register or vote until reactivated.", { token: m.token_id })))) return false;
+        await api("POST", "/members/" + m.id + "/active", { active: false });
+      } else if (a === "activate") {
+        await api("POST", "/members/" + m.id + "/active", { active: true });
+      } else if (a === "delete") {
+        if (!(await confirmDialog(t("Revoke invitation {token}? The code and password stop working for good and the seat is freed. This cannot be undone.", { token: m.token_id })))) return false;
+        await api("DELETE", "/members/" + m.id);
+        haptic("success"); toast(t("Invitation revoked"), "ok"); return true;
+      } else if (a === "revoke") {
+        if (!(await confirmDialog(t("Revoke {name}'s access? They can no longer vote, their Telegram account is detached and they are removed from the assembly group. Ballots already cast stay counted.", { name: m.full_name || m.token_id })))) return false;
+        var rv = await api("POST", "/members/" + m.id + "/revoke");
+        haptic("success"); toast(rv.removed_from_group ? t("Access revoked and removed from the group") : t("Access revoked"), "ok"); return true;
+      }
+      haptic("success"); toast(t("Done"), "ok"); return true;
+    } catch (err) { fail(err); return false; }
+  }
+
   views.members = {
     title: function () { return t("Members"); },
     action: function () { return { label: "＋ " + t("Invitations"), onClick: function () { go("councils"); } }; },
@@ -665,31 +710,7 @@
         if (!row) return;
         var m = shown.filter(function (x) { return x.id === row.dataset.m; })[0];
         if (!m) return;
-        var html = "<h2>" + esc(m.full_name || m.token_id) + '</h2><dl class="kv"><dt>' + esc(t("Token")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd>" +
-          (m.region ? "<dt>" + esc(t("Region")) + "</dt><dd>" + esc(m.region) + "</dd>" : "") +
-          "<dt>" + esc(t("Status")) + "</dt><dd>" + esc(m.telegram_user_id ? t("Registered") + " " + (m.registered_at ? fmtDate(m.registered_at) : "") : t("Not registered yet")) + "</dd>" +
-          (m.locked ? "<dt>" + esc(t("Lock")) + "</dt><dd>" + esc(t("Locked until {time}", { time: fmtTime(m.locked_until) })) + "</dd>" : "") + "</dl>" +
-          '<div class="actions">' +
-          (m.telegram_user_id ? '<button class="btn secondary block" data-a="unbind">🔓 ' + esc(t("Detach Telegram account (lost phone)")) + "</button>" : "") +
-          (m.locked ? '<button class="btn secondary block" data-a="unlock">🔑 ' + esc(t("Unlock now")) + "</button>" : "") +
-          (m.is_active ? '<button class="btn danger block" data-a="deactivate">🚫 ' + esc(t("Deactivate token")) + "</button>" : '<button class="btn block" data-a="activate">✅ ' + esc(t("Reactivate token")) + "</button>") +
-          "</div>";
-        var a = await openSheet(html, function (sheet, close) { on(sheet, "[data-a]", "click", function (e2) { close(e2.currentTarget.dataset.a); }); });
-        if (!a) return;
-        try {
-          if (a === "unbind") {
-            if (!(await confirmDialog(t("Detach {token} from its Telegram account? The member can then register again with the same credentials.", { token: m.token_id })))) return;
-            await api("POST", "/members/" + m.id + "/unbind");
-          } else if (a === "unlock") {
-            await api("POST", "/members/" + m.id + "/unlock");
-          } else if (a === "deactivate") {
-            if (!(await confirmDialog(t("Deactivate {token}? The member will not be able to register or vote until reactivated.", { token: m.token_id })))) return;
-            await api("POST", "/members/" + m.id + "/active", { active: false });
-          } else if (a === "activate") {
-            await api("POST", "/members/" + m.id + "/active", { active: true });
-          }
-          haptic("success"); toast(t("Done"), "ok"); refresh();
-        } catch (err) { fail(err); }
+        if (await manageMember(m)) refresh();
       });
       more.onclick = async function () {
         page++;
@@ -884,8 +905,7 @@
       on(content, "[data-m]", "click", async function (e) {
         var m = d.invitations.filter(function (x) { return x.id === e.currentTarget.dataset.m; })[0];
         if (!m) return;
-        await openSheet("<h2>" + esc(m.full_name || t("Delegate {n}", { n: m.seat_no || "" })) + '</h2><dl class="kv"><dt>' + esc(t("Code")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd><dt>" + esc(t("Link")) + '</dt><dd><a href="' + esc(m.link) + '" target="_blank">' + esc(m.link) + "</a></dd><dt>" + esc(t("Status")) + "</dt><dd>" + esc(m.telegram_user_id ? t("Registered") : t("Not registered yet")) + "</dd></dl>" +
-          '<p class="hint">' + esc(t("Unlock, detach or deactivate this delegate under Members.")) + "</p>", function (sheet, close) { /* read-only */ });
+        if (await manageMember(m)) refresh();
       });
       on(content, "[data-act]", "click", async function (e) {
         var act = e.currentTarget.dataset.act;

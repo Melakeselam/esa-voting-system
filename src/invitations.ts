@@ -130,9 +130,22 @@ export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer
     // QR block (right)
     const qrX = MARGIN + cardW - pad - qrSize;
     const qrY = top + pad + 4;
+    const link = invitationLink(opts.botUsername, row.token_id);
     doc.image(qrs[i], qrX, qrY, { width: qrSize, height: qrSize });
-    let qy = para("Scan to open the voting bot", qrX - 12, qrY + qrSize + 4, qrSize + 24, 8, "#5a6470", false, { align: "center" });
-    if (am) para("ቦቱን ለመክፈት ይቃኙ", qrX - 12, qy + 1, qrSize + 24, 8.5, "#5a6470", false, { align: "center" });
+    doc.link(qrX, qrY, qrSize, qrSize, link); // tapping the QR on a phone opens the bot too
+    let qy = para("Scan or tap to open the voting bot", qrX - 12, qrY + qrSize + 4, qrSize + 24, 8, "#5a6470", false, { align: "center" });
+    if (am) qy = para("ቦቱን ለመክፈት ይቃኙ ወይም ይንኩ", qrX - 12, qy + 1, qrSize + 24, 8.5, "#5a6470", false, { align: "center" });
+    // Big tappable button for delegates who open the PDF on the phone they will vote with.
+    const btnW = qrSize + 24;
+    const btnH = am ? 34 : 24;
+    const btnX = qrX - 12;
+    const btnY = qy + 6;
+    doc.save();
+    doc.roundedRect(btnX, btnY, btnW, btnH, 7).fillColor("#2481cc").fill();
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(10).text("Tap here to register  ›", btnX, btnY + 6, { width: btnW, align: "center", lineBreak: false });
+    if (am) doc.font("Ethiopic").fontSize(9).text("ለመመዝገብ እዚህ ይንኩ", btnX, btnY + 19, { width: btnW, align: "center", lineBreak: false });
+    doc.restore();
+    doc.link(btnX, btnY, btnW, btnH, link);
 
     // Header (left column)
     let y = top + pad + 6;
@@ -178,7 +191,6 @@ export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer
       if (am) y = para(amText, x + 12, y, stepsW - 12, 9.5, "#5a6470") + 2;
     }
     y += 4;
-    const link = invitationLink(opts.botUsername, row.token_id);
     y = para(link, x, y, innerW, 8.5, "#2481cc", false, { link, underline: true }) + 8;
     y = para("Keep this invitation private: anyone holding the code and password can vote in your place. Issued by the ESA National Office.", x, y, innerW, 8.5, "#8a3b3b") + 2;
     if (am) para("ይህን ጥሪ በግል ያስቀምጡ፦ ኮዱንና የይለፍ ቃሉን የያዘ ማንኛውም ሰው በእርስዎ ምትክ ድምፅ መስጠት ይችላል። በኢስማ ብሔራዊ ጽሕፈት ቤት የተሰጠ።", x, y, innerW, 8.5, "#8a3b3b");

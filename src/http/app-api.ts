@@ -610,6 +610,56 @@ route("POST", `/members/${UUID}/active`, true, async (ctx, [id]) => {
 });
 
 /**
+ * Revoke an invitation that has not been used: the code and password stop
+ * working for good and the seat is freed. A registered member is never
+ * deleted (their ballots must stay counted) — use /revoke for them.
+ */
+route("DELETE", `/members/${UUID}`, true, async (ctx, [id]) => {
+  const m = await findById(id);
+  if (!m) throw new HttpError(404, "Invitation not found.");
+  if (m.telegram_user_id !== null) throw new HttpError(409, "This invitation is already registered — revoke the member's access instead.", "registered");
+  const { count, error: bErr } = await supabase.from("ballots").select("*", { count: "exact", head: true }).eq("member_id", id);
+  if (bErr) throw bErr;
+  if ((count ?? 0) > 0) throw new HttpError(409, "This invitation has ballots on record — deactivate it instead.", "has_ballots");
+  const { error } = await supabase.from("members").delete().eq("id", id);
+  if (error) throw error;
+  await audit(ctx.user.id, "invitation_revoked", { token: m.token_id, council_id: m.council_id, seat_no: m.seat_no, via: "app" });
+  return { ok: true };
+});
+
+/**
+ * Revoke a registered member's access: deactivated (cannot vote or register
+ * again with that code), Telegram account detached, removed from the
+ * assembly group, and told so. Ballots already cast stay counted.
+ */
+route("POST", `/members/${UUID}/revoke`, true, async (ctx, [id]) => {
+  const m = await findById(id);
+  if (!m) throw new HttpError(404, "Member not found.");
+  const telegramId = m.telegram_user_id;
+  await setMemberActive(id, false);
+  if (telegramId !== null) await unbindById(id);
+  let removedFromGroup = false;
+  const group = await getLinkedGroup();
+  if (telegramId !== null && group) {
+    try {
+      await kickFromGroup(bot.api, group.chat_id, telegramId);
+      removedFromGroup = true;
+    } catch {
+      // Not in the group, or the bot lacks the "Ban users" right.
+    }
+  }
+  if (telegramId !== null) {
+    try {
+      await bot.api.sendMessage(telegramId, "Your voting access for the ESA General Assembly has been revoked by the administrators. Contact the National Office if you think this is a mistake.");
+    } catch {
+      // The member blocked the bot or never opened it.
+    }
+  }
+  await audit(ctx.user.id, "member_access_revoked", { token: m.token_id, user_id: telegramId, removed_from_group: removedFromGroup, via: "app" });
+  return { ok: true, removed_from_group: removedFromGroup };
+});
+
+/**
  * Generate credentials. Capped per request (bcrypt is deliberately slow);
  * the client loops over larger lists and then asks for a single CSV file.
  */
