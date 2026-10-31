@@ -18,12 +18,17 @@ export interface Org {
   office_am: string | null;
   voter_term: string;
   group_term: string;
+  structure: Structure;
   group_chat_id: number | null;
   group_title: string | null;
   created_at: string;
 }
 
 export const PLATFORM_NAME = "Kene Voting System";
+
+/** 'councils': bodies send representative delegates; 'direct': every member votes for themselves. */
+export type Structure = "councils" | "direct";
+export const STRUCTURES: Structure[] = ["councils", "direct"];
 
 // ---------------------------------------------------------------- terms
 
@@ -158,6 +163,7 @@ export interface OrgInput {
   office_am?: string | null;
   voter_term?: string;
   group_term?: string;
+  structure?: Structure;
 }
 
 export function cleanShortCode(s: string): string {
@@ -177,6 +183,7 @@ export async function createOrg(input: OrgInput): Promise<Org> {
       office_am: input.office_am ?? null,
       voter_term: input.voter_term && VOTER_TERMS[input.voter_term] ? input.voter_term : "delegate",
       group_term: input.group_term && GROUP_TERMS[input.group_term] ? input.group_term : "council",
+      structure: input.structure === "direct" ? "direct" : "councils",
     })
     .select("*")
     .single();
@@ -189,6 +196,7 @@ export async function updateOrg(id: string, patch: Partial<OrgInput>): Promise<O
   if (typeof p.short_code === "string") p.short_code = cleanShortCode(p.short_code) || "ORG";
   if (p.voter_term !== undefined && !VOTER_TERMS[String(p.voter_term)]) delete p.voter_term;
   if (p.group_term !== undefined && !GROUP_TERMS[String(p.group_term)]) delete p.group_term;
+  if (p.structure !== undefined && !STRUCTURES.includes(p.structure as Structure)) delete p.structure;
   if (Object.keys(p).length) {
     const { error } = await rawDb.from("organizations").update(p).eq("id", id);
     if (error) throw error;

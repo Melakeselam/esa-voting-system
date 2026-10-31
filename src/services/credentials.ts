@@ -27,6 +27,7 @@ export interface CredentialRow {
   region: string | null;
   seat_no?: number | null;
   phone?: string | null;
+  vote_weight?: number;
 }
 
 /** Country code used for local numbers (0911…, 911…). Ethiopia by default; DEFAULT_PHONE_COUNTRY_CODE overrides. */
@@ -73,7 +74,7 @@ export async function generateCredentials(people: Person[], prefix = "KVS-2026")
         phone: person.phone ?? null,
       });
       if (!error) {
-        rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null, phone: person.phone ?? null });
+        rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null, phone: person.phone ?? null, vote_weight: person.vote_weight ?? 1 });
         break;
       }
       if (error.code !== "23505" || attempt >= 3) throw error;

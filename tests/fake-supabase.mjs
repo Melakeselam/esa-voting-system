@@ -20,7 +20,7 @@ const DEFAULTS = {
   councils: () => ({ id: randomUUID(), seats: 1, vote_weight: 1, created_at: now() }),
   group_people: () => ({ first_name: null, last_name: null, username: null, status: "member", source: null, added_by: null, first_seen_at: now(), last_seen_at: now() }),
   vote_activations: () => ({ activated_at: now() }),
-  organizations: () => ({ id: randomUUID(), name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
+  organizations: () => ({ id: randomUUID(), structure: "councils", name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
   pending_invitations: () => ({ created_at: now() }),
   user_active_org: () => ({ updated_at: now() }),
 };

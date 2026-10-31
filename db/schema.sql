@@ -347,6 +347,11 @@ create index if not exists members_by_org on members (org_id);
 create index if not exists resolutions_by_org on resolutions (org_id);
 create index if not exists audit_by_org on audit_log (org_id, created_at);
 
+-- How members take part: 'councils' (bodies send representative delegates, as
+-- in scouting) or 'direct' (every member votes for themselves, as in a share
+-- company or a professional association — no councils, votes per member).
+alter table organizations add column if not exists structure text not null default 'councils';
+
 -- Invitation recognised in the bot chat (QR scanned) but not completed yet.
 -- Kept outside any organisation: the code itself says which one it is.
 create table if not exists pending_invitations (

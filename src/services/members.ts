@@ -183,7 +183,7 @@ export async function listMembers(opts: {
   const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
   let query = supabase
     .from("members")
-    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, phone, seat_no", {
+    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, phone, seat_no, vote_weight", {
       count: "exact",
     });
 

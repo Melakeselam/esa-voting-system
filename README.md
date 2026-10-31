@@ -35,6 +35,17 @@ so one organisation can never see or change another's data.
   are unique platform-wide); a private chat → the person's chosen (`/org`) or
   only organisation. A group added by a platform admin who runs several
   organisations asks which one it is for.
+- **How members vote** (`organizations.structure`): `councils` — councils or
+  chapters receive invitations and hand them to representative delegates, a
+  council may give each delegate several votes (as in scouting); or `direct` —
+  no councils, every member votes for themselves (a share company, a
+  professional association). Direct organisations add members on Members ›
+  "＋ Add members" (name and/or phone and the member's own votes, e.g. shares;
+  pasted or CSV/Excel; `POST /members/invitations`), send council-free
+  invitation PDFs (`POST /members/invitations-pdf`, a "Votes" line when more
+  than one) and change a member's votes later (`POST /members/:id/votes`,
+  applies to ballots cast from then on). Majorities count votes; the quorum
+  counts members who voted.
 - While only one organisation exists everything resolves to it. Data from
   before organisations existed was migrated into "Ethiopia Scout Association".
 

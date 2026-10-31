@@ -698,8 +698,10 @@
       (m.phone ? "<dt>" + esc(t("Phone")) + '</dt><dd><a href="tel:' + esc(m.phone) + '">' + esc(m.phone) + "</a></dd>" : "") +
       (m.link ? "<dt>" + esc(t("Link")) + '</dt><dd><a href="' + esc(m.link) + '" target="_blank">' + esc(m.link) + "</a></dd>" : "") +
       "<dt>" + esc(t("Status")) + "</dt><dd>" + esc(registered ? t("Registered") + " " + (m.registered_at ? fmtDate(m.registered_at) : "") : t("Not registered yet")) + (m.is_active ? "" : " · " + esc(t("deactivated"))) + "</dd>" +
-      (m.locked ? "<dt>" + esc(t("Lock")) + "</dt><dd>" + esc(t("Locked until {time}", { time: fmtTime(m.locked_until) })) + "</dd>" : "") + "</dl>" +
+      (m.locked ? "<dt>" + esc(t("Lock")) + "</dt><dd>" + esc(t("Locked until {time}", { time: fmtTime(m.locked_until) })) + "</dd>" : "") +
+      (isDirect() || (m.vote_weight || 1) > 1 ? "<dt>" + esc(t("Votes")) + "</dt><dd>" + esc(String(m.vote_weight || 1)) + "</dd>" : "") + "</dl>" +
       '<div class="actions">' +
+      (isDirect() ? '<button class="btn secondary block" data-a="votes">🔢 ' + esc(t("Change votes (shares)")) + "</button>" : "") +
       (registered ? '<button class="btn secondary block" data-a="unbind">🔓 ' + esc(t("Detach Telegram account (lost phone)")) + "</button>" : "") +
       (m.locked ? '<button class="btn secondary block" data-a="unlock">🔑 ' + esc(t("Unlock now")) + "</button>" : "") +
       (m.is_active ? '<button class="btn secondary block" data-a="deactivate">⏸ ' + esc(t("Suspend (can be reactivated)")) + "</button>" : '<button class="btn block" data-a="activate">✅ ' + esc(t("Reactivate token")) + "</button>") +
@@ -713,6 +715,13 @@
       if (a === "unbind") {
         if (!(await confirmDialog(t("Detach {token} from its Telegram account? The member can then register again with the same credentials.", { token: m.token_id })))) return false;
         await api("POST", "/members/" + m.id + "/unbind");
+      } else if (a === "votes") {
+        var nv = await openSheet("<h2>" + esc(t("Votes for {name}", { name: m.full_name || m.phone || m.token_id })) + '</h2><p class="hint">' + esc(t("How many votes this member casts — for example their number of shares. Applies to ballots cast from now on.")) + "</p>" +
+          '<div class="field"><input type="number" min="1" inputmode="numeric" data-v value="' + (m.vote_weight || 1) + '"></div><button class="btn block" data-ok>' + esc(t("Save")) + "</button>",
+          function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close(Number(sheet.querySelector("[data-v]").value)); }; });
+        if (!nv) return false;
+        if (!(nv >= 1)) { toast(t("Enter a whole number of votes, 1 or more"), "err"); return false; }
+        await api("POST", "/members/" + m.id + "/votes", { votes: Math.round(nv) });
       } else if (a === "unlock") {
         await api("POST", "/members/" + m.id + "/unlock");
       } else if (a === "deactivate") {
@@ -735,7 +744,12 @@
 
   views.members = {
     title: function () { return t("Members"); },
-    action: function () { return { label: "＋ " + t("Invitations"), onClick: function () { go("councils"); } }; },
+    action: function () {
+      // Organisations without councils add members directly; the others issue invitations per council.
+      return isDirect()
+        ? { label: "＋ " + t("Add members"), onClick: function () { go("invite"); } }
+        : { label: "＋ " + t("Invitations"), onClick: function () { go("councils"); } };
+    },
     render: async function (content, params, alive) {
       var page = 0;
       var d = await api("GET", "/members?q=" + encodeURIComponent(memQ) + "&filter=" + memFilter + "&page=0");
@@ -868,22 +882,27 @@
     return /^[+\d\s\-().]+$/.test(s) && digits.length >= 7 && digits.length <= 15;
   }
   /** One delegate from table cells: a phone-like cell is the phone, the first other cell the name. */
+  /** A plain whole number of votes (shares): 1–6 digits, thousands separators allowed — never a phone number. */
+  function isVotesLike(s) { s = String(s || "").trim(); return /^\d{1,3}([,\s]?\d{3})*$/.test(s) && s.replace(/\D/g, "").length <= 6 && !/^0\d/.test(s); }
   function delegateFromCells(cells) {
-    var d = { name: "", phone: "" };
+    var d = { name: "", phone: "", votes: 0 };
     cells.forEach(function (c) {
       c = String(c || "").trim();
       if (!c) return;
-      if (!d.phone && isPhoneLike(c)) d.phone = c;
+      if (!d.phone && isPhoneLike(c) && !isVotesLike(c)) d.phone = c;
+      else if (!d.votes && isVotesLike(c) && d.name) d.votes = Number(c.replace(/\D/g, ""));
       else if (!d.name) d.name = c;
     });
     return d;
   }
-  /** Delegates from rows of cells (pasted lines or a CSV/Excel sheet). A header row (name / phone) is skipped. */
+  /** People from rows of cells (pasted lines or a CSV/Excel sheet): name, phone, votes. A header row is skipped. */
   function delegatesFromRows(rows) {
     rows = rows.filter(function (r) { return r.some(function (c) { return String(c || "").trim(); }); });
-    if (rows.length && rows[0].some(function (h) { return /^(name|full name|delegate|phone|mobile|tel|telephone|ስም|ስልክ)/i.test(String(h || "").trim()); }) && !rows[0].some(isPhoneLike)) rows = rows.slice(1);
+    if (rows.length && rows[0].some(function (h) { return /^(name|full name|delegate|member|phone|mobile|tel|telephone|votes?|shares?|ስም|ስልክ|ድምፅ|አክሲዮን)/i.test(String(h || "").trim()); }) && !rows[0].some(isPhoneLike)) rows = rows.slice(1);
     return rows.map(delegateFromCells).filter(function (d) { return d.name || d.phone; });
   }
+  /** The organisation's members vote for themselves (no councils). */
+  function isDirect() { return Boolean(state.me && state.me.org && state.me.org.structure === "direct"); }
   /** Read an uploaded .csv or .xlsx into rows of cells. */
   async function readTableFile(file) {
     if (/\.csv$/i.test(file.name) || /csv|text/.test(file.type)) return parseCsvText(await file.text());
@@ -907,8 +926,9 @@
   }
   function credsTable(rows) {
     var withPhone = rows.some(function (x) { return x.phone; });
-    return '<table class="creds"><tr><th>#</th><th>' + esc(t("Code")) + "</th><th>" + esc(t("Password")) + "</th><th>" + esc(t("Name")) + "</th>" + (withPhone ? "<th>" + esc(t("Phone")) + "</th>" : "") + "</tr>" +
-      rows.map(function (x) { return "<tr><td>" + (x.seat_no || "") + "</td><td><code>" + esc(x.token_id) + "</code></td><td><code>" + esc(x.password) + "</code></td><td>" + esc(x.full_name || "") + "</td>" + (withPhone ? "<td>" + esc(x.phone || "") + "</td>" : "") + "</tr>"; }).join("") + "</table>";
+    var withVotes = rows.some(function (x) { return (x.vote_weight || 1) > 1; });
+    return '<table class="creds"><tr><th>#</th><th>' + esc(t("Code")) + "</th><th>" + esc(t("Password")) + "</th><th>" + esc(t("Name")) + "</th>" + (withPhone ? "<th>" + esc(t("Phone")) + "</th>" : "") + (withVotes ? "<th>" + esc(t("Votes")) + "</th>" : "") + "</tr>" +
+      rows.map(function (x, i) { return "<tr><td>" + (x.seat_no || i + 1) + "</td><td><code>" + esc(x.token_id) + "</code></td><td><code>" + esc(x.password) + "</code></td><td>" + esc(x.full_name || "") + "</td>" + (withPhone ? "<td>" + esc(x.phone || "") + "</td>" : "") + (withVotes ? "<td>" + (x.vote_weight || 1) + "</td>" : "") + "</tr>"; }).join("") + "</table>";
   }
   /** Sheet to add a council (name, seats, optional delegate names). Resolves {name, seats, names} or null. */
   function councilSheet(existing) {
@@ -929,6 +949,77 @@
         };
       });
   }
+
+  /**
+   * Organisations without councils: add members who vote for themselves —
+   * name and/or phone, and how many votes each casts (shares; default 1) —
+   * then send their invitations as PDFs.
+   */
+  views.invite = {
+    title: function () { return t("Add members"); },
+    render: async function (content, params) {
+      var html = '<div class="card"><p class="small">' + esc(t("Each member votes for themselves. One per line: a name, a phone number, or both — and, if members carry several votes (for example shares), the number of votes.")) + "</p>" +
+        '<div class="field"><textarea data-names rows="7" placeholder="' + esc(t("Abebe Kebede, 0911234567, 250\nSara Tesfaye, , 120\n+251922345678")) + '"></textarea></div>' +
+        '<div class="field"><label>' + esc(t("Or upload a CSV or Excel file (columns: name, phone, votes — any may be empty)")) + '</label><input type="file" data-file accept=".csv,.xlsx,.xls,text/csv"></div>' +
+        '<p class="hint" data-count-hint></p>' +
+        '<button class="btn block" data-issue>' + esc(t("Issue invitations")) + "</button></div>";
+      if (params.rows && params.rows.length) {
+        html += '<div class="card"><h3>✅ ' + esc(t("{n} new invitations", { n: params.rows.length })) + "</h3>" +
+          '<p class="hint">' + esc(t("The passwords exist only here until you send the file. Send the PDF to your chat now, then hand each invitation to its member.")) + "</p>" +
+          '<div class="actions"><button class="btn block" data-act="pdfeach">📄 ' + esc(t("One PDF per member to my chat")) + "</button>" +
+          '<button class="btn secondary block" data-act="pdf">📄 ' + esc(t("One PDF with all invitations to my chat")) + "</button>" +
+          '<button class="btn secondary block" data-act="csv">📎 ' + esc(t("Send CSV to my chat")) + "</button></div>" +
+          "<details><summary>" + esc(t("Show codes here")) + "</summary>" + credsTable(params.rows) + "</details></div>";
+      }
+      content.innerHTML = html;
+      var area = content.querySelector("[data-names]"), hint = content.querySelector("[data-count-hint]");
+      function people() {
+        var ds = delegatesFromRows(parseCsvText(area.value));
+        var votes = ds.reduce(function (a, d) { return a + (d.votes || 1); }, 0);
+        hint.textContent = ds.length ? t("{n} members · {v} votes in total", { n: ds.length, v: votes }) : "";
+        return ds;
+      }
+      area.addEventListener("input", people);
+      content.querySelector("[data-file]").addEventListener("change", async function (ev) {
+        var file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        try {
+          var ds = delegatesFromRows(await readTableFile(file));
+          area.value = ds.map(function (d) { return [d.name, d.phone, d.votes > 1 ? d.votes : ""].join(", ").replace(/(, )+$/, ""); }).join("\n");
+          people(); haptic("light");
+        } catch (err) { fail(err); }
+      });
+      content.querySelector("[data-issue]").onclick = async function () {
+        var ds = people();
+        if (!ds.length) return toast(t("Add at least one member"), "err");
+        if (!(await confirmDialog(t("Issue {n} invitations?", { n: ds.length })))) return;
+        var btn = this; btn.disabled = true;
+        try {
+          var rows = [];
+          for (var off = 0; off < ds.length; off += 40) {
+            var r = await api("POST", "/members/invitations", { people: ds.slice(off, off + 40).map(function (d) { return { name: d.name || "", phone: d.phone || "", votes: d.votes || 1 }; }) });
+            rows = rows.concat(r.rows);
+            toast(t("Issuing invitations… {done} of {total}", { done: rows.length, total: ds.length }));
+          }
+          haptic("success");
+          params.rows = rows; return refresh();
+        } catch (err) { fail(err); } finally { btn.disabled = false; }
+      };
+      on(content, "[data-act]", "click", async function (e) {
+        var act = e.currentTarget.dataset.act, btn = e.currentTarget;
+        btn.disabled = true;
+        try {
+          if (act === "csv") {
+            await api("POST", "/members/credentials-file", { rows: params.rows.map(function (r) { return { token_id: r.token_id, password: r.password, full_name: r.full_name, phone: r.phone || null }; }) });
+            haptic("success"); toast(t("CSV sent to your chat"), "ok"); return;
+          }
+          var pr = await api("POST", "/members/invitations-pdf", { rows: params.rows, separate: act === "pdfeach" });
+          haptic("success");
+          toast(act === "pdfeach" ? t("{n} PDFs sent to your chat", { n: pr.count }) : t("PDF sent to your chat"), "ok");
+        } catch (err) { fail(err); } finally { btn.disabled = false; }
+      });
+    },
+  };
 
   views.councils = {
     title: function () { return t("Councils & invitations"); },
@@ -1266,7 +1357,9 @@
       var og = state.me.org;
       var html = (og ? '<div class="card"><h3>🏢 ' + esc(orgName(og)) + "</h3>" +
         '<p class="hint">' + esc([og.assembly_en, og.office_en].filter(Boolean).join(" · ")) + "</p>" +
-        '<p class="hint">' + esc(t("Invitation codes start with {code}- · voters are called {voters} · their bodies {groups}", { code: og.short_code, voters: og.terms.voter.en_pl, groups: og.terms.group.en_pl })) + "</p>" +
+        '<p class="hint">' + esc(og.structure === "direct"
+          ? t("Invitation codes start with {code}- · {voters} vote for themselves", { code: og.short_code, voters: og.terms.voter.en_pl })
+          : t("Invitation codes start with {code}- · voters are called {voters} · their bodies {groups}", { code: og.short_code, voters: og.terms.voter.en_pl, groups: og.terms.group.en_pl })) + "</p>" +
         '<div class="actions inline"><button class="btn secondary sm" data-act="orgedit">✏️ ' + esc(t("Edit organisation")) + "</button>" +
         (state.me.platform && state.me.platform.admin ? '<button class="btn secondary sm" data-act="orgsall">🏢 ' + esc(t("All organisations")) + "</button>" : "") + "</div></div>" : "") +
         '<div class="card"><h3>' + esc(t("Health")) + "</h3>" +
@@ -1808,9 +1901,14 @@
         field("assembly_am", t("Assembly name (Amharic, optional)"), "ጠቅላላ ጉባኤ 2026") +
         field("office_en", t("Issued by (English)"), "National Office") +
         field("office_am", t("Issued by (Amharic, optional)"), "ብሔራዊ ጽሕፈት ቤት") + "</div>" +
+        '<div class="card"><h3>' + esc(t("How members vote")) + "</h3>" +
+        '<div class="field"><select data-f="structure">' +
+        '<option value="councils"' + (o.structure !== "direct" ? " selected" : "") + ">" + esc(t("Through bodies such as {bodies} — each sends representatives", { bodies: I18N.lang() === "am" ? "ምክር ቤቶች ወይም ቅርንጫፎች" : "councils or chapters" })) + "</option>" +
+        '<option value="direct"' + (o.structure === "direct" ? " selected" : "") + ">" + esc(t("Directly — every member votes for themselves (e.g. a share company)")) + "</option></select></div>" +
+        '<p class="hint" data-structure-hint></p></div>' +
         '<div class="card"><h3>' + esc(t("Words used")) + "</h3>" +
-        '<div class="field"><label>' + esc(t("The people who vote are called")) + "</label>" + termSelect("voter_term", terms.voter, o.voter_term || "delegate") + "</div>" +
-        '<div class="field"><label>' + esc(t("The bodies they come from are called")) + "</label>" + termSelect("group_term", terms.group, o.group_term || "council") + "</div></div>";
+        '<div class="field"><label>' + esc(t("The people who vote are called")) + "</label>" + termSelect("voter_term", terms.voter, o.voter_term || (o.structure === "direct" ? "member" : "delegate")) + "</div>" +
+        '<div class="field" data-group-term><label>' + esc(t("The bodies they come from are called")) + "</label>" + termSelect("group_term", terms.group, o.group_term || "council") + "</div></div>";
       if (!params.id) {
         html += '<div class="card"><h3>' + esc(t("First administrator (optional)")) + "</h3>" +
           '<p class="hint">' + esc(t("The person who will run this organisation's assembly. They find their Telegram ID by sending /whoami to the bot. You can add more admins later in Setup.")) + "</p>" +
@@ -1821,9 +1919,22 @@
       if (params.id && state.orgId !== params.id) html += '<button class="btn secondary block" data-open>' + esc(t("Work in this organisation")) + "</button>";
       content.innerHTML = html;
       var f = function (k) { return content.querySelector("[data-f='" + k + "']"); };
+      // Councils only matter when members are represented through them.
+      function showStructure(changed) {
+        var direct = f("structure").value === "direct";
+        var box = content.querySelector("[data-group-term]");
+        if (box) box.hidden = direct;
+        var hintEl = content.querySelector("[data-structure-hint]");
+        if (hintEl) hintEl.textContent = direct
+          ? t("Nobody in between: you add the members themselves (name, phone, and votes such as shares), and each one votes for themselves.")
+          : t("Each body ({bodies}) receives a number of invitations and hands them to the representatives it chooses; it can give each of them several votes.", { bodies: I18N.lang() === "am" ? "ምክር ቤት ወይም ቅርንጫፍ" : "council or chapter" });
+        if (changed && direct && f("voter_term").value === "delegate") f("voter_term").value = "member";
+      }
+      showStructure(false);
+      f("structure").addEventListener("change", function () { showStructure(true); });
       content.querySelector("[data-save]").onclick = async function () {
         var body = {};
-        ["name_en", "name_am", "short_code", "assembly_en", "assembly_am", "office_en", "office_am", "voter_term", "group_term"].forEach(function (k) { body[k] = f(k).value.trim(); });
+        ["name_en", "name_am", "short_code", "assembly_en", "assembly_am", "office_en", "office_am", "voter_term", "group_term", "structure"].forEach(function (k) { body[k] = f(k).value.trim(); });
         if (body.name_en.length < 2) return toast(t("Enter the organisation's name"), "err");
         if (body.short_code.replace(/[^A-Za-z0-9]/g, "").length < 2) return toast(t("Enter a short code of 2–8 letters"), "err");
         if (!params.id) {

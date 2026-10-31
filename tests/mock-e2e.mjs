@@ -1105,6 +1105,38 @@ try {
   check("orgs: AEA's member list holds only AEA's invitation", r.json?.items?.length === 1 && r.json.items[0].token_id === aeaInv.token_id, JSON.stringify(r.json?.items?.map((m) => m.token_id)));
   r = await api("GET", "/audit?limit=200", AEA_ADMIN, undefined, null);
   check("orgs: AEA's audit log holds only AEA's actions", (r.json?.items ?? []).length > 0 && !(r.json?.items ?? []).some((a) => /ESA motion/.test(JSON.stringify(a.details))), JSON.stringify(r.json?.items?.length));
+  // ---- An organisation without councils: members vote for themselves (e.g. a share company) ----
+  r = await api("POST", "/orgs", USERS.admin, { name_en: "Kene Share Company", short_code: "KSC", structure: "direct", voter_term: "member" }, null);
+  const KSC = r.json?.org;
+  check("direct: an organisation can have no councils", r.status === 200 && KSC?.structure === "direct", JSON.stringify(r.json));
+  r = await api("POST", "/members/invitations", USERS.admin, { people: [{ name: "Shareholder A", phone: "0911000001", votes: 250 }, { name: "Shareholder B", votes: 120 }, { phone: "+251911000003" }] }, KSC.id);
+  const kscRows = r.json?.rows ?? [];
+  check("direct: members added directly with their own votes, codes start with the organisation's code", r.status === 200 && kscRows.length === 3 && kscRows.every((x) => /^KSC-\d{4}-/.test(x.token_id)) && JSON.stringify(kscRows.map((x) => x.vote_weight)) === "[250,120,1]", JSON.stringify(kscRows.map((x) => [x.token_id, x.vote_weight])));
+  r = await api("POST", "/members/invitations", USERS.admin, { people: [{ name: "Bad", votes: 0 }] }, KSC.id);
+  eq("direct: zero votes refused", r.status, 400);
+  r = await api("POST", "/members/invitations-pdf", USERS.admin, { rows: kscRows, separate: true }, KSC.id);
+  check("direct: one invitation PDF per member, without a council", r.status === 200 && r.json?.files?.length === 3 && r.json.files.every((f) => /^ksc-invitation-ksc-\d{4}-/.test(f)) && r.json.files.some((f) => /Shareholder-A/.test(f)), JSON.stringify(r.json));
+  r = await api("POST", "/members/invitations-pdf", USERS.admin, { rows: kscRows }, KSC.id);
+  check("direct: one PDF with all members", r.status === 200 && /^ksc-invitations-members-/.test(r.json?.file ?? ""), JSON.stringify(r.json));
+  const SH_A = { id: 8001, first_name: "Shareholder A" }, SH_B = { id: 8002, first_name: "Shareholder B" };
+  await api("POST", "/register", SH_A, { token: kscRows[0].token_id, password: kscRows[0].password }, null);
+  await api("POST", "/register", SH_B, { token: kscRows[1].token_id, password: kscRows[1].password }, null);
+  r = await api("GET", "/members", USERS.admin, undefined, KSC.id);
+  const shA = r.json?.items?.find((m) => m.token_id === kscRows[0].token_id);
+  check("direct: the member list shows each member's votes", shA?.vote_weight === 250, JSON.stringify(shA));
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Approve the dividend", options: ["Yes", "No"], activation_required: false }, KSC.id);
+  const KR = r.json;
+  await api("POST", "/resolutions/" + KR.id + "/open", USERS.admin, {}, KSC.id);
+  await api("POST", "/vote", SH_A, { resolution_id: KR.id, choice_index: 0 }, KSC.id);
+  await api("POST", "/vote", SH_B, { resolution_id: KR.id, choice_index: 1 }, KSC.id);
+  r = await api("GET", "/resolutions/" + KR.id, USERS.admin, undefined, KSC.id);
+  check("direct: votes are weighted by shares (250 yes vs 120 no), ballots count people", JSON.stringify(r.json?.counts) === "[250,120]" && r.json.ballots === 2 && r.json.outcome?.winner === "Yes", JSON.stringify([r.json?.counts, r.json?.ballots]));
+  r = await api("POST", "/members/" + shA.id + "/votes", USERS.admin, { votes: 300 }, KSC.id);
+  eq("direct: an admin changes a member's votes", r.json?.vote_weight, 300);
+  r = await api("POST", "/members/" + shA.id + "/votes", AEA_ADMIN, { votes: 1 }, null);
+  check("direct: another organisation's admin cannot change them", r.status === 403 || r.status === 404, String(r.status));
+  r = await api("GET", "/me", USERS.admin, undefined, ORG.id);
+  eq("direct: ESA keeps its councils", r.json?.org?.structure, "councils");
   defaultOrg = ORG.id;
 
   r = await api("GET", "/audit?limit=200", USERS.admin);

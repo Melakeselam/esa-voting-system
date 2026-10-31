@@ -58,7 +58,7 @@ import {
 import { ballotCount, castVote, memberBallots, memberChoices, tally } from "../services/votes.js";
 import { activate, activationCount, needsActivation } from "../services/activation.js";
 import { formatLocal } from "../time.js";
-import type { Member, Resolution, Threshold } from "../types.js";
+import type { Council, Member, Resolution, Threshold } from "../types.js";
 import { computeOutcome } from "../verdict.js";
 import { eligibleFor } from "../services/resolutions.js";
 import { verifyInitData, type TgUser } from "./auth.js";
@@ -304,6 +304,7 @@ async function orgSummary(id: string, telegramId: number) {
     office_am: o.office_am,
     voter_term: o.voter_term,
     group_term: o.group_term,
+    structure: o.structure ?? "councils",
     terms: { voter: VOTER_TERMS[o.voter_term] ?? VOTER_TERMS.delegate, group: GROUP_TERMS[o.group_term] ?? GROUP_TERMS.council },
     role: mine.admin.includes(o.id) ? "admin" : mine.member.includes(o.id) ? "member" : "guest",
   };
@@ -355,6 +356,10 @@ function parseOrgBody(b: Record<string, unknown>, partial: boolean): Partial<Org
   if (b.group_term !== undefined) {
     if (!GROUP_TERMS[String(b.group_term)]) throw new HttpError(400, "Unknown group term.");
     out.group_term = String(b.group_term);
+  }
+  if (b.structure !== undefined) {
+    if (b.structure !== "councils" && b.structure !== "direct") throw new HttpError(400, "structure must be 'councils' or 'direct'.");
+    out.structure = b.structure;
   }
   return out;
 }
@@ -755,6 +760,40 @@ route("POST", `/members/${UUID}/unlock`, true, async (ctx, [id]) => {
   return { ok: true };
 });
 
+/**
+ * Members who vote for themselves (organisations without councils, e.g. a
+ * share company): one invitation per person — a name, a phone number or both —
+ * each with its own number of votes (shares; default 1). Max 40 per request.
+ */
+route("POST", "/members/invitations", true, async (ctx) => {
+  const b = await ctx.body();
+  if (!Array.isArray(b.people)) throw new HttpError(400, "people must be a list");
+  if (b.people.length === 0) throw new HttpError(400, "Nobody to invite.");
+  if (b.people.length > INVITE_BATCH) throw new HttpError(400, `At most ${INVITE_BATCH} per request; the app sends larger lists in batches.`);
+  const people: Person[] = b.people.map((p, i) => {
+    const o = asObject(p);
+    const rawPhone = str(o.phone, `Phone ${i + 1}`, { optional: true, max: 30 });
+    const phone = rawPhone ? normalizePhone(rawPhone) : null;
+    if (rawPhone && !phone) throw new HttpError(400, `Line ${i + 1}: “${rawPhone}” is not a phone number.`);
+    const votes = int(o.votes ?? o.vote_weight, `Line ${i + 1}: votes`, { optional: true, min: 1, max: 1_000_000 });
+    return { name: str(o.name, `Name ${i + 1}`, { optional: true, max: 120 }) || null, region: null, phone, vote_weight: votes ?? 1 };
+  });
+  const rows = await generateCredentials(people, await defaultCodePrefix());
+  await audit(ctx.user.id, "invitations_issued", { council: null, count: rows.length, via: "app" });
+  return { rows };
+});
+
+/** How many votes this member casts (shares, or a council-given weight); applies to ballots cast from now on. */
+route("POST", `/members/${UUID}/votes`, true, async (ctx, [id]) => {
+  const m = await findById(id);
+  if (!m) throw new HttpError(404, "Member not found.");
+  const votes = int((await ctx.body()).votes, "Votes", { min: 1, max: 1_000_000 })!;
+  const { error } = await supabase.from("members").update({ vote_weight: votes }).eq("id", id);
+  if (error) throw error;
+  await audit(ctx.user.id, "member_votes_set", { token: m.token_id, from: m.vote_weight ?? 1, to: votes, via: "app" });
+  return { ok: true, vote_weight: votes };
+});
+
 route("POST", `/members/${UUID}/active`, true, async (ctx, [id]) => {
   const m = await findById(id);
   if (!m) throw new HttpError(404, "Member not found.");
@@ -900,6 +939,7 @@ function invitationRows(b: Record<string, unknown>): InvitationRow[] {
       password: str(o.password, "password", { max: 40 }),
       full_name: str(o.full_name, "full_name", { optional: true, max: 120 }) || null,
       seat_no: int(o.seat_no, "seat_no", { optional: true, min: 1 }),
+      vote_weight: int(o.vote_weight, "vote_weight", { optional: true, min: 1, max: 1_000_000 }) ?? 1,
       phone: str(o.phone, "phone", { optional: true, max: 30 }) || null,
     };
   });
@@ -1032,29 +1072,49 @@ function fileSlug(s: string | null): string {
 route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
   const c = await requireCouncil(id);
   const body = await ctx.body();
-  const rows = invitationRows(body);
+  return sendInvitationPdfs(ctx.user.id, c, invitationRows(body), body.separate === true);
+});
+
+/** Invitation PDFs for members of an organisation without councils (they vote for themselves). */
+route("POST", "/members/invitations-pdf", true, async (ctx) => {
+  const body = await ctx.body();
+  return sendInvitationPdfs(ctx.user.id, null, invitationRows(body), body.separate === true);
+});
+
+/**
+ * Build the printable invitations and send them to the admin's chat: one PDF,
+ * or with `separate` one PDF per person (albums of up to 10 documents) so each
+ * can be forwarded on its own. `council` is null for organisations whose
+ * members vote directly.
+ */
+async function sendInvitationPdfs(userId: number, c: Council | null, rows: InvitationRow[], separate: boolean) {
+  const w = await orgWords();
+  const prefix = w.shortCode.toLowerCase();
+  const body = c ? c.name : w.name;
+  const who = c ? w.voter.en : "member";
   const stamp = formatLocal(new Date()).replace(/[: ]/g, "-");
-  if (body.separate === true) {
+  const pdfOf = (list: InvitationRow[]) => invitationsPdf({ council: c, rows: list, botUsername: bot.botInfo.username, words: w });
+  if (separate) {
     const docs = [];
     for (const [i, row] of rows.entries()) {
-      const pdf = await invitationsPdf({ council: c, rows: [row], botUsername: bot.botInfo.username, words: await orgWords() });
+      const pdf = await pdfOf([row]);
       const seat = String(row.seat_no ?? i + 1).padStart(2, "0");
       const name = fileSlug(row.full_name || row.phone || null);
-      docs.push({ pdf, file: `${(await orgWords()).shortCode.toLowerCase()}-invitation-${c.code.toLowerCase()}-${seat}${name ? `-${name}` : ""}.pdf` });
+      docs.push({ pdf, file: `${prefix}-invitation-${c ? `${c.code.toLowerCase()}-${seat}` : row.token_id.toLowerCase()}${name ? `-${name}` : ""}.pdf` });
     }
     const caption =
-      `🎫 ${rows.length} invitation(s) for ${c.name}, one PDF per delegate — forward each file to its delegate. ` +
+      `🎫 ${rows.length} invitation(s) for ${body}, one PDF per ${who} — forward each file to its ${who}. ` +
       "They contain the passwords: delete them from the chat once handed over.";
     try {
       for (let start = 0; start < docs.length; start += 10) {
         const batch = docs.slice(start, start + 10);
         const isLastBatch = start + 10 >= docs.length;
         if (batch.length === 1) {
-          await bot.api.sendDocument(ctx.user.id, new InputFile(batch[0].pdf, batch[0].file), isLastBatch ? { caption } : {});
+          await bot.api.sendDocument(userId, new InputFile(batch[0].pdf, batch[0].file), isLastBatch ? { caption } : {});
           continue;
         }
         await bot.api.sendMediaGroup(
-          ctx.user.id,
+          userId,
           batch.map((d, j) =>
             InputMediaBuilder.document(new InputFile(d.pdf, d.file), isLastBatch && j === batch.length - 1 ? { caption } : {}),
           ),
@@ -1063,23 +1123,24 @@ route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
     } catch (err) {
       throw new HttpError(502, `Could not send the files to your chat: ${(err as Error).message}. Send /start to the bot first.`);
     }
-    await audit(ctx.user.id, "invitations_pdf_sent", { council: c.name, count: rows.length, separate: true, via: "app" });
+    await audit(userId, "invitations_pdf_sent", { council: c?.name ?? null, count: rows.length, separate: true, via: "app" });
     return { ok: true, count: rows.length, files: docs.map((d) => d.file) };
   }
-  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username, words: await orgWords() });
-  const file = `${(await orgWords()).shortCode.toLowerCase()}-invitations-${c.code.toLowerCase()}-${stamp}.pdf`;
+  const pdf = await pdfOf(rows);
+  const file = `${prefix}-invitations-${c ? c.code.toLowerCase() : "members"}-${stamp}.pdf`;
   try {
-    await bot.api.sendDocument(ctx.user.id, new InputFile(pdf, file), {
+    await bot.api.sendDocument(userId, new InputFile(pdf, file), {
       caption:
-        `🎫 ${rows.length} invitation(s) for ${c.name}. Print it (two per page, cut along the line) or forward the PDF to the council. ` +
+        `🎫 ${rows.length} invitation(s) for ${body}. Print it (two per page, cut along the line)` +
+        (c ? ` or forward the PDF to the ${w.group.en}. ` : ". ") +
         "It contains the passwords: delete it from the chat once the invitations are handed over.",
     });
   } catch (err) {
     throw new HttpError(502, `Could not send the file to your chat: ${(err as Error).message}. Send /start to the bot first.`);
   }
-  await audit(ctx.user.id, "invitations_pdf_sent", { council: c.name, count: rows.length, via: "app" });
+  await audit(userId, "invitations_pdf_sent", { council: c?.name ?? null, count: rows.length, via: "app" });
   return { ok: true, count: rows.length, file };
-});
+}
 
 // ---------------------------------------------------------------------------
 // Admin: report

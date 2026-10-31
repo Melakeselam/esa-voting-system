@@ -125,7 +125,7 @@ export type Invitation = Omit<Member, "password_hash">;
 export async function councilMembers(councilId: string): Promise<Invitation[]> {
   const { data, error } = await supabase
     .from("members")
-    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, council_id, seat_no, phone")
+    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, council_id, seat_no, phone, vote_weight")
     .eq("council_id", councilId)
     .order("seat_no", { ascending: true });
   if (error) throw error;

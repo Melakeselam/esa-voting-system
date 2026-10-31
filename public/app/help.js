@@ -34,6 +34,19 @@
         ],
       },
       {
+        icon: "🧾", title: "Members who vote for themselves (no councils)",
+        body: [
+          "Some organisations have no councils or chapters: every member votes for themselves, as in a share company or a professional association. Choose “Directly — every member votes for themselves” under Setup › Edit organisation › How members vote.",
+          { steps: [
+            "Members → “＋ Add members”.",
+            "One member per line: a name, a phone number, or both — and the number of votes if members carry several (for example shares). Or upload a CSV or Excel file with name, phone and votes columns.",
+            "Tap “Issue invitations”, then send one PDF per member (or one PDF with all) to your chat and hand each invitation to its member.",
+            "To change a member's votes later, tap the member → “Change votes (shares)”. It applies to ballots cast from then on.",
+          ] },
+          { tip: "Majorities count votes (shares); the quorum counts the members who cast a ballot." },
+        ],
+      },
+      {
         icon: "🏛", title: "Invitations per council (QR codes and PDF)",
         body: [
           "Use this instead of plain credentials when voting members are chosen by councils (regions, sections). Each council gets a fixed number of invitations; each invitation is one voting seat.",
@@ -193,6 +206,19 @@
             "ካከፋፈሉ በኋላ CSV ፋይሉን ከቴሌግራም ቻትዎ እና ከመሣሪያዎ ይሰርዙ።",
           ] },
           { warn: "የመግቢያ መረጃ ፋይሉን በቡድን ውስጥ በፍጹም አይለጥፉ። ቶከንና የይለፍ ቃል ያለው ማንኛውም ሰው በዚያ አባል ስም ድምፅ መስጠት ይችላል።" },
+        ],
+      },
+      {
+        icon: "🧾", title: "ለራሳቸው ድምፅ የሚሰጡ አባላት (ያለ መሀል አካል)",
+        body: [
+          "አንዳንድ ድርጅቶች ቅርንጫፎች የላቸውም፦ እንደ አክሲዮን ማኅበር ወይም የሙያ ማኅበር እያንዳንዱ አባል ለራሱ ድምፅ ይሰጣል። በ«ማዋቀር» › «ድርጅቱን አስተካክል» › «አባላት እንዴት ድምፅ ይሰጣሉ» ስር «በቀጥታ — እያንዳንዱ አባል ለራሱ ድምፅ ይሰጣል»ን ይምረጡ።",
+          { steps: [
+            "«አባላት» → «＋ አባላት አክል»።",
+            "በአንድ መስመር አንድ አባል፦ ስም፣ ስልክ ቁጥር፣ ወይም ሁለቱም — አባላት ብዙ ድምፅ ካላቸው (ለምሳሌ አክሲዮን) የድምፅ ብዛቱ። ወይም ስም፣ ስልክ እና ድምፆች አምዶች ያሉት CSV ወይም Excel ፋይል ይጫኑ።",
+            "«ግብዣዎችን ስጥ»ን ይንኩ፣ ከዚያ ለእያንዳንዱ አባል አንድ PDF (ወይም ሁሉንም የያዘ አንድ PDF) ወደ ቻትዎ ይላኩ እና እያንዳንዱን ግብዣ ለባለቤቱ ይስጡ።",
+            "የአንድን አባል ድምፆች በኋላ ለመቀየር አባሉን ይንኩ → «የድምፅ ብዛት ቀይር (አክሲዮን)»። ከዚያ በኋላ ለሚሰጡ ድምፆች ይሠራል።",
+          ] },
+          { tip: "አብላጫ ድምፅ ድምፆችን (አክሲዮኖችን) ይቆጥራል፤ ምልዓተ ጉባኤ ድምፅ የሰጡ አባላትን ይቆጥራል።" },
         ],
       },
       {
