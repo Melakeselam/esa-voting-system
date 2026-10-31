@@ -154,6 +154,14 @@ and sent as albums of up to 10 documents, so each file can be forwarded to
 its delegate on its own. Each card has three clickable links to the bot: the
 QR code itself, a blue "Tap here to register" button, and the printed URL.
 
+**Phone numbers:** a delegate can be added by name, by phone number, or both
+("Add delegates" accepts pasted lines or an uploaded CSV/Excel file with
+name/phone columns; the councils import accepts an optional Phone column).
+Numbers are stored in international form (`members.phone`; local `09…`/`9…`
+get `+251`, or `DEFAULT_PHONE_COUNTRY_CODE`), shown on the invitation PDF,
+the council page and Members, included in the credentials CSV, and
+searchable (a locally typed number finds the stored one).
+
 **Revoking:** tapping a delegate (council page or Members) offers Suspend /
 Reactivate, Unlock, Detach Telegram, and — for an unused invitation —
 "Revoke invitation" (`DELETE /members/:id`: the row is deleted, the code stops

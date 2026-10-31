@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { audit, supabase } from "../db.js";
 import { config } from "../config.js";
 import type { Member } from "../types.js";
+import { normalizePhone } from "./credentials.js";
 
 export function normalizeToken(raw: string): string {
   return raw.trim().toUpperCase();
@@ -168,12 +169,14 @@ export async function listMembers(opts: {
   const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
   let query = supabase
     .from("members")
-    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active", {
+    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, phone, seat_no", {
       count: "exact",
     });
 
   const q = (opts.q ?? "").trim().replace(/[,()%]/g, "");
-  if (q) query = query.or(`token_id.ilike.%${q}%,full_name.ilike.%${q}%,region.ilike.%${q}%`);
+  // A search for a phone number also finds it typed locally (0911… → +251911…).
+  const qPhone = normalizePhone(q)?.replace(/^\+/, "") ?? q;
+  if (q) query = query.or(`token_id.ilike.%${q}%,full_name.ilike.%${q}%,region.ilike.%${q}%,phone.ilike.%${qPhone}%`);
 
   switch (opts.filter) {
     case "registered":

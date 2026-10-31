@@ -125,21 +125,27 @@ export type Invitation = Omit<Member, "password_hash">;
 export async function councilMembers(councilId: string): Promise<Invitation[]> {
   const { data, error } = await supabase
     .from("members")
-    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, council_id, seat_no")
+    .select("id, token_id, full_name, region, telegram_user_id, registered_at, failed_attempts, locked_until, is_active, council_id, seat_no, phone")
     .eq("council_id", councilId)
     .order("seat_no", { ascending: true });
   if (error) throw error;
   return (data ?? []) as Invitation[];
 }
 
+export interface DelegateEntry {
+  name: string | null;
+  phone?: string | null;
+}
+
 /**
- * Create invitations (token + password) for a council: one per name; a null
- * name is an anonymous delegate seat. Seat numbers continue from the last one.
+ * Create invitations (token + password) for a council: one per entry (a name,
+ * a phone number, or both); an empty entry is an anonymous delegate seat.
+ * Seat numbers continue from the last one.
  */
-export async function issueInvitations(council: Council, names: (string | null)[]): Promise<CredentialRow[]> {
+export async function issueInvitations(council: Council, entries: DelegateEntry[]): Promise<CredentialRow[]> {
   const existing = await councilMembers(council.id);
   let seat = existing.reduce((m, r) => Math.max(m, r.seat_no ?? 0), 0);
-  const people = names.map((name) => ({ name, region: council.name, council_id: council.id, seat_no: ++seat, vote_weight: council.vote_weight ?? 1 }));
+  const people = entries.map((e) => ({ name: e.name, phone: e.phone ?? null, region: council.name, council_id: council.id, seat_no: ++seat, vote_weight: council.vote_weight ?? 1 }));
   return generateCredentials(people, council.code);
 }
 
@@ -160,7 +166,7 @@ export async function reissuePasswords(council: Council): Promise<CredentialRow[
       .update({ password_hash: hash, failed_attempts: 0, locked_until: null })
       .eq("id", m.id);
     if (error) throw error;
-    rows.push({ token_id: m.token_id, password, full_name: m.full_name, region: m.region, seat_no: m.seat_no });
+    rows.push({ token_id: m.token_id, password, full_name: m.full_name, region: m.region, seat_no: m.seat_no, phone: m.phone });
   }
   return rows;
 }

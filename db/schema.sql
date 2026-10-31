@@ -202,6 +202,8 @@ create table if not exists councils (
 alter table councils add column if not exists vote_weight int not null default 1;
 alter table members add column if not exists council_id uuid references councils(id) on delete set null;
 alter table members add column if not exists seat_no int;
+-- Delegate's phone number (international form, e.g. +251911234567), when given instead of / besides a name.
+alter table members add column if not exists phone text;
 -- Active members at the moment voting closed: the base the quorum percentage is measured against.
 alter table resolutions add column if not exists eligible_count int;
 

@@ -677,8 +677,9 @@
    */
   async function manageMember(m) {
     var registered = Boolean(m.telegram_user_id);
-    var html = "<h2>" + esc(m.full_name || (m.seat_no ? t("Delegate {n}", { n: m.seat_no }) : m.token_id)) + '</h2><dl class="kv"><dt>' + esc(t("Token")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd>" +
+    var html = "<h2>" + esc(m.full_name || m.phone || (m.seat_no ? t("Delegate {n}", { n: m.seat_no }) : m.token_id)) + '</h2><dl class="kv"><dt>' + esc(t("Token")) + "</dt><dd><code>" + esc(m.token_id) + "</code></dd>" +
       (m.region ? "<dt>" + esc(t("Region")) + "</dt><dd>" + esc(m.region) + "</dd>" : "") +
+      (m.phone ? "<dt>" + esc(t("Phone")) + '</dt><dd><a href="tel:' + esc(m.phone) + '">' + esc(m.phone) + "</a></dd>" : "") +
       (m.link ? "<dt>" + esc(t("Link")) + '</dt><dd><a href="' + esc(m.link) + '" target="_blank">' + esc(m.link) + "</a></dd>" : "") +
       "<dt>" + esc(t("Status")) + "</dt><dd>" + esc(registered ? t("Registered") + " " + (m.registered_at ? fmtDate(m.registered_at) : "") : t("Not registered yet")) + (m.is_active ? "" : " · " + esc(t("deactivated"))) + "</dd>" +
       (m.locked ? "<dt>" + esc(t("Lock")) + "</dt><dd>" + esc(t("Locked until {time}", { time: fmtTime(m.locked_until) })) + "</dd>" : "") + "</dl>" +
@@ -739,8 +740,8 @@
       function memberRow(m) {
         var badges = (m.telegram_user_id ? '<span class="badge ok">' + esc(t("registered")) + "</span>" : '<span class="badge">' + esc(t("not registered")) + "</span>") +
           (m.locked ? ' <span class="badge warn">' + esc(t("locked")) + "</span>" : "") + (!m.is_active ? ' <span class="badge err">' + esc(t("deactivated")) + "</span>" : "");
-        return '<button class="row" data-m="' + m.id + '"><div class="main"><div class="title">' + esc(m.full_name || m.token_id) + '</div><div class="meta"><code>' + esc(m.token_id) + "</code>" +
-          (m.region ? " · " + esc(m.region) : "") + "</div><div>" + badges + '</div></div><span class="chev">›</span></button>';
+        return '<button class="row" data-m="' + m.id + '"><div class="main"><div class="title">' + esc(m.full_name || m.phone || m.token_id) + '</div><div class="meta"><code>' + esc(m.token_id) + "</code>" +
+          (m.region ? " · " + esc(m.region) : "") + (m.full_name && m.phone ? " · " + esc(m.phone) : "") + "</div><div>" + badges + '</div></div><span class="chev">›</span></button>';
       }
       var shown = [];
       function append(items) {
@@ -844,19 +845,54 @@
   function splitNames(text) {
     return String(text || "").split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
   }
-  /** Issue invitations for one council in batches of 40. names: array of strings (empty string = anonymous seat). */
-  async function issueForCouncil(councilId, names, onProgress) {
+  /** Looks like a phone number: only digits and + ( ) - . spaces, with 7–15 digits. */
+  function isPhoneLike(s) {
+    s = String(s || "").trim();
+    var digits = s.replace(/\D/g, "");
+    return /^[+\d\s\-().]+$/.test(s) && digits.length >= 7 && digits.length <= 15;
+  }
+  /** One delegate from table cells: a phone-like cell is the phone, the first other cell the name. */
+  function delegateFromCells(cells) {
+    var d = { name: "", phone: "" };
+    cells.forEach(function (c) {
+      c = String(c || "").trim();
+      if (!c) return;
+      if (!d.phone && isPhoneLike(c)) d.phone = c;
+      else if (!d.name) d.name = c;
+    });
+    return d;
+  }
+  /** Delegates from rows of cells (pasted lines or a CSV/Excel sheet). A header row (name / phone) is skipped. */
+  function delegatesFromRows(rows) {
+    rows = rows.filter(function (r) { return r.some(function (c) { return String(c || "").trim(); }); });
+    if (rows.length && rows[0].some(function (h) { return /^(name|full name|delegate|phone|mobile|tel|telephone|ስም|ስልክ)/i.test(String(h || "").trim()); }) && !rows[0].some(isPhoneLike)) rows = rows.slice(1);
+    return rows.map(delegateFromCells).filter(function (d) { return d.name || d.phone; });
+  }
+  /** Read an uploaded .csv or .xlsx into rows of cells. */
+  async function readTableFile(file) {
+    if (/\.csv$/i.test(file.name) || /csv|text/.test(file.type)) return parseCsvText(await file.text());
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    var wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    return window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" });
+  }
+  /**
+   * Issue invitations for one council in batches of 40. entries: strings (names; "" = anonymous seat)
+   * or {name, phone} objects.
+   */
+  async function issueForCouncil(councilId, entries, onProgress) {
+    var people = entries.map(function (e) { return typeof e === "string" ? { name: e, phone: "" } : { name: e.name || "", phone: e.phone || "" }; });
     var rows = [];
-    for (var off = 0; off < names.length; off += 40) {
-      var r = await api("POST", "/councils/" + councilId + "/invitations", { names: names.slice(off, off + 40) });
+    for (var off = 0; off < people.length; off += 40) {
+      var r = await api("POST", "/councils/" + councilId + "/invitations", { people: people.slice(off, off + 40) });
       rows = rows.concat(r.rows);
-      if (onProgress) onProgress(rows.length, names.length);
+      if (onProgress) onProgress(rows.length, people.length);
     }
     return rows;
   }
   function credsTable(rows) {
-    return '<table class="creds"><tr><th>#</th><th>' + esc(t("Code")) + "</th><th>" + esc(t("Password")) + "</th><th>" + esc(t("Name")) + "</th></tr>" +
-      rows.map(function (x) { return "<tr><td>" + (x.seat_no || "") + "</td><td><code>" + esc(x.token_id) + "</code></td><td><code>" + esc(x.password) + "</code></td><td>" + esc(x.full_name || "") + "</td></tr>"; }).join("") + "</table>";
+    var withPhone = rows.some(function (x) { return x.phone; });
+    return '<table class="creds"><tr><th>#</th><th>' + esc(t("Code")) + "</th><th>" + esc(t("Password")) + "</th><th>" + esc(t("Name")) + "</th>" + (withPhone ? "<th>" + esc(t("Phone")) + "</th>" : "") + "</tr>" +
+      rows.map(function (x) { return "<tr><td>" + (x.seat_no || "") + "</td><td><code>" + esc(x.token_id) + "</code></td><td><code>" + esc(x.password) + "</code></td><td>" + esc(x.full_name || "") + "</td>" + (withPhone ? "<td>" + esc(x.phone || "") + "</td>" : "") + "</tr>"; }).join("") + "</table>";
   }
   /** Sheet to add a council (name, seats, optional delegate names). Resolves {name, seats, names} or null. */
   function councilSheet(existing) {
@@ -942,7 +978,7 @@
         var badge = m.telegram_user_id ? '<span class="badge ok">' + esc(t("registered")) + "</span>" : '<span class="badge">' + esc(t("not registered")) + "</span>";
         if (!m.is_active) badge += ' <span class="badge err">' + esc(t("deactivated")) + "</span>";
         if (m.locked) badge += ' <span class="badge warn">' + esc(t("locked")) + "</span>";
-        return '<button class="row" data-m="' + m.id + '"><div class="main"><div class="title">' + (m.seat_no ? m.seat_no + ". " : "") + esc(m.full_name || t("Delegate {n}", { n: m.seat_no || "" })) + '</div><div class="meta"><code>' + esc(m.token_id) + "</code> " + badge + '</div></div><span class="chev">›</span></button>';
+        return '<button class="row" data-m="' + m.id + '"><div class="main"><div class="title">' + (m.seat_no ? m.seat_no + ". " : "") + esc(m.full_name || m.phone || t("Delegate {n}", { n: m.seat_no || "" })) + '</div><div class="meta"><code>' + esc(m.token_id) + "</code>" + (m.full_name && m.phone ? " · " + esc(m.phone) : "") + " " + badge + '</div></div><span class="chev">›</span></button>';
       }).join("") + "</div>" : '<div class="card"><p class="empty">' + esc(t("No invitations issued yet.")) + "</p></div>";
       content.innerHTML = html;
 
@@ -969,12 +1005,34 @@
           }
           if (act === "add") {
             var a = await openSheet("<h2>" + esc(t("Add delegates")) + "</h2>" +
-              '<div class="field"><label>' + esc(t("Delegate names, one per line")) + '</label><textarea data-names rows="6" placeholder="' + esc(t("Abebe Kebede\nSara Tesfaye")) + '"></textarea></div>' +
+              '<div class="field"><label>' + esc(t("Delegates, one per line: a name, a phone number, or both")) + '</label><textarea data-names rows="6" placeholder="' + esc(t("Abebe Kebede, 0911234567\n+251922345678\nSara Tesfaye")) + '"></textarea></div>' +
+              '<div class="field"><label>' + esc(t("Or upload a CSV or Excel file (columns: name, phone — either may be empty)")) + '</label><input type="file" data-file accept=".csv,.xlsx,.xls,text/csv"></div>' +
+              '<p class="hint" data-count-hint></p>' +
               '<div class="field"><label>' + esc(t("Or number of anonymous invitations")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-count placeholder="' + esc(t("e.g. 5")) + '"></div>' +
               '<button class="btn block" data-ok>' + esc(t("Issue invitations")) + "</button>",
-              function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close({ names: splitNames(sheet.querySelector("[data-names]").value), count: Number(sheet.querySelector("[data-count]").value) || 0 }); }; });
+              function (sheet, close) {
+                var area = sheet.querySelector("[data-names]"), hint = sheet.querySelector("[data-count-hint]");
+                function update() {
+                  var ds = delegatesFromRows(parseCsvText(area.value));
+                  var phones = ds.filter(function (d) { return d.phone; }).length;
+                  hint.textContent = ds.length ? t("{n} delegates ({p} with a phone number)", { n: ds.length, p: phones }) : "";
+                  return ds;
+                }
+                area.addEventListener("input", update);
+                sheet.querySelector("[data-file]").addEventListener("change", async function (ev) {
+                  var file = ev.target.files && ev.target.files[0];
+                  if (!file) return;
+                  try {
+                    var ds = delegatesFromRows(await readTableFile(file));
+                    // Show what was read, one per line, so it can be checked and edited before issuing.
+                    area.value = ds.map(function (d) { return [d.name, d.phone].filter(Boolean).join(", "); }).join("\n");
+                    update(); haptic("light");
+                  } catch (err) { fail(err); }
+                });
+                sheet.querySelector("[data-ok]").onclick = function () { close({ people: update(), count: Number(sheet.querySelector("[data-count]").value) || 0 }); };
+              });
             if (!a) return;
-            var names = a.names.length ? a.names : Array.apply(null, Array(a.count)).map(function () { return ""; });
+            var names = a.people.length ? a.people : Array.apply(null, Array(a.count)).map(function () { return ""; });
             if (!names.length) return toast(t("Add at least one delegate"), "err");
             if (!(await confirmDialog(t("Issue {n} invitations for {name}?", { n: names.length, name: c.name })))) return;
             toast(t("Issuing invitations…"));
@@ -1000,7 +1058,7 @@
             return;
           }
           if (act === "csv") {
-            await api("POST", "/members/credentials-file", { rows: params.rows.map(function (r) { return { token_id: r.token_id, password: r.password, full_name: r.full_name, region: c.name }; }) });
+            await api("POST", "/members/credentials-file", { rows: params.rows.map(function (r) { return { token_id: r.token_id, password: r.password, full_name: r.full_name, region: c.name, phone: r.phone || null }; }) });
             haptic("success"); toast(t("CSV sent to your chat"), "ok"); return;
           }
         } catch (err) { fail(err); }
@@ -1034,12 +1092,13 @@
   function planFromRows(rows) {
     if (!rows.length) return [];
     var head = rows[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
-    var ci = 0, ni = 1, si = 2, wi = 3;
+    var ci = 0, ni = 1, si = 2, wi = 3, pi = -1;
     if (head.some(function (h) { return /council|region|ም/.test(h); })) {
       ci = head.findIndex(function (h) { return /council|region/.test(h); }); if (ci < 0) ci = 0;
       ni = head.findIndex(function (h) { return /^(name|delegate|member|full)/.test(h); });
+      pi = head.findIndex(function (h) { return /phone|mobile|tel|ስልክ/.test(h); });
       wi = head.findIndex(function (h) { return /weight|per delegate|votes each/.test(h); });
-      si = head.findIndex(function (h, k) { return k !== wi && /seat|vote|delegates|count|number/.test(h); });
+      si = head.findIndex(function (h, k) { return k !== wi && k !== pi && /seat|vote|delegates|count|number/.test(h); });
       rows = rows.slice(1);
     }
     var plan = {}, order = [];
@@ -1047,11 +1106,15 @@
       var council = String(r[ci] || "").trim();
       if (!council) return;
       var name = ni >= 0 ? String(r[ni] || "").trim() : "";
-      var seats = si >= 0 ? Number(String(r[si] || "").replace(/[^0-9]/g, "")) || 0 : 0;
-      var weight = wi >= 0 ? Number(String(r[wi] || "").replace(/[^0-9]/g, "")) || 0 : 0;
+      var phone = pi >= 0 ? String(r[pi] || "").trim() : "";
+      // Without a header, a phone number may sit in the name column or in a column after the counts.
+      if (!phone && isPhoneLike(name)) { phone = name; name = ""; }
+      if (!phone && pi < 0) r.forEach(function (c, k) { if (!phone && k > 1 && k !== si && k !== wi && isPhoneLike(c) && String(c).replace(/\D/g, "").length >= 9) phone = String(c).trim(); });
+      var seats = si >= 0 && !isPhoneLike(r[si]) ? Number(String(r[si] || "").replace(/[^0-9]/g, "")) || 0 : 0;
+      var weight = wi >= 0 && !isPhoneLike(r[wi]) ? Number(String(r[wi] || "").replace(/[^0-9]/g, "")) || 0 : 0;
       var key = council.toLowerCase();
       if (!plan[key]) { plan[key] = { name: council, seats: 0, vote_weight: 1, names: [] }; order.push(key); }
-      if (name) plan[key].names.push(name);
+      if (name || phone) plan[key].names.push({ name: name, phone: phone });
       if (seats > plan[key].seats) plan[key].seats = seats;
       if (weight > plan[key].vote_weight) plan[key].vote_weight = weight;
     });
@@ -1063,7 +1126,8 @@
     render: async function (content) {
       var plan = [];
       content.innerHTML = '<div class="card"><p class="small">' + esc(t("Upload an Excel (.xlsx) or CSV file, or paste rows below. One row per delegate, or one row per council with the number of seats. An optional last column gives the votes per delegate (default 1):")) + "</p>" +
-        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th><th>Votes each</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td><td></td></tr><tr><td>Addis Ababa</td><td>Sara Tesfaye</td><td></td><td></td></tr><tr><td>Oromia</td><td></td><td>3</td><td>2</td></tr></table>' +
+        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th><th>Votes each</th><th>Phone</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td><td></td><td>0911234567</td></tr><tr><td>Addis Ababa</td><td></td><td></td><td></td><td>+251922345678</td></tr><tr><td>Oromia</td><td></td><td>3</td><td>2</td><td></td></tr></table>' +
+        '<p class="hint">' + esc(t("A Phone column is optional: a delegate can be listed by name, by phone number, or both. Local numbers (09…) are stored as +251…")) + "</p>" +
         '<p class="hint">' + esc(t("A council with names gets one named invitation per row; a council with only a number of seats gets that many anonymous invitations. Existing councils are reused.")) + "</p></div>" +
         '<div class="card"><div class="field"><label>' + esc(t("File")) + '</label><input type="file" data-file accept=".xlsx,.xls,.csv,text/csv"></div>' +
         '<div class="field"><label>' + esc(t("Or paste rows (Council, Name, Seats, Votes each)")) + '</label><textarea data-text rows="6" placeholder="Addis Ababa, Abebe Kebede&#10;Oromia, , 3, 2"></textarea></div>' +
@@ -1111,7 +1175,7 @@
             var names = p.names.length ? p.names : Array.apply(null, Array(p.seats)).map(function () { return ""; });
             var rows = await issueForCouncil(r.council.id, names, function (n) { st.textContent = t("{name}: {done} of {total} invitations…", { name: p.name, done: n, total: names.length }); bar.style.width = Math.round((done + n) / total * 100) + "%"; });
             done += rows.length;
-            rows.forEach(function (x) { allRows.push({ token_id: x.token_id, password: x.password, full_name: x.full_name, region: p.name }); });
+            rows.forEach(function (x) { allRows.push({ token_id: x.token_id, password: x.password, full_name: x.full_name, region: p.name, phone: x.phone || null }); });
             st.textContent = t("{name}: sending PDF…", { name: p.name });
             await api("POST", "/councils/" + r.council.id + "/invitations-pdf", { rows: rows, separate: each });
             log.insertAdjacentHTML("beforeend", '<p class="small">✅ ' + esc(p.name) + " — " + esc(t("{n} invitations, PDF sent", { n: rows.length })) + "</p>");

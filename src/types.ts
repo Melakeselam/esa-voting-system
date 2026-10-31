@@ -12,6 +12,7 @@ export interface Member {
   council_id: string | null;
   seat_no: number | null;
   vote_weight: number;
+  phone: string | null; // international form, e.g. +251911234567
 }
 
 export interface Council {

@@ -879,6 +879,19 @@ try {
   r = await api("GET", "/me", { id: 3001, first_name: "Stranger" });
   eq("revoke: the person is a guest again", r.json?.role, "guest");
 
+  // ---- Delegates by phone number ---------------------------------------------
+  r = await api("POST", "/councils/" + RTC.id + "/invitations", USERS.admin, { people: [{ name: "Kebede Alemu", phone: "0911 23 45 67" }, { phone: "+251-922-345-678" }, { name: "", phone: "911555666" }] });
+  check("phones: invitations issued by name + phone or phone only, numbers normalised", r.status === 200 && JSON.stringify(r.json.rows.map((x) => [x.full_name, x.phone])) === JSON.stringify([["Kebede Alemu", "+251911234567"], [null, "+251922345678"], [null, "+251911555666"]]), JSON.stringify([r.status, r.json?.rows?.map((x) => [x.full_name, x.phone])]));
+  const phoneRows = r.json.rows;
+  r = await api("POST", "/councils/" + RTC.id + "/invitations", USERS.admin, { people: [{ name: "Bad", phone: "12ab" }] });
+  check("phones: something that is not a phone number is refused with its line", r.status === 400 && /Line 1/.test(r.json?.error ?? ""), JSON.stringify(r.json));
+  r = await api("GET", "/councils/" + RTC.id, USERS.admin);
+  check("phones: the council page shows the phone numbers", r.json?.invitations?.filter((m) => m.phone).length === 3, JSON.stringify(r.json?.invitations?.map((m) => m.phone)));
+  r = await api("GET", "/members?q=" + encodeURIComponent("0922345678"), USERS.admin);
+  check("phones: Members search finds a delegate by a locally typed number", r.json?.items?.length === 1 && r.json.items[0].phone === "+251922345678", JSON.stringify(r.json?.items));
+  r = await api("POST", "/councils/" + RTC.id + "/invitations-pdf", USERS.admin, { rows: phoneRows, separate: true });
+  check("phones: one-per-delegate PDFs are named after the phone when there is no name", r.json?.files?.some((f) => /251922345678/.test(f)) && r.json.files.some((f) => /Kebede-Alemu/.test(f)), JSON.stringify(r.json?.files));
+
   // ---- Bot removed from the group ----------------------------------------
   const botStatus = (oldStatus, newStatus, date) => ({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
   await update(botStatus("administrator", "left", 2));

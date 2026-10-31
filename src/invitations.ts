@@ -17,6 +17,7 @@ export interface InvitationRow {
   password: string;
   full_name: string | null;
   seat_no: number | null;
+  phone?: string | null;
 }
 
 export interface InvitationPdfOptions {
@@ -161,7 +162,12 @@ export async function invitationsPdf(opts: InvitationPdfOptions): Promise<Buffer
     para("Council", x, y, labelW, 10, "#5a6470");
     y = para(opts.council.name, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 3;
     para("Delegate", x, y, labelW, 10, "#5a6470");
-    y = para(delegate, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 10;
+    y = para(row.full_name || !row.phone ? delegate : row.phone, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 3;
+    if (row.full_name && row.phone) {
+      para("Phone", x, y, labelW, 10, "#5a6470");
+      y = para(row.phone, x + labelW, y, textW - labelW, 11.5, "#0f0f0f", true) + 3;
+    }
+    y += 7;
 
     // Code + password boxes
     const boxW = (textW - 10) / 2;

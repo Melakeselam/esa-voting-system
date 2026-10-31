@@ -18,8 +18,8 @@ import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/
 import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
-import { credentialsCsv, generateCredentials, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
-import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, reissuePasswords, updateCouncil } from "../services/councils.js";
+import { credentialsCsv, generateCredentials, normalizePhone, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
+import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, reissuePasswords, updateCouncil, type DelegateEntry } from "../services/councils.js";
 import { ethiopicFontAvailable, invitationLink, invitationsPdf, type InvitationRow } from "../invitations.js";
 import {
   findById,
@@ -716,6 +716,7 @@ route("POST", "/members/credentials-file", true, async (ctx) => {
       password: str(o.password, "password", { max: 40 }),
       full_name: str(o.full_name, "full_name", { optional: true, max: 120 }) || null,
       region: str(o.region, "region", { optional: true, max: 120 }) || null,
+      phone: str(o.phone, "phone", { optional: true, max: 30 }) || null,
     };
   });
   const stamp = formatLocal(new Date()).replace(/[: ]/g, "-");
@@ -759,6 +760,7 @@ function invitationRows(b: Record<string, unknown>): InvitationRow[] {
       password: str(o.password, "password", { max: 40 }),
       full_name: str(o.full_name, "full_name", { optional: true, max: 120 }) || null,
       seat_no: int(o.seat_no, "seat_no", { optional: true, min: 1 }),
+      phone: str(o.phone, "phone", { optional: true, max: 30 }) || null,
     };
   });
 }
@@ -839,20 +841,31 @@ route("DELETE", `/councils/${UUID}`, true, async (ctx, [id]) => {
   return { ok: true };
 });
 
-/** Issue invitations: names (one per delegate, empty = anonymous seat) or a count. Max 40 per request. */
+/**
+ * Issue invitations: `people` ([{name, phone}] — either or both; empty = anonymous seat),
+ * `names` (one per delegate), or a `count`. Max 40 per request.
+ */
 route("POST", `/councils/${UUID}/invitations`, true, async (ctx, [id]) => {
   const c = await requireCouncil(id);
   const b = await ctx.body();
-  let names: (string | null)[];
-  if (Array.isArray(b.names)) {
-    names = b.names.map((n, i) => str(n, `Name ${i + 1}`, { optional: true, max: 120 }) || null);
+  let entries: DelegateEntry[];
+  if (Array.isArray(b.people)) {
+    entries = b.people.map((p, i) => {
+      const o = asObject(p);
+      const rawPhone = str(o.phone, `Phone ${i + 1}`, { optional: true, max: 30 });
+      const phone = rawPhone ? normalizePhone(rawPhone) : null;
+      if (rawPhone && !phone) throw new HttpError(400, `Line ${i + 1}: “${rawPhone}” is not a phone number.`);
+      return { name: str(o.name, `Name ${i + 1}`, { optional: true, max: 120 }) || null, phone };
+    });
+  } else if (Array.isArray(b.names)) {
+    entries = b.names.map((n, i) => ({ name: str(n, `Name ${i + 1}`, { optional: true, max: 120 }) || null }));
   } else {
     const count = int(b.count, "Count", { min: 1, max: INVITE_BATCH })!;
-    names = Array.from({ length: count }, () => null);
+    entries = Array.from({ length: count }, () => ({ name: null }));
   }
-  if (names.length === 0) throw new HttpError(400, "Nobody to invite.");
-  if (names.length > INVITE_BATCH) throw new HttpError(400, `At most ${INVITE_BATCH} per request; the app sends larger lists in batches.`);
-  const rows = await issueInvitations(c, names);
+  if (entries.length === 0) throw new HttpError(400, "Nobody to invite.");
+  if (entries.length > INVITE_BATCH) throw new HttpError(400, `At most ${INVITE_BATCH} per request; the app sends larger lists in batches.`);
+  const rows = await issueInvitations(c, entries);
   await audit(ctx.user.id, "invitations_issued", { council: c.name, count: rows.length, via: "app" });
   return { rows, council: await getCouncil(id) };
 });
@@ -886,7 +899,7 @@ route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
     for (const [i, row] of rows.entries()) {
       const pdf = await invitationsPdf({ council: c, rows: [row], botUsername: bot.botInfo.username });
       const seat = String(row.seat_no ?? i + 1).padStart(2, "0");
-      const name = fileSlug(row.full_name);
+      const name = fileSlug(row.full_name || row.phone || null);
       docs.push({ pdf, file: `esa-invitation-${c.code.toLowerCase()}-${seat}${name ? `-${name}` : ""}.pdf` });
     }
     const caption =

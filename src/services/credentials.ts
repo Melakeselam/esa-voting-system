@@ -17,6 +17,7 @@ export interface Person {
   council_id?: string | null;
   seat_no?: number | null;
   vote_weight?: number;
+  phone?: string | null;
 }
 
 export interface CredentialRow {
@@ -25,6 +26,26 @@ export interface CredentialRow {
   full_name: string | null;
   region: string | null;
   seat_no?: number | null;
+  phone?: string | null;
+}
+
+/** Country code used for local numbers (0911…, 911…). Ethiopia by default; DEFAULT_PHONE_COUNTRY_CODE overrides. */
+const COUNTRY = (process.env.DEFAULT_PHONE_COUNTRY_CODE ?? "251").replace(/\D/g, "") || "251";
+
+/**
+ * A phone number in international form (+2519…), or null when `raw` is not a
+ * phone number. Accepts spaces, dashes, dots and brackets; local numbers
+ * starting with 0 (or 9-digit mobile numbers) get the default country code.
+ */
+export function normalizePhone(raw: string | null | undefined): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s || !/^[+\d\s\-().]+$/.test(s)) return null;
+  let digits = s.replace(/\D/g, "");
+  if (s.startsWith("+")) return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  else if (digits.startsWith("0")) digits = COUNTRY + digits.slice(1);
+  else if (digits.length === 9 && COUNTRY === "251") digits = COUNTRY + digits; // 911 234 567
+  return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
 }
 
 /**
@@ -49,9 +70,10 @@ export async function generateCredentials(people: Person[], prefix = "ESA-2026")
         council_id: person.council_id ?? null,
         seat_no: person.seat_no ?? null,
         vote_weight: person.vote_weight ?? 1,
+        phone: person.phone ?? null,
       });
       if (!error) {
-        rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null });
+        rows.push({ token_id: token, password, full_name: person.name, region: person.region, seat_no: person.seat_no ?? null, phone: person.phone ?? null });
         break;
       }
       if (error.code !== "23505" || attempt >= 3) throw error;
@@ -78,7 +100,7 @@ export function credentialsCsv(rows: CredentialRow[]): string {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [
-    "token_id,password,full_name,region",
-    ...rows.map((r) => [r.token_id, r.password, esc(r.full_name), esc(r.region)].join(",")),
+    "token_id,password,full_name,region,phone",
+    ...rows.map((r) => [r.token_id, r.password, esc(r.full_name), esc(r.region), esc(r.phone ?? null)].join(",")),
   ].join("\n");
 }
