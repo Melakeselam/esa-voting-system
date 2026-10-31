@@ -4,6 +4,7 @@ import { audit } from "../db.js";
 import { config } from "../config.js";
 import { lockGroupPermissions } from "./group-lock.js";
 import { onBotPromoted } from "./gate.js";
+import { onBotRemoved } from "./reset-flow.js";
 import { getLinkedGroup, setSetting, unlinkGroup, upsertTopic } from "../services/settings.js";
 
 /**
@@ -74,6 +75,14 @@ async function track(ctx: Context): Promise<void> {
       if (linked?.chat_id === chat.id) {
         await unlinkGroup(chat.id);
         await audit(ctx.myChatMember.from.id, "group_unlinked", { chat_id: chat.id, via: "removed_from_group" });
+        forgetChatMemo(chat.id);
+        // Offer (or perform) the wipe of the assembly data, per the reset mode in Setup.
+        try {
+          await onBotRemoved(ctx.api, title, ctx.myChatMember.from.id);
+        } catch (err) {
+          console.error("reset offer after removal failed:", err);
+        }
+        return;
       }
       forgetChatMemo(chat.id);
       return;

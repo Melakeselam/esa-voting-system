@@ -11,6 +11,7 @@ import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
 import { ensureCommandTopic } from "../bot/group-commands.js";
+import { assemblySummary, getResetMode, resetAssembly, setResetMode } from "../services/reset.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -911,6 +912,8 @@ route("GET", "/setup", true, async (ctx) => {
     group_rights: groupRights,
     group_lock: groupLock,
     people,
+    assembly: await assemblySummary(),
+    reset_mode: await getResetMode(),
     group_lock_auto: config.lockGroupPermissions,
     mode: config.serverless ? "serverless" : "server",
     polling: !config.publicUrl,
@@ -992,6 +995,24 @@ route("POST", "/setup/group/commands", true, async (ctx) => {
   const result = await ensureCommandTopic(bot.api, group.chat_id, group.title, Boolean(chat.is_forum), { repost: true });
   await audit(ctx.user.id, "commands_posted", { chat_id: group.chat_id, thread_id: result.thread_id, created: result.created, via: "app" });
   return result;
+});
+
+// ---- Reset -----------------------------------------------------------------
+
+/** Wipe councils, members, invitations, resolutions, ballots, the group and its topics. Admins and the audit log stay. */
+route("POST", "/setup/reset", true, async (ctx) => {
+  const group = await getLinkedGroup();
+  const wiped = await resetAssembly(ctx.user.id, "app");
+  if (group) forgetChatMemo(group.chat_id);
+  return { ok: true, wiped };
+});
+
+route("POST", "/setup/reset-mode", true, async (ctx) => {
+  const b = await ctx.body();
+  const mode = b.mode === "auto" ? "auto" : "ask";
+  await setResetMode(mode);
+  await audit(ctx.user.id, "reset_mode_set", { mode, via: "app" });
+  return { ok: true, mode };
 });
 
 // ---- People in the group (bot/gate.ts) ------------------------------------

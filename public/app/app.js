@@ -1127,6 +1127,16 @@
         '</div><p class="hint">' + esc(t("Admins can do everything in this panel. A person finds their Telegram ID by sending /whoami to the bot.")) + "</p>" +
         '<button class="btn secondary sm" data-act="addadmin">＋ ' + esc(t("Add admin")) + "</button></div>";
 
+      // Danger zone: start over
+      if (s.assembly) {
+        var az = s.assembly;
+        html += '<div class="card"><h3>' + esc(t("Start over")) + "</h3>" +
+          '<p class="hint">' + esc(t("Currently: {c} councils · {m} members ({r} registered, {i} invitations not yet used) · {n} resolutions", { c: az.councils, m: az.members, r: az.registered, i: az.invitations, n: az.resolutions })) + "</p>" +
+          '<label class="switch"><span class="lbl"><span>' + esc(t("Wipe everything automatically when the bot is removed from the group")) + '</span><span class="hint">' + esc(t("Off: when the bot is removed, admins receive a message offering the reset. On: the data is wiped at once — an accidental removal then destroys the roster.")) + '</span></span><input type="checkbox" data-resetmode' + (s.reset_mode === "auto" ? " checked" : "") + "></label>" +
+          '<button class="btn danger block" data-act="reset">🗑 ' + esc(t("Reset assembly data")) + "</button>" +
+          '<p class="hint">' + esc(t("Deletes councils, members, invitations, resolutions with their ballots, the learned group and its topics. Admin accounts and the audit log stay. Use it when a group was deleted and a new one takes its place.")) + "</p></div>";
+      }
+
       html += '<div class="actions"><button class="btn secondary block" data-act="audit">🧾 ' + esc(t("Audit log")) + "</button>" +
         '<button class="btn secondary block" data-act="help">❔ ' + esc(t("Help and guides")) + "</button></div>" +
         '<p class="hint small">' + esc(t("Mode: {mode}", { mode: s.mode })) + (s.public_url ? " · " + esc(s.public_url) : "") + " · " + esc(t("Language: {lang}", { lang: I18N.label() })) + "</p>";
@@ -1138,6 +1148,14 @@
           if (act === "webhook") { var w = await api("POST", "/setup/webhook"); haptic("success"); toast(w.ok ? t("Webhook registered") : t("Registered; Telegram reports {url}", { url: w.url }), w.ok ? "ok" : "err"); return refresh(); }
           if (act === "menu") { await api("POST", "/setup/menu"); haptic("success"); toast(t("Menu button updated"), "ok"); return; }
           if (act === "audit") return go("audit");
+          if (act === "reset") {
+            if (!(await confirmDialog(t("Reset the assembly data? This deletes all councils, members, invitations, resolutions and ballots, and forgets the group.")))) return;
+            if (!(await confirmDialog(t("Really wipe everything? This cannot be undone.")))) return;
+            var wr = await api("POST", "/setup/reset");
+            haptic("success");
+            toast(t("Assembly data wiped: {c} councils, {m} members, {n} resolutions", { c: wr.wiped.councils, m: wr.wiped.members, n: wr.wiped.resolutions }), "ok");
+            return refresh();
+          }
           if (act === "help") return go("help");
           if (act === "addadmin") {
             var v = await openSheet("<h2>" + esc(t("Add admin")) + '</h2><div class="field"><label>' + esc(t("Telegram user ID")) + '</label><input type="number" inputmode="numeric" data-id placeholder="' + esc(t("e.g. 123456789")) + '"></div>' +
@@ -1206,6 +1224,14 @@
           else if (a.a === "test") { await api("POST", "/setup/test-message", { chat_id: chat, thread_id: thread }); }
           else if (a.a === "delete") { await api("DELETE", "/setup/topics/" + chat + "/" + thread); }
           haptic("success"); toast(t("Done"), "ok"); refresh();
+        } catch (err) { fail(err); }
+      });
+      on(content, "[data-resetmode]", "change", async function (ev) {
+        try {
+          if (ev.target.checked && !(await confirmDialog(t("Wipe all assembly data automatically whenever the bot is removed from the group? An accidental removal then destroys the roster.")))) { ev.target.checked = false; return; }
+          await api("POST", "/setup/reset-mode", { mode: ev.target.checked ? "auto" : "ask" });
+          haptic("success");
+          toast(ev.target.checked ? t("The data is now wiped automatically when the bot is removed") : t("Admins are now asked before any wipe"), "ok");
         } catch (err) { fail(err); }
       });
       on(content, "[data-gate]", "change", async function (ev) {

@@ -744,9 +744,43 @@ try {
   eq("group: admin can unlink by hand", r.status, 200);
   r = await api("GET", "/setup", USERS.admin);
   eq("group: unlinked by hand", r.json?.group, null);
+
+  // ---- Group deleted → start over -------------------------------------------
+  await update(botStatus("left", "administrator", 6));
+  r = await api("GET", "/setup", USERS.admin);
+  check("reset: Setup shows the assembly counts and the ask mode", r.json?.assembly?.councils >= 2 && r.json.assembly.members >= 6 && r.json.assembly.resolutions >= 3 && r.json.reset_mode === "ask", JSON.stringify([r.json?.assembly, r.json?.reset_mode]));
+  await update(botStatus("administrator", "left", 7));
+  check("reset: removal keeps the data and offers the wipe to admins", /data is kept/.test(lastTextTo(1001)) && /councils/.test(lastTextTo(1001)) && JSON.stringify(sentTo(1001).at(-1).body.reply_markup).includes("reset|ask") && (await rows("members")).length > 0, lastTextTo(1001));
+  const editsBefore = calls("editMessageText").length;
+  await update(callback(USERS.guest, "reset|ask"));
+  check("reset: a non-admin cannot start the wipe", (await rows("members")).length > 0 && calls("editMessageText").length === editsBefore);
+  await update(callback(USERS.admin, "reset|ask"));
+  check("reset: first tap asks for confirmation", calls("editMessageText", (b) => /cannot be undone/.test(b.text) && JSON.stringify(b.reply_markup).includes("reset|yes")).length === 1, JSON.stringify(calls("editMessageText").map((c) => c.body.text)));
+  await update(callback(USERS.admin, "reset|keep"));
+  check("reset: cancel keeps everything", (await rows("members")).length > 0 && calls("editMessageText", (b) => /is kept/.test(b.text)).length === 1);
+  await update(callback(USERS.admin, "reset|ask"));
+  await update(callback(USERS.admin, "reset|yes"));
+  const left = await Promise.all(["members", "councils", "resolutions", "ballots", "votes", "chat_topics", "group_people"].map((tb) => rows(tb)));
+  check("reset: second tap wipes councils, members, resolutions, ballots, votes, topics and people", left.every((rs) => rs.length === 0), JSON.stringify(left.map((rs) => rs.length)));
+  const settingsLeft = (await rows("app_settings")).map((s) => s.key);
+  check("reset: group settings gone, preferences and admins kept", !settingsLeft.includes("group") && !settingsLeft.includes("signin_topic") && settingsLeft.includes("group_gate") && (await rows("admins")).length > 0 && (await rows("audit_log")).length > 0, JSON.stringify(settingsLeft));
+  check("reset: admins told what was wiped", /Wiped:/.test(calls("editMessageText").at(-1).body.text), calls("editMessageText").at(-1).body.text);
+  // Automatic mode: removal wipes at once.
+  r = await api("POST", "/setup/reset-mode", USERS.admin, { mode: "auto" });
+  eq("reset: automatic mode set", r.json?.mode, "auto");
+  await update(botStatus("left", "administrator", 8));
+  r = await api("POST", "/councils", USERS.admin, { name: "Fresh Council", seats: 2 });
+  eq("reset: a council can be created again with any name", r.status, 200);
+  await update(botStatus("administrator", "left", 9));
+  check("reset: in automatic mode removal wipes the data and tells the admins", (await rows("councils")).length === 0 && /wiped the assembly data/.test(lastTextTo(1001)), lastTextTo(1001));
+  r = await api("POST", "/setup/reset-mode", USERS.admin, { mode: "ask" });
+  eq("reset: back to ask mode", r.json?.mode, "ask");
+  r = await api("POST", "/setup/reset", USERS.admin);
+  check("reset: Setup button works on an empty assembly too", r.json?.ok === true && r.json.wiped.councils === 0, JSON.stringify(r.json));
+
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

@@ -221,6 +221,16 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   reply keyboard, and listed with descriptions in a pinned "📖 Commands /
   ትዕዛዞች" topic the bot creates when it becomes admin (tapping a command
   in the text runs it). Setup › "Post command reference" re-posts it.
+- **Starting over:** when the bot is removed from the linked group (Telegram
+  sends the same event for a deleted group), it forgets the group and sends
+  every admin a message with the current counts and a "Reset assembly data"
+  button (two taps). The reset wipes councils, members, invitations,
+  resolutions with ballots and votes, learned topics, group people and the
+  group settings; admin accounts and the audit log stay, and the reset is
+  audited. Setup › "Reset assembly data" does the same; the switch "Wipe
+  everything automatically when the bot is removed" (`group_reset_mode`)
+  makes removal itself trigger the wipe — off by default, because an
+  accidental removal would then destroy the roster.
 - **Group gate:** only registered members and admins belong in the assembly
   group. The bot receives `chat_member` and `chat_join_request` updates: a
   join request from a registered member is approved at once; anyone else is
