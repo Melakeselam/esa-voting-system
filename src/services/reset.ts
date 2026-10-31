@@ -41,6 +41,7 @@ export async function resetAssembly(by: string | number, reason: string): Promis
   // Children first (the real database also cascades, the fake one does not).
   await wipe("votes", "id");
   await wipe("ballots", "resolution_id");
+  await wipe("vote_activations", "resolution_id");
   await wipe("resolutions", "id");
   await wipe("members", "id");
   await wipe("councils", "id");

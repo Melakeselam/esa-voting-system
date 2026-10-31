@@ -1,5 +1,6 @@
 import { supabase } from "../db.js";
 import { memberCounts } from "./members.js";
+import { newActivationCode } from "./activation.js";
 import type { Resolution, ResolutionStatus, Threshold } from "../types.js";
 
 /**
@@ -70,6 +71,9 @@ export async function setStatus(
   if (status === "open") {
     patch.opened_at = new Date().toISOString();
     patch.closes_at = closesAt ? closesAt.toISOString() : null;
+    // A fresh presence code for this vote (see services/activation.ts).
+    const res = await getById(id);
+    if (res?.activation_required) patch.activation_code = newActivationCode();
   }
   if (status === "closed") {
     patch.closed_at = new Date().toISOString();
@@ -102,9 +106,12 @@ export async function claimClose(id: string): Promise<{ eligible: number } | nul
  * quorum is measured again when it closes. Returns false if it was not closed.
  */
 export async function reopenResolution(id: string, closesAt: Date | null): Promise<boolean> {
+  const current = await getById(id);
+  const patch: Record<string, unknown> = { status: "open", closes_at: closesAt ? closesAt.toISOString() : null, closed_at: null, eligible_count: null };
+  if (current?.activation_required && !current.activation_code) patch.activation_code = newActivationCode();
   const { data, error } = await supabase
     .from("resolutions")
-    .update({ status: "open", closes_at: closesAt ? closesAt.toISOString() : null, closed_at: null, eligible_count: null })
+    .update(patch)
     .eq("id", id)
     .eq("status", "closed")
     .select("id");
@@ -122,6 +129,14 @@ export async function listDueForClose(): Promise<Resolution[]> {
     .lte("closes_at", new Date().toISOString());
   if (error) throw error;
   return data as Resolution[];
+}
+
+/** New activation code for an open resolution (the old one leaked, or a new session started). Returns it. */
+export async function regenerateActivationCode(id: string): Promise<string> {
+  const code = newActivationCode();
+  const { error } = await supabase.from("resolutions").update({ activation_code: code }).eq("id", id);
+  if (error) throw error;
+  return code;
 }
 
 export async function setQuorum(id: string, quorum: number | null): Promise<void> {
@@ -151,7 +166,7 @@ export async function setAnnounceTarget(
   if (error) throw error;
 }
 
-export type ResolutionPatch = Partial<Pick<Resolution, "title" | "description" | "options" | "anonymous" | "quorum" | "threshold">>;
+export type ResolutionPatch = Partial<Pick<Resolution, "title" | "description" | "options" | "anonymous" | "quorum" | "threshold" | "activation_required">>;
 
 /** Edit a draft. Returns false if the resolution is not (or no longer) a draft. */
 export async function updateResolution(id: string, patch: ResolutionPatch): Promise<boolean> {

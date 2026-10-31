@@ -89,6 +89,7 @@
           { steps: [
             "Open the resolution and tap “Open voting”.",
             "Choose a deadline: no deadline (you close it manually), close automatically after N minutes, or close at a specific time.",
+            "A 4-digit activation code appears with the resolution title. Tap “Copy title and code” and paste it in the video-call chat (Zoom, Google Meet, Telegram call), or show it on the screen in the hall — never in the assembly group. Members must enter it before they can vote, which proves they are in the meeting. The code stays on the resolution page; “New code” replaces it if it leaks. Switch “Require activation code” off on the draft for votes that do not need it.",
             "Confirm “Announce in a group topic now?” and pick the topic. The bot posts the resolution with a Vote button in that topic.",
             "Optional: “Send ballot to all members” sends every registered member a private message with the ballot.",
           ] },
@@ -248,6 +249,7 @@
         body: [
           { steps: [
             "የውሳኔ ሀሳቡን ከፍተው «ድምፅ መስጠትን ክፈት»ን ይንኩ።",
+            "ከውሳኔ ሀሳቡ ርዕስ ጋር ባለ 4 አሃዝ የማግበሪያ ኮድ ይታያል። «ርዕሱን እና ኮዱን ቅዳ»ን ነክተው በቪዲዮ ጥሪው ውይይት (Zoom፣ Google Meet፣ የቴሌግራም ጥሪ) ውስጥ ይለጥፉት፣ ወይም በአዳራሹ ስክሪን ላይ ያሳዩት — በጉባኤው ቡድን ውስጥ ፈጽሞ አይደለም። አባላት ድምፅ ከመስጠታቸው በፊት ማስገባት አለባቸው፣ ይህም በስብሰባው ውስጥ መሆናቸውን ያረጋግጣል። ኮዱ በውሳኔ ሀሳቡ ገጽ ላይ ይቆያል፤ ከወጣ «አዲስ ኮድ» ይተካዋል። ለማያስፈልጋቸው ድምፆች በረቂቁ ላይ «የማግበሪያ ኮድ ይጠየቅ»ን ያጥፉ።",
             "የመዝጊያ ሰዓት ይምረጡ፦ ያለ መዝጊያ ሰዓት (እራስዎ ይዘጋሉ)፣ ከN ደቂቃ በኋላ በራስ-ሰር ይዘጋል፣ ወይም በተወሰነ ሰዓት ይዘጋል።",
             "«አሁን በቡድን ርዕስ ውስጥ ይታወቅ?» የሚለውን ያረጋግጡና ርዕሱን ይምረጡ። ቦቱ የውሳኔ ሀሳቡን ከ«ድምፅ ይስጡ» አዝራር ጋር በዚያ ርዕስ ውስጥ ይለጥፋል።",
             "አማራጭ፦ «ድምፅ መስጫ ለሁሉም አባላት ላክ» ለእያንዳንዱ የተመዘገበ አባል የድምፅ መስጫውን በግል መልዕክት ይልካል።",
@@ -364,6 +366,7 @@
         body: [
           { steps: [
             "Open the Vote tab. Every resolution that is open for voting is listed with its options.",
+            "If the resolution asks for an activation code, type the 4 digits shown in the meeting (on the screen or in the video-call chat) and tap “Activate”. You do this once per resolution.",
             "Tap the option you choose and confirm.",
             "On a secret ballot your choice is stored without your name and is final. On an open ballot you may tap another option to change your vote until voting closes.",
           ] },
@@ -433,6 +436,7 @@
         body: [
           { steps: [
             "«ድምፅ ይስጡ» ትርን ይክፈቱ። ለድምፅ ክፍት የሆነ እያንዳንዱ የውሳኔ ሀሳብ ከአማራጮቹ ጋር ተዘርዝሯል።",
+            "የውሳኔ ሀሳቡ የማግበሪያ ኮድ ከጠየቀ፣ በስብሰባው ውስጥ የታዩትን 4 አሃዞች (በስክሪኑ ላይ ወይም በቪዲዮ ጥሪው ውይይት) ይጻፉና «አግብር»ን ይንኩ። ይህን በአንድ የውሳኔ ሀሳብ አንድ ጊዜ ያደርጋሉ።",
             "የሚመርጡትን አማራጭ ነክተው ያረጋግጡ።",
             "በሚስጥራዊ ድምፅ ምርጫዎ ያለ ስምዎ ይቀመጣል እና የመጨረሻ ነው። በግልጽ ድምፅ ድምፅ መስጠት እስኪዘጋ ድረስ ድምፅዎን ለመቀየር ሌላ አማራጭ መንካት ይችላሉ።",
           ] },

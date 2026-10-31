@@ -222,6 +222,18 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   the labels are answered like the commands), and listed with descriptions in a pinned "📖 Commands /
   ትዕዛዞች" topic the bot creates when it becomes admin (tapping a command
   in the text runs it). Setup › "Post command reference" re-posts it.
+- **Activation code (presence check):** every resolution requires, by default,
+  a 4-digit code that is generated when voting opens (`activation_code`,
+  regenerated on each open; "Require activation code" switch on the draft,
+  `activation_required`). The admin sees it with the title and copy buttons
+  right after opening and on the resolution page, and gets it by private
+  message from `/open` and `/code R1` (`/code R1 new` replaces it). It is
+  shown in the meeting — screen or video-call chat — never in the group. A
+  member enters it once per resolution (app: field above the options; chat:
+  the bot asks for it when an option is tapped) before voting; this is stored
+  in `vote_activations` and the resolution page counts it. Five wrong codes
+  lock that member for 10 minutes on that resolution. The code is never sent
+  to members by the API.
 - **Starting over:** when the bot is removed from the linked group (Telegram
   sends the same event for a deleted group), it forgets the group and sends
   every admin a message with the current counts and a "Reset assembly data"

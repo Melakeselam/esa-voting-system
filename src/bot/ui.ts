@@ -10,6 +10,7 @@ export function resolutionCard(res: Resolution): string {
   lines.push("", res.anonymous ? "🔒 Secret ballot — your choice is anonymous and final." : "✏️ Open ballot — you may change your vote until voting closes.");
   lines.push(`📏 To pass: ${thresholdLabel(res.threshold)}`);
   if (res.quorum) lines.push(`👥 Quorum: ${res.quorum}% of eligible members must cast a ballot`);
+  if (res.activation_required) lines.push("🔑 Voting needs the 4-digit activation code shown in the meeting.");
   if (res.status === "open") {
     lines.push("🟢 Voting is <b>OPEN</b>.");
     if (res.closes_at) lines.push(`⏰ Voting closes automatically: <b>${formatLocal(res.closes_at)}</b>`);

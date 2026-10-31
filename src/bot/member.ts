@@ -9,7 +9,8 @@ import { beginLoginWithToken, handleLoginMessage, inLogin, promptLogin } from ".
 import { appKeyboard, confirmKeyboard, escapeHtml, resolutionCard, voteKeyboard } from "./ui.js";
 import { afterRegistrationKeyboard } from "./group-link.js";
 import type { InlineKeyboard } from "grammy";
-import type { Member } from "../types.js";
+import type { Member, Resolution } from "../types.js";
+import { activate, needsActivation } from "../services/activation.js";
 
 /** Member-facing handlers. Everything here runs in private chats only. */
 export const memberComposer = new Composer<Context>();
@@ -155,6 +156,20 @@ async function editBallot(ctx: Context, text: string, keyboard?: InlineKeyboard)
   }
 }
 
+// Members asked for an activation code in this chat: Telegram user id → resolution id.
+const awaitingCode = new Map<number, string>();
+
+/** Ask the member for the meeting's activation code before they can vote on `res`. */
+async function askForCode(ctx: Context, res: Resolution): Promise<void> {
+  awaitingCode.set(ctx.from!.id, res.id);
+  await ctx.reply(
+    `🔑 <b>${escapeHtml(res.code)} — ${escapeHtml(res.title)}</b>\n` +
+      `Voting on this resolution needs the <b>4-digit activation code</b> shown in the meeting ` +
+      `(on the screen or in the video-call chat). Send the code here.`,
+    { parse_mode: "HTML" },
+  );
+}
+
 // Step 1 — option tapped: ask for confirmation, nothing is recorded yet.
 memberComposer.callbackQuery(/^v\|([0-9a-f-]{36})\|(\d+)$/, async (ctx) => {
   const member = await findByTelegramId(ctx.from.id);
@@ -162,7 +177,13 @@ memberComposer.callbackQuery(/^v\|([0-9a-f-]{36})\|(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Please register first: send /start to the bot.", show_alert: true });
     return;
   }
-  const res = await getById(ctx.match[1]);
+  const pre = await getById(ctx.match[1]);
+  if (pre && pre.status === "open" && (await needsActivation(pre, member.id))) {
+    await ctx.answerCallbackQuery({ text: "Enter the activation code shown in the meeting first.", show_alert: true });
+    await askForCode(ctx, pre);
+    return;
+  }
+  const res = pre;
   if (!res) {
     await ctx.answerCallbackQuery({ text: "This resolution no longer exists.", show_alert: true });
     return;
@@ -204,6 +225,11 @@ memberComposer.callbackQuery(/^vc\|([0-9a-f-]{36})\|(\d+)$/, async (ctx) => {
   }
   const choiceIndex = Number(ctx.match[2]);
   const option = res.options[choiceIndex] ?? "?";
+  if (res.status === "open" && (await needsActivation(res, member.id))) {
+    await ctx.answerCallbackQuery({ text: "Enter the activation code shown in the meeting first.", show_alert: true });
+    await askForCode(ctx, res);
+    return;
+  }
 
   const outcome = await castVote(res.id, member.id, choiceIndex);
   switch (outcome) {
@@ -280,7 +306,40 @@ pm.on("message:text", async (ctx) => {
   const member = await findByTelegramId(ctx.from.id);
   if (!member) {
     await promptLogin(ctx);
-  } else {
-    await ctx.reply("Use /vote to see open resolutions, or /help for all commands.");
+    return;
   }
+  // An activation code for the resolution the member was asked about.
+  const waitingFor = awaitingCode.get(ctx.from.id);
+  if (waitingFor && /^\s*\d{4}\s*$/.test(ctx.message.text)) {
+    const res = await getById(waitingFor);
+    if (!res) {
+      awaitingCode.delete(ctx.from.id);
+      return;
+    }
+    const result = await activate(res, member.id, ctx.message.text);
+    switch (result.status) {
+      case "ok":
+      case "not_required":
+        awaitingCode.delete(ctx.from.id);
+        await audit(ctx.from.id, "vote_activated", { resolution: res.code });
+        await ctx.reply(`✅ Code accepted — you can vote on <b>${escapeHtml(res.code)}</b> now.\n\n${resolutionCard(res)}`, {
+          parse_mode: "HTML",
+          reply_markup: voteKeyboard(res),
+        });
+        return;
+      case "wrong":
+        await ctx.reply(`❌ That is not the code for ${escapeHtml(res.code)}. Check the screen or the meeting chat and try again (${result.attempts_left} attempt${result.attempts_left === 1 ? "" : "s"} left).`, { parse_mode: "HTML" });
+        return;
+      case "locked":
+        awaitingCode.delete(ctx.from.id);
+        await audit(ctx.from.id, "vote_activation_locked", { resolution: res.code });
+        await ctx.reply(`🔒 Too many wrong codes. Try again in ${result.minutes} minutes, or ask the meeting admin.`);
+        return;
+      default:
+        awaitingCode.delete(ctx.from.id);
+        await ctx.reply("Voting is not open for this resolution any more.");
+        return;
+    }
+  }
+  await ctx.reply("Use /vote to see open resolutions, or /help for all commands.");
 });

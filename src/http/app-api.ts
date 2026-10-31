@@ -36,6 +36,7 @@ import {
   createResolution,
   deleteResolution,
   getById,
+  regenerateActivationCode,
   listResolutions,
   setAnnounceTarget,
   setStatus,
@@ -54,6 +55,7 @@ import {
   upsertTopic,
 } from "../services/settings.js";
 import { ballotCount, castVote, memberBallots, memberChoices, tally } from "../services/votes.js";
+import { activate, activationCount, needsActivation } from "../services/activation.js";
 import { formatLocal } from "../time.js";
 import type { Member, Resolution, Threshold } from "../types.js";
 import { computeOutcome } from "../verdict.js";
@@ -142,8 +144,12 @@ function safeMember(m: Member) {
   };
 }
 
-/** A resolution enriched with ballot count and (optionally) the tally. */
-async function enrich(res: Resolution, withCounts: boolean) {
+/**
+ * A resolution enriched with ballot count and (optionally) the tally. The
+ * activation code is included for admins only — members must get it from the
+ * meeting, never from the API.
+ */
+async function enrich(res: Resolution, withCounts: boolean, admin = false) {
   const ballots = await ballotCount(res.id);
   let counts: number[] | null = null;
   let outcome: ReturnType<typeof computeOutcome> | null = null;
@@ -152,8 +158,10 @@ async function enrich(res: Resolution, withCounts: boolean) {
     counts = res.options.map((_, i) => Number(rows.find((r) => r.choice_index === i)?.votes ?? 0));
     outcome = computeOutcome(res, counts, ballots, await eligibleFor(res));
   }
+  const { activation_code: code, ...pub } = res;
   return {
-    ...res,
+    ...pub,
+    ...(admin ? { activation_code: code, activations: res.activation_required ? await activationCount(res.id) : 0 } : {}),
     ballots,
     counts,
     votes_total: counts ? counts.reduce((a, b) => a + b, 0) : null, // weighted
@@ -194,6 +202,7 @@ function parseResolutionBody(b: Record<string, unknown>) {
     anonymous: bool(b.anonymous, "anonymous", true),
     quorum: int(b.quorum, "Quorum (%)", { optional: true, min: 1, max: 100 }),
     threshold: parseThreshold(b.threshold),
+    activation_required: bool(b.activation_required, "activation_required", true),
   };
 }
 
@@ -320,8 +329,13 @@ route("GET", "/ballots", false, async (ctx) => {
   const closed = [];
   for (const res of all) {
     if (res.status === "open") {
-      const e = await enrich(res, ctx.isAdmin);
-      open.push({ ...e, voted: voted.has(res.id), my_choice: res.anonymous ? null : (choices.get(res.id) ?? null) });
+      const e = await enrich(res, ctx.isAdmin, ctx.isAdmin);
+      open.push({
+        ...e,
+        voted: voted.has(res.id),
+        my_choice: res.anonymous ? null : (choices.get(res.id) ?? null),
+        needs_activation: member ? await needsActivation(res, member.id) : Boolean(res.activation_required && res.activation_code),
+      });
     } else if (res.status === "closed") {
       closed.push({ ...(await enrich(res, true)), voted: voted.has(res.id) });
     }
@@ -337,16 +351,31 @@ route("POST", "/vote", false, async (ctx) => {
   const choice = int(b.choice_index, "choice_index", { min: 0, max: 50 })!;
   const res = await requireResolution(resolutionId);
   if (res.options[choice] === undefined) throw new HttpError(400, "Unknown option.");
+  if (res.status === "open" && (await needsActivation(res, member.id))) {
+    throw new HttpError(403, "Enter the activation code shown in the meeting first.", "activation_required");
+  }
   const outcome = await castVote(res.id, member.id, choice);
   if (outcome === "ok") await audit(ctx.user.id, "vote_cast", { resolution: res.code, anonymous: res.anonymous, via: "app" });
   if (outcome === "changed") await audit(ctx.user.id, "vote_changed", { resolution: res.code, via: "app" });
   return { result: outcome, option: res.options[choice], anonymous: res.anonymous };
 });
 
+/** A member enters the 4-digit code shown in the meeting; voting on that resolution then unlocks for them. */
+route("POST", `/resolutions/${UUID}/activate`, false, async (ctx, [id]) => {
+  const member = await findByTelegramId(ctx.user.id);
+  if (!member || !member.is_active) throw new HttpError(403, "Please register first.", "not_registered");
+  const res = await requireResolution(id);
+  const code = str((await ctx.body()).code, "Code", { min: 1, max: 10 });
+  const result = await activate(res, member.id, code);
+  if (result.status === "ok") await audit(ctx.user.id, "vote_activated", { resolution: res.code, via: "app" });
+  if (result.status === "locked") await audit(ctx.user.id, "vote_activation_locked", { resolution: res.code, via: "app" });
+  return result;
+});
+
 route("GET", `/results/${UUID}`, false, async (ctx, [id]) => {
   const res = await requireResolution(id);
   if (res.status !== "closed" && !ctx.isAdmin) throw new HttpError(403, "Results are published when voting closes.");
-  return enrich(res, true);
+  return enrich(res, true, ctx.isAdmin);
 });
 
 // ---------------------------------------------------------------------------
@@ -355,7 +384,7 @@ route("GET", `/results/${UUID}`, false, async (ctx, [id]) => {
 
 route("GET", "/dashboard", true, async () => {
   const [counts, all, group] = await Promise.all([memberCounts(), listResolutions(), getLinkedGroup()]);
-  const resolutions = await Promise.all(all.map((r) => enrich(r, r.status !== "draft")));
+  const resolutions = await Promise.all(all.map((r) => enrich(r, r.status !== "draft", true)));
   return {
     members: counts,
     resolutions,
@@ -371,7 +400,7 @@ route("GET", "/dashboard", true, async () => {
 
 route("GET", "/resolutions", true, async () => {
   const all = await listResolutions();
-  return { items: await Promise.all(all.map((r) => enrich(r, r.status !== "draft"))) };
+  return { items: await Promise.all(all.map((r) => enrich(r, r.status !== "draft", true))) };
 });
 
 route("POST", "/resolutions", true, async (ctx) => {
@@ -385,15 +414,26 @@ route("POST", "/resolutions", true, async (ctx) => {
   const patch: ResolutionPatch = {};
   if (input.quorum !== null) patch.quorum = input.quorum;
   if (input.threshold !== "simple") patch.threshold = input.threshold;
+  if (!input.activation_required) patch.activation_required = false;
   if (Object.keys(patch).length) await updateResolution(res.id, patch);
   await audit(ctx.user.id, "resolution_created", { code: res.code, title: res.title, via: "app" });
-  return enrich((await getById(res.id))!, false);
+  return enrich((await getById(res.id))!, false, true);
 });
 
 route("GET", `/resolutions/${UUID}`, true, async (_ctx, [id]) => {
   const res = await requireResolution(id);
-  const [e, topics] = await Promise.all([enrich(res, res.status !== "draft"), listTopics()]);
+  const [e, topics] = await Promise.all([enrich(res, res.status !== "draft", true), listTopics()]);
   return { ...e, topics };
+});
+
+/** A new activation code for an open resolution (e.g. the old one was shared outside the meeting). Members who already activated stay activated. */
+route("POST", `/resolutions/${UUID}/activation-code`, true, async (ctx, [id]) => {
+  const res = await requireResolution(id);
+  if (res.status !== "open") throw new HttpError(409, "Voting is not open.");
+  if (!res.activation_required) throw new HttpError(409, "This resolution does not use an activation code.");
+  await regenerateActivationCode(res.id);
+  await audit(ctx.user.id, "activation_code_changed", { resolution: res.code, via: "app" });
+  return enrich((await getById(res.id))!, true, true);
 });
 
 route("PATCH", `/resolutions/${UUID}`, true, async (ctx, [id]) => {
@@ -403,7 +443,7 @@ route("PATCH", `/resolutions/${UUID}`, true, async (ctx, [id]) => {
   const ok = await updateResolution(res.id, input);
   if (!ok) throw new HttpError(409, "The resolution is no longer a draft.");
   await audit(ctx.user.id, "resolution_edited", { code: res.code, via: "app" });
-  return enrich((await getById(res.id))!, false);
+  return enrich((await getById(res.id))!, false, true);
 });
 
 route("DELETE", `/resolutions/${UUID}`, true, async (ctx, [id]) => {
@@ -422,7 +462,7 @@ route("POST", `/resolutions/${UUID}/open`, true, async (ctx, [id]) => {
   const closesAt = parseDeadlineBody(await ctx.body());
   await setStatus(res.id, "open", closesAt);
   await audit(ctx.user.id, "resolution_opened", { code: res.code, closes_at: closesAt?.toISOString() ?? null, via: "app" });
-  return enrich((await getById(res.id))!, true);
+  return enrich((await getById(res.id))!, true, true);
 });
 
 /** Deadline from an open/reopen body: `minutes` from now, an ISO `closes_at`, or none. */
@@ -465,7 +505,7 @@ route("POST", `/resolutions/${UUID}/reopen`, true, async (ctx, [id]) => {
       console.error(`failed to post the ${res.code} reopening to its announce chat:`, err);
     }
   }
-  return { ...(await enrich((await getById(res.id))!, true)), notified };
+  return { ...(await enrich((await getById(res.id))!, true, true)), notified };
 });
 
 route("POST", `/resolutions/${UUID}/close`, true, async (ctx, [id]) => {
@@ -473,7 +513,7 @@ route("POST", `/resolutions/${UUID}/close`, true, async (ctx, [id]) => {
   if (res.status !== "open") throw new HttpError(409, "Voting is not open.");
   const text = await closeResolution(bot.api, res, ctx.user.id);
   if (!text) throw new HttpError(409, "The resolution was already closed.");
-  return { ...(await enrich((await getById(res.id))!, true)), published: Boolean(res.announce_chat_id) };
+  return { ...(await enrich((await getById(res.id))!, true, true)), published: Boolean(res.announce_chat_id) };
 });
 
 route("POST", `/resolutions/${UUID}/announce`, true, async (ctx, [id]) => {

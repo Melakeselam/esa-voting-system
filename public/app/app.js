@@ -32,6 +32,37 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2800);
   }
+  /** Copy text to the clipboard; falls back to a hidden textarea where the Clipboard API is blocked (some Telegram webviews). */
+  function copyText(text) {
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+    var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text).then(function () { return true; }, fallback) : Promise.resolve(fallback());
+    return p.then(function (ok) { haptic(ok ? "success" : "error"); toast(ok ? t("Copied") : t("Could not copy — select the text and copy it by hand"), ok ? "ok" : "err"); });
+  }
+  /** The text an admin pastes into the meeting chat or shows on the screen. */
+  function activationText(e) {
+    return e.code + " — " + e.title + "\n" + t("Voting activation code: {code}", { code: e.activation_code });
+  }
+  /** Big code with the copy buttons, for the resolution page and the sheet shown right after opening. */
+  function activationCardHtml(e) {
+    return '<div class="card activation"><h3>🔑 ' + esc(t("Activation code")) + "</h3>" +
+      '<p class="act-title">' + esc(e.code) + " — " + esc(e.title) + "</p>" +
+      '<div class="act-code" data-actcode>' + esc(e.activation_code) + "</div>" +
+      '<div class="actions inline"><button class="btn sm" data-copy="code">📋 ' + esc(t("Copy code")) + '</button><button class="btn secondary sm" data-copy="full">📋 ' + esc(t("Copy title and code")) + "</button></div>" +
+      '<p class="hint">' + esc(t("Show this code on the meeting screen or post it in the video-call chat (Zoom, Google Meet, Telegram call) — not in the assembly group. Members enter it once before they can vote on this resolution.")) + "</p>" +
+      (typeof e.activations === "number" ? '<p class="hint">' + esc(t("{n} members have entered the code", { n: e.activations })) + "</p>" : "") +
+      "</div>";
+  }
+  function bindActivationCopy(root, e) {
+    on(root, "[data-copy]", "click", function (ev) { copyText(ev.currentTarget.dataset.copy === "code" ? e.activation_code : activationText(e)); });
+  }
   function haptic(kind) {
     try {
       if (kind === "error" || kind === "success" || kind === "warning") tg.HapticFeedback.notificationOccurred(kind);
@@ -443,6 +474,9 @@
           '<button class="btn secondary block" data-act="edit">✏️ ' + esc(t("Edit")) + "</button>" +
           '<button class="btn danger block" data-act="delete">🗑 ' + esc(t("Delete draft")) + "</button></div>";
       } else {
+        if (e.status === "open" && e.activation_required && e.activation_code) {
+          html += activationCardHtml(e).replace(/<\/div>$/, '<button class="btn secondary sm" data-act="newcode">🔄 ' + esc(t("New code")) + "</button></div>");
+        }
         html += '<div class="card"><h3>' + esc(e.status === "closed" ? t("Final results") : t("Interim results")) + "</h3>" + resultsHtml(e) + "</div>";
         if (e.status === "open") {
           html += '<div class="actions">' +
@@ -456,12 +490,19 @@
         }
       }
       content.innerHTML = html;
+      if (e.activation_code) bindActivationCopy(content, e);
 
       on(content, "[data-act]", "click", async function (ev) {
         var act = ev.currentTarget.dataset.act;
         haptic("light");
         try {
           if (act === "edit") return go("resform", { id: e.id });
+          if (act === "newcode") {
+            if (!(await confirmDialog(t("Replace the activation code for {code}? Show the new code in the meeting. Members who already entered the old one can still vote.", { code: e.code })))) return;
+            await api("POST", "/resolutions/" + e.id + "/activation-code");
+            toast(t("New activation code created"), "ok");
+            return refresh();
+          }
           if (act === "delete") {
             if (!(await confirmDialog(t("Delete draft {code}? This cannot be undone.", { code: e.code })))) return;
             await api("DELETE", "/resolutions/" + e.id);
@@ -474,6 +515,13 @@
             var r = await api("POST", "/resolutions/" + e.id + "/open", dl);
             haptic("success");
             toast(r.closes_at_local ? t("Voting is open until {time}", { time: r.closes_at_local }) : t("Voting is open"), "ok");
+            if (r.activation_code) {
+              // The code to put on the screen / in the meeting chat, right away.
+              await openSheet("<h2>" + esc(t("Voting is open")) + "</h2>" + activationCardHtml(r) + '<button class="btn block" data-done>' + esc(t("Done")) + "</button>", function (sheet, close) {
+                bindActivationCopy(sheet, r);
+                sheet.querySelector("[data-done]").onclick = function () { close(true); };
+              });
+            }
             if (await confirmDialog(t("Announce {code} in a group topic now?", { code: e.code }))) {
               var tpk = await pickTopic(e.topics, t("Announce {code} in…", { code: e.code }));
               if (tpk) { var a = await api("POST", "/resolutions/" + e.id + "/announce", tpk); toast(t("Posted to {to}", { to: a.posted_to }), "ok"); }
@@ -532,6 +580,7 @@
         '<p class="hint">' + esc(t("2–12 options. An option named “Abstain” counts toward quorum but not toward the majority.")) + "</p></div>" +
         '<div class="card">' +
         '<label class="switch"><span class="lbl"><span>' + esc(t("Secret ballot")) + '</span><span class="hint">' + esc(t("Choices are stored anonymously and are final")) + '</span></span><input type="checkbox" data-f="anonymous"' + (!e || e.anonymous ? " checked" : "") + "></label>" +
+        '<label class="switch"><span class="lbl"><span>' + esc(t("Require activation code")) + '</span><span class="hint">' + esc(t("A 4-digit code is created when voting opens; you show it in the meeting and members enter it before voting — proof they are present")) + '</span></span><input type="checkbox" data-f="activation_required"' + (!e || e.activation_required !== false ? " checked" : "") + "></label>" +
         '<div class="inline-fields">' +
         '<div class="field"><label>' + esc(t("Quorum (% of members)")) + '</label><input type="number" min="1" max="100" inputmode="numeric" data-f="quorum" placeholder="' + esc(t("none")) + '" value="' + (e && e.quorum ? e.quorum : "") + '"></div>' +
         '<div class="field"><label>' + esc(t("Majority to adopt")) + '</label><select data-f="threshold"><option value="simple"' + (!e || e.threshold === "simple" ? " selected" : "") + ">" + esc(t("Simple majority")) + '</option><option value="two_thirds"' + (e && e.threshold === "two_thirds" ? " selected" : "") + ">" + esc(t("2/3 majority")) + "</option></select></div>" +
@@ -560,6 +609,7 @@
           anonymous: f("anonymous").checked,
           quorum: f("quorum").value ? Number(f("quorum").value) : null,
           threshold: f("threshold").value,
+          activation_required: f("activation_required").checked,
         };
         if (body.title.length < 3) return toast(t("Please enter a title"), "err");
         if (body.options.length < 2) return toast(t("At least two options are required"), "err");
@@ -1376,7 +1426,13 @@
       (e.description ? "<p>" + esc(e.description) + "</p>" : "") +
       '<p class="hint">' + esc(e.anonymous ? "🔒 " + t("Secret ballot — your choice is anonymous and final.") : "✏️ " + t("Open ballot — you may change your vote until voting closes.")) +
       (e.closes_at_local ? "<br>⏰ " + esc(t("Closes {time}", { time: e.closes_at_local })) : "") + "</p>";
-    if (e.voted && e.anonymous) {
+    if (e.needs_activation && !(e.voted && e.anonymous)) {
+      // Presence check: the code shown in the meeting unlocks this ballot.
+      html += '<div class="activate"><p>🔑 ' + esc(t("Enter the 4-digit activation code shown in the meeting (on the screen or in the video-call chat) to vote.")) + "</p>" +
+        '<div class="inline-fields"><div class="field"><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="0000" data-actinput="' + e.id + '"></div>' +
+        '<div class="field"><button class="btn block" data-activate="' + e.id + '">' + esc(t("Activate")) + "</button></div></div>" +
+        '<p class="err hint" data-acterr="' + e.id + '" hidden></p></div>';
+    } else if (e.voted && e.anonymous) {
       html += '<div class="verdict">☑️ ' + esc(t("Your ballot has been recorded. Thank you!")) + "</div>";
     } else {
       if (e.voted) html += '<p class="small">' + esc(t("Your current vote:")) + " <b>" + esc(e.options[e.my_choice] || "—") + "</b></p>";
@@ -1424,6 +1480,25 @@
       if (d.closed.length) html += '<div class="section-title">' + esc(t("Recent results")) + '</div><div class="list">' + d.closed.slice(0, 3).map(function (e) { return closedRow(e, false); }).join("") + "</div>";
       content.innerHTML = html;
       if (content.querySelector("[data-group]")) content.querySelector("[data-group]").onclick = function () { var l = state.me.group_link; if (tg && tg.openTelegramLink) tg.openTelegramLink(l); else window.open(l, "_blank"); };
+      on(content, "[data-activate]", "click", async function (ev) {
+        var id = ev.currentTarget.dataset.activate;
+        var input = content.querySelector('[data-actinput="' + id + '"]');
+        var errEl = content.querySelector('[data-acterr="' + id + '"]');
+        var code = (input.value || "").replace(/\D/g, "");
+        errEl.hidden = true;
+        if (code.length !== 4) { errEl.textContent = t("The code has 4 digits."); errEl.hidden = false; return; }
+        var btn = ev.currentTarget; btn.disabled = true;
+        try {
+          var r = await api("POST", "/resolutions/" + id + "/activate", { code: code });
+          if (r.status === "ok" || r.status === "not_required") { haptic("success"); toast(t("Code accepted — you can vote now"), "ok"); return refresh(); }
+          haptic("error");
+          errEl.textContent = r.status === "wrong" ? t("Wrong code. {n} attempts left.", { n: r.attempts_left }) :
+            r.status === "locked" ? t("Too many wrong codes. Try again in {n} minutes, or ask the meeting admin.", { n: r.minutes }) :
+            t("Voting is not open for this resolution.");
+          errEl.hidden = false; input.value = "";
+        } catch (err) { fail(err); } finally { btn.disabled = false; }
+      });
+      on(content, "[data-actinput]", "keydown", function (ev) { if (ev.key === "Enter") { var b = content.querySelector('[data-activate="' + ev.target.dataset.actinput + '"]'); if (b) b.click(); } });
       on(content, "[data-vote]", "click", function (ev) {
         var p = ev.currentTarget.dataset.vote.split(":");
         var res = d.open.filter(function (x) { return x.id === p[0]; })[0];

@@ -477,15 +477,15 @@ try {
   eq("members: search by name", r.json?.items?.map((m) => m.full_name), ["Sara Tesfaye"]);
 
   // ---- 5. Resolutions in different rooms ------------------------------------
-  r = await api("POST", "/resolutions", USERS.admin, { title: "Adopt the 2026 annual plan", description: "As circulated.", options: ["Yes", "No", "Abstain"], anonymous: true });
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Adopt the 2026 annual plan", description: "As circulated.", options: ["Yes", "No", "Abstain"], anonymous: true, activation_required: false });
   eq("resolution: R1 created as secret draft", [r.json?.code, r.json?.status, r.json?.anonymous], ["R1", "draft", true]);
   const R1 = r.json;
-  r = await api("POST", "/resolutions", USERS.admin, { title: "Host city for JOTA-JOTI 2026 (typo)", description: null, options: ["Addis Ababa", "Hawassa", "Bahir Dar"], anonymous: false, quorum: 10, threshold: "two_thirds" });
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Host city for JOTA-JOTI 2026 (typo)", description: null, options: ["Addis Ababa", "Hawassa", "Bahir Dar"], anonymous: false, quorum: 10, threshold: "two_thirds", activation_required: false });
   const R2 = r.json;
   eq("resolution: R2 open ballot with quorum 10% + 2/3", [R2?.code, R2?.anonymous, R2?.quorum, R2?.threshold], ["R2", false, 10, "two_thirds"]);
   r = await api("POST", "/resolutions", USERS.admin, { title: "Bad quorum", options: ["A", "B"], quorum: 120 });
   eq("resolution: quorum above 100% rejected", r.status, 400);
-  r = await api("PATCH", "/resolutions/" + R2.id, USERS.admin, { title: "Host city for JOTA-JOTI 2026", options: ["Addis Ababa", "Hawassa", "Bahir Dar"], anonymous: false, quorum: 10, threshold: "two_thirds" });
+  r = await api("PATCH", "/resolutions/" + R2.id, USERS.admin, { title: "Host city for JOTA-JOTI 2026", options: ["Addis Ababa", "Hawassa", "Bahir Dar"], anonymous: false, quorum: 10, threshold: "two_thirds", activation_required: false });
   eq("resolution: draft edited", r.json?.title, "Host city for JOTA-JOTI 2026");
   r = await api("POST", "/resolutions", USERS.admin, { title: "x", options: ["only one"] });
   eq("resolution: validation rejects bad input", r.status, 400);
@@ -594,7 +594,7 @@ try {
   eq("ballots: member now sees 2 closed, 0 open", [r.json?.open?.length, r.json?.closed?.length], [0, 2]);
 
   // ---- 8. Notify, broadcast, report, publish ----------------------------------
-  r = await api("POST", "/resolutions", USERS.admin, { title: "Approve the audited accounts", options: ["Approve", "Reject", "Abstain"] });
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Approve the audited accounts", options: ["Approve", "Reject", "Abstain"], activation_required: false });
   const R3 = r.json;
   await api("POST", "/resolutions/" + R3.id + "/open", USERS.admin, {});
   r = await api("POST", "/resolutions/" + R3.id + "/notify", USERS.admin, { offset: 0 });
@@ -649,7 +649,7 @@ try {
 
   r = await api("GET", "/dashboard", USERS.admin);
   // Weighted tally: a secret ballot where one delegate carries 2 votes
-  r = await api("POST", "/resolutions", USERS.admin, { title: "Weighted test", options: ["Yes", "No"], anonymous: true });
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Weighted test", options: ["Yes", "No"], anonymous: true, activation_required: false });
   const RW = r.json;
   await api("POST", "/resolutions/" + RW.id + "/open", USERS.admin, {});
   r = await api("POST", "/vote", USERS.delegate3, { resolution_id: RW.id, choice_index: 0 });
@@ -667,6 +667,60 @@ try {
   check("weights: posted results show ballots and the weighted total", r.status === 200 && calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "") && /Ballots cast: <b>2<\/b> · Votes counted \(weighted\): <b>3<\/b>/.test(b.text ?? "")).length >= 1, JSON.stringify(calls("sendMessage", (b) => /Weighted test/.test(b.text ?? "")).map((c) => c.body.text)));
   r = await api("GET", "/dashboard", USERS.admin);
   eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 3 }, 6]);
+
+  // ---- Activation code (presence check) -------------------------------------
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Adopt the scout uniform policy", options: ["Yes", "No"], anonymous: true });
+  const RA = r.json;
+  eq("activation: required by default", RA?.activation_required, true);
+  r = await api("POST", "/resolutions/" + RA.id + "/open", USERS.admin, {});
+  const actCode = r.json?.activation_code;
+  check("activation: opening creates a 4-digit code shown to the admin", /^\d{4}$/.test(actCode ?? "") && r.json.activations === 0, JSON.stringify([actCode, r.json?.activations]));
+  r = await api("GET", "/ballots", USERS.sara);
+  const raMember = r.json?.open?.find((x) => x.id === RA.id);
+  check("activation: members see that a code is needed, never the code itself", raMember?.needs_activation === true && !("activation_code" in raMember) && !JSON.stringify(r.json).includes(`"${actCode}"`), JSON.stringify(raMember));
+  r = await api("POST", "/vote", USERS.sara, { resolution_id: RA.id, choice_index: 0 });
+  check("activation: voting without the code is refused", r.status === 403 && r.json?.code === "activation_required", JSON.stringify([r.status, r.json]));
+  const wrongCode = actCode === "0000" ? "1111" : "0000";
+  r = await api("POST", "/resolutions/" + RA.id + "/activate", USERS.sara, { code: wrongCode });
+  eq("activation: wrong code rejected with attempts left", [r.json?.status, r.json?.attempts_left], ["wrong", 4]);
+  r = await api("POST", "/resolutions/" + RA.id + "/activate", USERS.sara, { code: actCode });
+  eq("activation: right code accepted", r.json?.status, "ok");
+  r = await api("POST", "/vote", USERS.sara, { resolution_id: RA.id, choice_index: 0 });
+  eq("activation: activated member can vote", r.json?.result, "ok");
+  r = await api("GET", "/ballots", USERS.sara);
+  eq("activation: no longer asked after activating", r.json?.open?.find((x) => x.id === RA.id)?.needs_activation, false);
+  r = await api("GET", "/resolutions/" + RA.id, USERS.admin);
+  eq("activation: the admin page counts who entered the code", [r.json?.activation_code, r.json?.activations], [actCode, 1]);
+  // Chat path: tapping an option asks for the code, the code unlocks the ballot.
+  await update(callback(USERS.delegate, `v|${RA.id}|1`));
+  check("activation(chat): tapping an option asks for the code", /4-digit activation code/.test(lastTextTo(2005)), lastTextTo(2005));
+  await update(textMessage(USERS.delegate, wrongCode));
+  check("activation(chat): wrong code answered", /not the code/.test(lastTextTo(2005)), lastTextTo(2005));
+  await update(textMessage(USERS.delegate, actCode));
+  check("activation(chat): right code unlocks the ballot with the vote buttons", /Code accepted/.test(lastTextTo(2005)) && JSON.stringify(sentTo(2005).at(-1).body.reply_markup).includes(`v|${RA.id}|`), lastTextTo(2005));
+  await update(callback(USERS.delegate, `vc|${RA.id}|1`));
+  r = await api("GET", "/resolutions/" + RA.id, USERS.admin);
+  eq("activation(chat): the chat vote is counted", [r.json?.ballots, r.json?.activations], [2, 2]);
+  // Brute force: five wrong codes lock the member out of that resolution for a while.
+  const lockStatuses = [];
+  for (let i = 0; i < 5; i++) lockStatuses.push((await api("POST", "/resolutions/" + RA.id + "/activate", USERS.abebe, { code: wrongCode })).json?.status);
+  eq("activation: five wrong codes lock the member", lockStatuses, ["wrong", "wrong", "wrong", "wrong", "locked"]);
+  r = await api("POST", "/resolutions/" + RA.id + "/activate", USERS.abebe, { code: actCode });
+  eq("activation: even the right code is refused while locked", r.json?.status, "locked");
+  // A new code for the meeting.
+  r = await api("POST", "/resolutions/" + RA.id + "/activation-code", USERS.admin);
+  check("activation: admin can issue a new code, earlier activations stay", /^\d{4}$/.test(r.json?.activation_code ?? "") && r.json.activations === 2, JSON.stringify([r.json?.activation_code, r.json?.activations]));
+  r = await api("POST", "/resolutions/" + RA.id + "/activation-code", USERS.sara);
+  eq("activation: members cannot issue codes", r.status, 403);
+  // Opt-out on a draft.
+  r = await api("POST", "/resolutions", USERS.admin, { title: "Procedural: adopt the agenda", options: ["Yes", "No"], activation_required: false });
+  const RN = r.json;
+  r = await api("POST", "/resolutions/" + RN.id + "/open", USERS.admin, {});
+  check("activation: a resolution without the requirement opens without a code", r.json?.activation_code === null && r.json.activation_required === false, JSON.stringify(r.json?.activation_code));
+  r = await api("POST", "/vote", USERS.sara, { resolution_id: RN.id, choice_index: 0 });
+  eq("activation: and members vote straight away", r.json?.result, "ok");
+  await api("POST", "/resolutions/" + RA.id + "/close", USERS.admin);
+  await api("POST", "/resolutions/" + RN.id + "/close", USERS.admin);
 
   // ---- Group gate: people in the group who are not registered --------------
   const memberUpd = (u, oldStatus, newStatus, by = USERS.admin) => ({ chat_member: { chat: GROUP, from: from(by), date: 20, old_chat_member: { status: oldStatus, user: from(u) }, new_chat_member: { status: newStatus, user: { ...from(u), username: u.username } } } });
@@ -785,7 +839,7 @@ try {
 
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

@@ -10,6 +10,8 @@ import { listRegisteredTelegramIds, memberCounts, unbindByToken } from "../servi
 import {
   createResolution,
   getByCode,
+  getById,
+  regenerateActivationCode,
   listResolutions,
   setAnnounceTarget,
   setAnonymous,
@@ -42,6 +44,7 @@ const ADMIN_HELP =
   "<code>/open R1 until 17:00</code> — open with an auto-close deadline\n" +
   "<code>/open R1 until 2026-08-14 17:00</code> · <code>/open R1 for 90m</code>\n" +
   "<code>/close R1</code> — close voting now and publish results\n" +
+  "<code>/code R1</code> — the 4-digit activation code for the meeting screen (private message); <code>/code R1 new</code> replaces it\n" +
   "<code>/reopen R1 [until 17:00 | for 30m]</code> — reopen a closed vote; ballots already cast are kept\n" +
   "<code>/announce R1</code> — post the resolution here (run inside the assembly topic)\n" +
   "<code>/results R1</code> — show tally (interim or final)\n" +
@@ -223,6 +226,45 @@ admin.command("open", async (ctx) => {
       `and optionally notify all members with <code>/broadcast ...</code>`,
     { parse_mode: "HTML" },
   );
+  await sendActivationCode(ctx, res.id);
+});
+
+/**
+ * The activation code goes to the admin's private chat only: posting it in the
+ * group would let people who are not in the meeting vote.
+ */
+async function sendActivationCode(ctx: Context, resolutionId: string): Promise<void> {
+  const res = await getById(resolutionId);
+  if (!res?.activation_required || !res.activation_code) return;
+  const text =
+    `🔑 <b>${escapeHtml(res.code)} — ${escapeHtml(res.title)}</b>\nActivation code: <code>${res.activation_code}</code>\n\n` +
+    `Show it on the meeting screen or post it in the video-call chat (Zoom, Meet, Telegram call) — not in the assembly group. ` +
+    `Members enter it once before voting. <code>/code ${res.code}</code> shows it again, <code>/code ${res.code} new</code> replaces it.`;
+  try {
+    await ctx.api.sendMessage(ctx.from!.id, text, { parse_mode: "HTML" });
+  } catch {
+    // The admin never opened a private chat with the bot; the Mini App shows the code too.
+  }
+}
+
+admin.command("code", async (ctx) => {
+  const [codeArg, action] = ctx.match.trim().split(/\s+/);
+  const res = await requireResolution(ctx, codeArg ?? "");
+  if (!res) return;
+  if (!res.activation_required) {
+    await ctx.reply(`${res.code} does not use an activation code.`);
+    return;
+  }
+  if (res.status !== "open") {
+    await ctx.reply(`${res.code} is not open; the code is created when voting opens.`);
+    return;
+  }
+  if (action?.toLowerCase() === "new") {
+    await regenerateActivationCode(res.id);
+    await audit(ctx.from!.id, "activation_code_changed", { resolution: res.code });
+  }
+  if (ctx.chat?.type !== "private") await ctx.reply("🔑 The activation code was sent to you in a private message.");
+  await sendActivationCode(ctx, res.id);
 });
 
 admin.command("reopen", async (ctx) => {

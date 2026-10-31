@@ -205,6 +205,19 @@ alter table members add column if not exists seat_no int;
 -- Active members at the moment voting closed: the base the quorum percentage is measured against.
 alter table resolutions add column if not exists eligible_count int;
 
+-- Activation code: voters must enter a 4-digit code shown in the meeting
+-- (screen or video-call chat) before they can vote on a resolution, proving
+-- they are present. Generated when voting opens; who entered it is recorded.
+alter table resolutions add column if not exists activation_required boolean not null default true;
+alter table resolutions add column if not exists activation_code text;
+create table if not exists vote_activations (
+  resolution_id uuid not null references resolutions(id) on delete cascade,
+  member_id     uuid not null references members(id) on delete cascade,
+  activated_at  timestamptz not null default now(),
+  primary key (resolution_id, member_id)
+);
+alter table vote_activations enable row level security;
+
 -- People the bot has seen in the assembly group (Telegram does not let a bot
 -- list members, so they are learned from joins, join requests and messages).
 -- Setup shows the ones who are not registered members so an admin can

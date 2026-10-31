@@ -211,3 +211,9 @@ details.help .help-body ol, details.help .help-body ul { margin: 0; padding-left
 details.help .help-tip { background: rgba(46, 158, 91, 0.12); border-radius: 10px; padding: 8px 10px; }
 details.help .help-warn { background: rgba(217, 162, 27, 0.18); border-radius: 10px; padding: 8px 10px; }
 :lang(am) body, :lang(am) button, :lang(am) input, :lang(am) textarea, :lang(am) select { font-family: "Noto Sans Ethiopic", "Abyssinica SIL", "Nyala", "Kefa", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+/* ---- vote activation code ---- */
+.activation .act-title { font-weight: 600; margin: 0 0 6px; }
+.activation .act-code { font-size: 44px; font-weight: 800; letter-spacing: 0.25em; text-align: center; padding: 10px 0; font-variant-numeric: tabular-nums; user-select: all; }
+.activate { background: var(--bg2); border-radius: 12px; padding: 10px 12px; }
+.activate input { font-size: 22px; letter-spacing: 0.3em; text-align: center; font-variant-numeric: tabular-nums; }
