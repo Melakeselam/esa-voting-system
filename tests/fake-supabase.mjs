@@ -18,10 +18,12 @@ const DEFAULTS = {
   chat_topics: () => ({ thread_id: 0, name: null, chat_title: null, updated_at: now() }),
   admins: () => ({ name: null, added_by: null, created_at: now() }),
   councils: () => ({ id: randomUUID(), seats: 1, vote_weight: 1, created_at: now() }),
+  group_people: () => ({ first_name: null, last_name: null, username: null, status: "member", source: null, added_by: null, first_seen_at: now(), last_seen_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
   app_settings: ["key"], chat_topics: ["chat_id", "thread_id"], admins: ["telegram_user_id"], councils: ["id"],
+  group_people: ["chat_id", "user_id"],
 };
 const UNIQUE = {
   members: [["token_id"], ["telegram_user_id"]],

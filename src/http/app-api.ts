@@ -5,9 +5,12 @@ import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
 import { forgetChatMemo, getLastUpdate } from "../bot/group.js";
 import { lockGroupPermissions, readLockState, type GroupLockState } from "../bot/group-lock.js";
+import { approveJoin, approvePendingJoin, declineJoin, kickFromGroup, unregisteredPeople } from "../bot/gate.js";
+import { getGateMode, getPerson, personName, setGateMode } from "../services/group-people.js";
+import { bindTelegram, findByToken } from "../services/members.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
-import { announceKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
+import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
 import { credentialsCsv, generateCredentials, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
@@ -262,7 +265,10 @@ route("POST", "/register", false, async (ctx) => {
   const existing = await findByTelegramId(ctx.user.id);
   if (existing) return { status: "ok", member: safeMember(existing), already: true };
   const result = await loginWithCredentials(token, password, ctx.user.id);
-  if (result.status === "ok") return { status: "ok", member: safeMember(result.member) };
+  if (result.status === "ok") {
+    void approvePendingJoin(bot.api, ctx.user.id); // waiting at the group door? let them in
+    return { status: "ok", member: safeMember(result.member) };
+  }
   return { status: result.status, lock_minutes: config.lockMinutes };
 });
 
@@ -847,9 +853,28 @@ route("GET", "/setup", true, async (ctx) => {
       groupRights = null;
     }
   }
+  // Who is in the group without being registered (see bot/gate.ts).
+  let people: Record<string, unknown> | null = null;
+  if (group) {
+    const u = await unregisteredPeople(group.chat_id, bot.botInfo.id);
+    people = {
+      gate_mode: await getGateMode(),
+      seen: u.seen,
+      registered: u.registered,
+      unregistered: u.unregistered.map((p) => ({
+        user_id: p.user_id,
+        name: personName(p),
+        username: p.username,
+        status: p.status,
+        source: p.source,
+        first_seen_at: p.first_seen_at,
+      })),
+    };
+  }
   return {
     group_rights: groupRights,
     group_lock: groupLock,
+    people,
     group_lock_auto: config.lockGroupPermissions,
     mode: config.serverless ? "serverless" : "server",
     polling: !config.publicUrl,
@@ -910,6 +935,97 @@ route("POST", "/setup/group", true, async (ctx) => {
   await setSetting("group", { chat_id: chatId, title });
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
   await audit(ctx.user.id, "group_linked", { chat_id: chatId, via: "app" });
+  return { ok: true };
+});
+
+// ---- People in the group (bot/gate.ts) ------------------------------------
+
+route("POST", "/setup/group/gate", true, async (ctx) => {
+  const b = await ctx.body();
+  const mode = b.mode === "remove" ? "remove" : "flag";
+  await setGateMode(mode);
+  await audit(ctx.user.id, "group_gate_set", { mode, via: "app" });
+  return { ok: true, mode };
+});
+
+async function requireLinkedPerson(userId: number) {
+  const group = await getLinkedGroup();
+  if (!group) throw new HttpError(409, "No group is linked.");
+  const person = await getPerson(group.chat_id, userId);
+  if (!person) throw new HttpError(404, "The bot has not seen this person in the group.");
+  return { group, person };
+}
+
+/**
+ * Register someone the bot saw in the group and bind their Telegram account at
+ * once (the admin vouches for them, so no code is typed). Optional council
+ * (sets the vote weight) and role (admin also gets the admin panel).
+ */
+route("POST", "/setup/group/people/(\\d+)/register", true, async (ctx, [uid]) => {
+  const userId = Number(uid);
+  const { group, person } = await requireLinkedPerson(userId);
+  if (await findByTelegramId(userId)) throw new HttpError(409, "This person is already registered.");
+  const b = await ctx.body();
+  const name = str(b.name, "Name", { optional: true, max: 120 }) || personName(person);
+  const role = b.role === "admin" ? "admin" : "delegate";
+  const councilId = str(b.council_id, "Council", { optional: true, max: 60 }) || null;
+  const council = councilId ? await getCouncil(councilId) : null;
+  if (councilId && !council) throw new HttpError(404, "Council not found.");
+  const [row] = await generateCredentials(
+    [{ name, region: null, council_id: council?.id ?? null, vote_weight: council?.vote_weight ?? 1 }],
+    council?.code ?? "ESA-2026",
+  );
+  const member = await findByToken(row.token_id);
+  if (!member) throw new HttpError(500, "Member record not found after creation.");
+  await bindTelegram(member.id, userId);
+  if (role === "admin") await addDbAdmin(userId, name, ctx.user.id);
+  await audit(ctx.user.id, "member_registered_by_admin", {
+    user_id: userId, member_id: member.id, token: row.token_id, council_id: council?.id ?? null, role, via: "app",
+  });
+  if (person.status === "pending") {
+    try {
+      await approveJoin(bot.api, group.chat_id, userId);
+    } catch (err) {
+      console.error("approving the join request after registration failed:", err);
+    }
+  }
+  try {
+    await bot.api.sendMessage(
+      userId,
+      `✅ The administrators registered you as <b>${escapeHtml(name)}</b>${council ? ` (${escapeHtml(council.name)})` : ""} for the ESA General Assembly` +
+        (role === "admin" ? " and made you an administrator" : "") +
+        `. You can vote from here when a resolution opens.`,
+      { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") },
+    );
+  } catch {
+    // They have not opened the bot yet; they will see it when they do.
+  }
+  return { ok: true, member: { id: member.id, full_name: name, telegram_user_id: userId, token_id: row.token_id, role } };
+});
+
+route("POST", "/setup/group/people/(\\d+)/remove", true, async (ctx, [uid]) => {
+  const userId = Number(uid);
+  const { group } = await requireLinkedPerson(userId);
+  await kickFromGroup(bot.api, group.chat_id, userId);
+  await audit(ctx.user.id, "group_member_removed", { chat_id: group.chat_id, user_id: userId, via: "app" });
+  return { ok: true };
+});
+
+route("POST", "/setup/group/people/(\\d+)/approve", true, async (ctx, [uid]) => {
+  const userId = Number(uid);
+  const { group, person } = await requireLinkedPerson(userId);
+  if (person.status !== "pending") throw new HttpError(409, "No join request is waiting for this person.");
+  await approveJoin(bot.api, group.chat_id, userId);
+  await audit(ctx.user.id, "join_request_approved", { chat_id: group.chat_id, user_id: userId, via: "app" });
+  return { ok: true };
+});
+
+route("POST", "/setup/group/people/(\\d+)/decline", true, async (ctx, [uid]) => {
+  const userId = Number(uid);
+  const { group, person } = await requireLinkedPerson(userId);
+  if (person.status !== "pending") throw new HttpError(409, "No join request is waiting for this person.");
+  await declineJoin(bot.api, group.chat_id, userId);
+  await audit(ctx.user.id, "join_request_declined", { chat_id: group.chat_id, user_id: userId, via: "app" });
   return { ok: true };
 });
 

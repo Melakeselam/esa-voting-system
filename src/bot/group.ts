@@ -3,6 +3,7 @@ import type { Context } from "grammy";
 import { audit } from "../db.js";
 import { config } from "../config.js";
 import { lockGroupPermissions } from "./group-lock.js";
+import { onBotPromoted } from "./gate.js";
 import { getLinkedGroup, setSetting, unlinkGroup, upsertTopic } from "../services/settings.js";
 
 /**
@@ -82,6 +83,11 @@ async function track(ctx: Context): Promise<void> {
     await linkGroupIfUnset(chat.id, title);
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
     seen.add(`${chat.id}:0`);
+    if (status === "administrator") {
+      // Made admin of the assembly group: tell the room and the admins what happens now.
+      const linked = await getLinkedGroup();
+      if (linked?.chat_id === chat.id) await onBotPromoted(ctx.api, chat.id, title);
+    }
     if (status === "administrator" && config.lockGroupPermissions) {
       // Made admin of the assembly group: take the admin-only switches away from members.
       const linked = await getLinkedGroup();

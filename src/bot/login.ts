@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import { checkToken, verifyAndBind } from "../services/members.js";
+import { approvePendingJoin } from "./gate.js";
 import { config } from "../config.js";
 import { appKeyboard } from "./ui.js";
 import type { Member } from "../types.js";
@@ -80,6 +81,7 @@ export async function handleLoginMessage(ctx: Context): Promise<Member | null> {
   switch (result.status) {
     case "ok":
       sessions.delete(userId);
+      void approvePendingJoin(ctx.api, userId); // let them into the group if they asked to join before registering
       return result.member;
     case "wrong_password":
       await ctx.reply("❌ Wrong password. Please send the password again.");

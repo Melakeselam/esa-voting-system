@@ -617,6 +617,60 @@ try {
   r = await api("GET", "/dashboard", USERS.admin);
   eq("dashboard: summary", [r.json?.summary, r.json?.members.registered], [{ draft: 0, open: 1, closed: 3 }, 6]);
 
+  // ---- Group gate: people in the group who are not registered --------------
+  const memberUpd = (u, oldStatus, newStatus, by = USERS.admin) => ({ chat_member: { chat: GROUP, from: from(by), date: 20, old_chat_member: { status: oldStatus, user: from(u) }, new_chat_member: { status: newStatus, user: { ...from(u), username: u.username } } } });
+  const stranger = { id: 3001, first_name: "Stranger", username: "str4nger" };
+  await update(memberUpd(stranger, "left", "member"));
+  check("gate: admins told about an unregistered person added to the group", /not registered/.test(lastTextTo(1001)) && /Stranger/.test(lastTextTo(1001)) && /added by/.test(lastTextTo(1001)), lastTextTo(1001));
+  check("gate: no removal in the default mode", calls("banChatMember").length === 0);
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: Setup lists the unregistered person", r.json?.people?.unregistered?.some((p) => p.user_id === 3001 && p.status === "member" && p.source === "added" && p.name === "Stranger"), JSON.stringify(r.json?.people));
+  await update(memberUpd(USERS.abebe, "left", "member", USERS.abebe));
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: a registered member joining is not flagged", !(r.json?.people?.unregistered ?? []).some((p) => p.user_id === USERS.abebe.id) && r.json?.people?.registered >= 1, JSON.stringify(r.json?.people));
+  r = await api("POST", "/setup/group/people/3001/register", USERS.admin, { name: "Stranger Danger", role: "delegate" });
+  check("gate: registered and bound from Setup", r.status === 200 && r.json?.ok === true && r.json.member?.telegram_user_id === 3001 && /^ESA-2026-/.test(r.json.member.token_id), JSON.stringify(r.json));
+  check("gate: the new member is welcomed by DM", /registered you as/.test(lastTextTo(3001)) && /Stranger Danger/.test(lastTextTo(3001)), lastTextTo(3001));
+  r = await api("GET", "/members?q=Stranger", USERS.admin);
+  check("gate: appears in the member list as registered", (r.json?.items ?? []).some((m) => m.telegram_user_id === 3001 && m.full_name === "Stranger Danger"), JSON.stringify(r.json?.items?.length));
+  r = await api("POST", "/setup/group/people/3001/register", USERS.admin, { name: "Again" });
+  eq("gate: registering twice is refused", r.status, 409);
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: no longer listed as unregistered", !(r.json?.people?.unregistered ?? []).some((p) => p.user_id === 3001));
+  // Join request from someone unregistered: pending, person told to register, admins asked.
+  const joiner = { id: 3002, first_name: "Joiner" };
+  await update({ chat_join_request: { chat: GROUP, from: from(joiner), user_chat_id: 3002, date: 21 } });
+  check("gate: unregistered join request stays pending and the person is told to register", /Register first/.test(lastTextTo(3002)) && calls("approveChatJoinRequest").length === 0, lastTextTo(3002));
+  check("gate: admins asked about the join request", /asks to join/.test(lastTextTo(1001)), lastTextTo(1001));
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: pending request listed", r.json?.people?.unregistered?.some((p) => p.user_id === 3002 && p.status === "pending"), JSON.stringify(r.json?.people?.unregistered));
+  r = await api("POST", "/setup/group/people/3002/approve", USERS.admin);
+  check("gate: approved from Setup", r.json?.ok === true && calls("approveChatJoinRequest", (b) => Number(b.user_id) === 3002).length === 1, JSON.stringify(r.json));
+  // Join request from a registered member: approved at once.
+  await update({ chat_join_request: { chat: GROUP, from: from(USERS.sara), user_chat_id: USERS.sara.id, date: 22 } });
+  check("gate: registered member's join request approved automatically", calls("approveChatJoinRequest", (b) => Number(b.user_id) === USERS.sara.id).length === 1);
+  // Registering after a pending request lets the person in.
+  const late = { id: 3004, first_name: "Late" };
+  await update({ chat_join_request: { chat: GROUP, from: from(late), user_chat_id: 3004, date: 23 } });
+  r = await api("POST", "/setup/group/people/3004/register", USERS.admin, { name: "Late Comer", role: "admin" });
+  check("gate: registering a pending person approves their request and can make them admin", r.json?.ok === true && r.json.member.role === "admin" && calls("approveChatJoinRequest", (b) => Number(b.user_id) === 3004).length === 1, JSON.stringify(r.json));
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: the new admin is listed among admins", (r.json?.admins?.db ?? []).some((a) => Number(a.telegram_user_id) === 3004), JSON.stringify(r.json?.admins));
+  // Strict mode: unregistered joiners are removed at once.
+  r = await api("POST", "/setup/group/gate", USERS.admin, { mode: "remove" });
+  eq("gate: strict mode set", r.json?.mode, "remove");
+  const intruder = { id: 3003, first_name: "Intruder" };
+  await update(memberUpd(intruder, "left", "member", intruder));
+  check("gate: strict mode removes an unregistered joiner (ban + unban)", calls("banChatMember", (b) => Number(b.user_id) === 3003).length === 1 && calls("unbanChatMember", (b) => Number(b.user_id) === 3003).length === 1, JSON.stringify(calls("banChatMember").map((c) => c.body)));
+  check("gate: removed person told to register first", /removed from/.test(lastTextTo(3003)), lastTextTo(3003));
+  check("gate: admins told about the automatic removal", /removed automatically/.test(lastTextTo(1001)), lastTextTo(1001));
+  r = await api("GET", "/setup", USERS.admin);
+  check("gate: removed person no longer counted as inside", !(r.json?.people?.unregistered ?? []).some((p) => p.user_id === 3003) && r.json?.people?.gate_mode === "remove");
+  r = await api("POST", "/setup/group/gate", USERS.admin, { mode: "flag" });
+  eq("gate: back to flag mode", r.json?.mode, "flag");
+  r = await api("POST", "/setup/group/people/3002/remove", USERS.admin);
+  check("gate: remove from Setup", r.json?.ok === true && calls("banChatMember", (b) => Number(b.user_id) === 3002).length === 1);
+
   // ---- Bot removed from the group ----------------------------------------
   const botStatus = (oldStatus, newStatus, date) => ({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
   await update(botStatus("administrator", "left", 2));
@@ -646,7 +700,7 @@ try {
   eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

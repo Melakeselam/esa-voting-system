@@ -204,5 +204,25 @@ alter table members add column if not exists council_id uuid references councils
 alter table members add column if not exists seat_no int;
 -- Active members at the moment voting closed: the base the quorum percentage is measured against.
 alter table resolutions add column if not exists eligible_count int;
+
+-- People the bot has seen in the assembly group (Telegram does not let a bot
+-- list members, so they are learned from joins, join requests and messages).
+-- Setup shows the ones who are not registered members so an admin can
+-- register them or remove them from the group.
+create table if not exists group_people (
+  chat_id       bigint not null,
+  user_id       bigint not null,
+  first_name    text,
+  last_name     text,
+  username      text,
+  status        text not null default 'member'
+                check (status in ('member', 'left', 'kicked', 'pending')),
+  source        text,            -- joined | added | join_request | posted
+  added_by      bigint,          -- who added them, when known
+  first_seen_at timestamptz not null default now(),
+  last_seen_at  timestamptz not null default now(),
+  primary key (chat_id, user_id)
+);
+alter table group_people enable row level security;
 create index if not exists members_by_council on members (council_id);
 alter table councils enable row level security;

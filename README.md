@@ -197,6 +197,20 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   pinning, creating topics, posting polls — so only admins keep them; Setup
   shows the state and has a "Lock group for members" button to re-apply it.
   `LOCK_GROUP_PERMISSIONS=off` disables the automatic lock.
+- **Group gate:** only registered members and admins belong in the assembly
+  group. The bot receives `chat_member` and `chat_join_request` updates: a
+  join request from a registered member is approved at once; anyone else is
+  told to register first (the request stays pending and is approved
+  automatically once they register, or by an admin). Someone who joins or is
+  added without being registered is reported to the admins by private message
+  with "Remove" / "Register in Setup" buttons — or removed immediately when the
+  Setup switch "Remove unregistered people automatically" is on. Telegram gives
+  bots no member list, so the bot records the people it sees (joins, requests,
+  posts) in `group_people`; Setup › "People in the group" lists the
+  unregistered ones, and an admin can register a person there (name, council,
+  role) — the Telegram account is linked immediately, no code to type — or
+  approve, decline or remove them. Needs the "Ban users" right (removals) and
+  "Invite users" right (approvals).
 - **Tests:** `npm run test:mock` runs a 145-check end-to-end scenario against
   an in-memory database and a mocked Telegram API (setup, rooms, login,
   lockout, voting in both ballot types, auto-close, reports, admin management).

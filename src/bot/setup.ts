@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import { appUrl, config } from "../config.js";
 
 /** Update types the bot needs (my_chat_member lets it learn the assembly group). */
-export const ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"] as const;
+export const ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member", "chat_member", "chat_join_request"] as const;
 
 /**
  * Register the bot's command menu and, when a public URL exists, the

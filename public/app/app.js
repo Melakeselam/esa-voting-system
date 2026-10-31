@@ -1101,6 +1101,23 @@
         (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
 
+      // People in the group (who is inside without being registered)
+      if (s.group && s.people) {
+        var pp = s.people;
+        html += '<div class="card"><h3>' + esc(t("People in the group")) + "</h3>" +
+          '<p class="hint">' + esc(t("Seen by the bot: {seen} · registered: {reg} · not registered: {unreg}", { seen: pp.seen, reg: pp.registered, unreg: pp.unregistered.length })) + "</p>" +
+          '<p class="hint">' + esc(t("Telegram does not let bots list a group's members. People appear here when they join, are added, send a join request or post. Only registered members and admins belong in the assembly group.")) + "</p>" +
+          '<label class="switch"><span class="lbl"><span>' + esc(t("Remove unregistered people automatically")) + '</span><span class="hint">' + esc(t("Off: the bot only tells the admins. On: anyone who joins without being registered is removed at once and told to register first.")) + '</span></span><input type="checkbox" data-gate' + (pp.gate_mode === "remove" ? " checked" : "") + "></label>";
+        if (pp.unregistered.length) {
+          html += '<div class="list">' + pp.unregistered.map(function (p) {
+            return '<button class="row" data-person="' + p.user_id + '"><div class="main"><div class="title">' + esc(p.name) + (p.username ? ' <span class="hint">@' + esc(p.username) + "</span>" : "") + '</div><div class="meta">' + esc(p.status === "pending" ? t("wants to join") : t("in the group")) + " · " + esc(t("ID {id}", { id: p.user_id })) + '</div></div><span class="chev">›</span></button>';
+          }).join("") + "</div>";
+        } else {
+          html += '<p class="hint">' + esc(t("Everyone the bot has seen is registered.")) + "</p>";
+        }
+        html += "</div>";
+      }
+
       // Admins
       html += '<div class="card"><h3>' + esc(t("Admins")) + '</h3><div class="list">' +
         s.admins.env.map(function (id) { return '<div class="row static"><div class="main"><div class="title">' + id + '</div><div class="meta">' + esc(t("from ADMIN_TELEGRAM_IDS")) + "</div></div></div>"; }).join("") +
@@ -1175,6 +1192,41 @@
           else if (a.a === "test") { await api("POST", "/setup/test-message", { chat_id: chat, thread_id: thread }); }
           else if (a.a === "delete") { await api("DELETE", "/setup/topics/" + chat + "/" + thread); }
           haptic("success"); toast(t("Done"), "ok"); refresh();
+        } catch (err) { fail(err); }
+      });
+      on(content, "[data-gate]", "change", async function (ev) {
+        try {
+          await api("POST", "/setup/group/gate", { mode: ev.target.checked ? "remove" : "flag" });
+          haptic("success");
+          toast(ev.target.checked ? t("Unregistered people are now removed automatically") : t("Unregistered people are now only reported to admins"), "ok");
+        } catch (err) { fail(err); }
+      });
+      on(content, "[data-person]", "click", async function (ev) {
+        var uid = Number(ev.currentTarget.dataset.person);
+        var p = s.people.unregistered.filter(function (x) { return x.user_id === uid; })[0];
+        if (!p) return;
+        var councils = [];
+        try { councils = (await api("GET", "/councils")).items || []; } catch (_) { /* no councils yet */ }
+        var v = await openSheet("<h2>" + esc(p.name) + '</h2><p class="hint">' + esc(t("ID {id}", { id: p.user_id })) + (p.username ? " · @" + esc(p.username) : "") + " · " + esc(p.status === "pending" ? t("wants to join") : t("in the group")) + "</p>" +
+          '<div class="field"><label>' + esc(t("Name")) + '</label><input type="text" data-name maxlength="120" value="' + esc(p.name) + '"></div>' +
+          '<div class="field"><label>' + esc(t("Role")) + '</label><select data-role><option value="delegate">' + esc(t("Delegate (votes)")) + '</option><option value="admin">' + esc(t("Admin (runs the assembly, also votes)")) + "</option></select></div>" +
+          (councils.length ? '<div class="field"><label>' + esc(t("Council")) + '</label><select data-council><option value="">' + esc(t("none")) + "</option>" + councils.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.vote_weight > 1 ? " · ×" + c.vote_weight : "") + "</option>"; }).join("") + "</select></div>" : "") +
+          '<button class="btn block" data-reg>✅ ' + esc(t("Register and link this Telegram account")) + "</button>" +
+          (p.status === "pending" ? '<div class="actions inline"><button class="btn secondary sm" data-approve>' + esc(t("Approve join request")) + '</button><button class="btn secondary sm" data-decline>' + esc(t("Decline")) + "</button></div>" : "") +
+          '<button class="btn danger block" data-remove>🚫 ' + esc(t("Remove from group")) + "</button>",
+          function (sheet, close) {
+            sheet.querySelector("[data-reg]").onclick = function () { close({ act: "register", name: sheet.querySelector("[data-name]").value.trim(), role: sheet.querySelector("[data-role]").value, council_id: sheet.querySelector("[data-council]") ? (sheet.querySelector("[data-council]").value || null) : null }); };
+            if (sheet.querySelector("[data-approve]")) sheet.querySelector("[data-approve]").onclick = function () { close({ act: "approve" }); };
+            if (sheet.querySelector("[data-decline]")) sheet.querySelector("[data-decline]").onclick = function () { close({ act: "decline" }); };
+            sheet.querySelector("[data-remove]").onclick = function () { close({ act: "remove" }); };
+          });
+        if (!v) return;
+        try {
+          if (v.act === "register") { await api("POST", "/setup/group/people/" + uid + "/register", { name: v.name, role: v.role, council_id: v.council_id }); haptic("success"); toast(t("{name} registered and linked", { name: v.name || p.name }), "ok"); }
+          else if (v.act === "remove") { if (!(await confirmDialog(t("Remove {name} from the group?", { name: p.name })))) return; await api("POST", "/setup/group/people/" + uid + "/remove"); toast(t("Removed from the group"), "ok"); }
+          else if (v.act === "approve") { await api("POST", "/setup/group/people/" + uid + "/approve"); toast(t("Join request approved"), "ok"); }
+          else { await api("POST", "/setup/group/people/" + uid + "/decline"); toast(t("Join request declined"), "ok"); }
+          return refresh();
         } catch (err) { fail(err); }
       });
       on(content, "[data-admin]", "click", async function (e) {

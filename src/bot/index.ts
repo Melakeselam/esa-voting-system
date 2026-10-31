@@ -1,6 +1,7 @@
 import { Bot, GrammyError, HttpError } from "grammy";
 import { adminComposer } from "./admin.js";
 import { groupComposer } from "./group.js";
+import { gateComposer } from "./gate.js";
 import { memberComposer } from "./member.js";
 import { config } from "../config.js";
 
@@ -27,6 +28,7 @@ export function createBot(): Bot {
   // member handlers (order matters: the member text handler is a catch-all
   // for private chats).
   bot.use(groupComposer);
+  bot.use(gateComposer);
   bot.use(adminComposer);
   bot.use(memberComposer);
 

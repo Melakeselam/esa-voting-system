@@ -104,4 +104,7 @@ export async function unlinkGroup(chatId?: number): Promise<void> {
   // rows that were added by hand under a wrong chat id.
   const { error } = await supabase.from("chat_topics").delete().neq("thread_id", -1);
   if (error) throw error;
+  // The people seen in that group go with it.
+  const { error: peopleError } = await supabase.from("group_people").delete().neq("user_id", -1);
+  if (peopleError) throw peopleError;
 }
