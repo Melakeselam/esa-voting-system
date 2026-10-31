@@ -804,6 +804,38 @@ try {
   r = await api("GET", "/setup", USERS.admin);
   eq("group: unlinked by hand", r.json?.group, null);
 
+  // ---- Group deleted, then the bot is added to a brand-new group -------------
+  // Replays 2026-10-31: the deleted group's trailing updates re-linked it, so the new group got no topics or buttons.
+  const chatMemberUpd = (chat, oldStatus, newStatus, date) => ({ my_chat_member: { chat, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
+  await update(botStatus("left", "administrator", 10));
+  botMembership = "gone";
+  r = await api("GET", "/setup", USERS.admin); // Setup refresh notices the group is gone and unlinks it first
+  await update(botStatus("administrator", "kicked", 11)); // the removal event arrives afterwards
+  await update({ message: { message_id: msgId++, date: 12, chat: GROUP, from: from(USERS.admin), left_chat_member: BOT } });
+  await update({ message: { message_id: msgId++, date: 12, chat: GROUP, from: from(USERS.admin), text: "late message" } });
+  check("newgroup: trailing updates from the left group do not link it again", !(await rows("app_settings")).some((s) => s.key === "group"), JSON.stringify((await rows("app_settings")).map((s) => s.key)));
+  botMembership = "administrator";
+  const NEWG = { id: -1000600, type: "supergroup", title: "ESA Assembly 2027", is_forum: true };
+  await update(chatMemberUpd(NEWG, "left", "administrator", 13));
+  r = await api("GET", "/setup", USERS.admin);
+  check("newgroup: the new group is linked and set up (topics created)", r.json?.group?.chat_id === NEWG.id && calls("createForumTopic", (b) => Number(b.chat_id) === NEWG.id).length === 2, JSON.stringify([r.json?.group, calls("createForumTopic").map((c) => c.body.chat_id)]));
+  // A stale link to a group the bot is no longer in is replaced automatically.
+  const NEWG2 = { id: -1000700, type: "supergroup", title: "ESA Assembly 2028", is_forum: true };
+  botMembership = "gone";
+  await update(chatMemberUpd(NEWG2, "left", "administrator", 14));
+  botMembership = "administrator";
+  r = await api("GET", "/setup", USERS.admin);
+  check("newgroup: a stale link (bot no longer in it) is replaced by the new group", r.json?.group?.chat_id === NEWG2.id && calls("createForumTopic", (b) => Number(b.chat_id) === NEWG2.id).length === 2, JSON.stringify(r.json?.group));
+  // While the assembly group is alive, a second group is not taken over without asking.
+  const OTHER = { id: -1000800, type: "supergroup", title: "Side group", is_forum: true };
+  await update(chatMemberUpd(OTHER, "left", "administrator", 15));
+  r = await api("GET", "/setup", USERS.admin);
+  check("newgroup: a second group while the assembly group is alive → admins asked, nothing changed", r.json?.group?.chat_id === NEWG2.id && JSON.stringify(sentTo(1001).at(-1).body.reply_markup).includes(`gswitch|${OTHER.id}`), lastTextTo(1001));
+  await update(callback(USERS.admin, `gswitch|${OTHER.id}`));
+  r = await api("GET", "/setup", USERS.admin);
+  check("newgroup: 'Use the new group instead' switches and sets it up", r.json?.group?.chat_id === OTHER.id && calls("createForumTopic", (b) => Number(b.chat_id) === OTHER.id).length === 2, JSON.stringify(r.json?.group));
+  await api("DELETE", "/setup/group", USERS.admin);
+
   // ---- Group deleted → start over -------------------------------------------
   await update(botStatus("left", "administrator", 6));
   r = await api("GET", "/setup", USERS.admin);

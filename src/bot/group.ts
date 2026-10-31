@@ -1,7 +1,10 @@
-import { Composer } from "grammy";
+import { Composer, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import { audit } from "../db.js";
 import { config } from "../config.js";
+import { isAdminUser } from "../services/admins.js";
+import { notifyAdmins } from "./notify.js";
+import { escapeHtml } from "./ui.js";
 import { lockGroupPermissions } from "./group-lock.js";
 import { onBotPromoted } from "./gate.js";
 import { onBotRemoved } from "./reset-flow.js";
@@ -85,11 +88,13 @@ async function track(ctx: Context): Promise<void> {
         return;
       }
       forgetChatMemo(chat.id);
+      departed.add(chat.id);
       return;
     }
     // Added or promoted: rare, so always re-read the stored link instead of trusting the memo.
+    departed.delete(chat.id);
     forgetChatMemo(chat.id);
-    await linkGroupIfUnset(chat.id, title);
+    await linkOrSwitch(ctx, chat.id, title);
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
     seen.add(`${chat.id}:0`);
     if (status === "administrator") {
@@ -120,6 +125,9 @@ async function track(ctx: Context): Promise<void> {
 
   const msg = ctx.message;
   if (!msg) return;
+  // Trailing updates from a group the bot has just left (the "bot left" service
+  // message, a deleted group's last events) must never link that group again.
+  if (departed.has(chat.id) || msg.left_chat_member?.id === ctx.me.id) return;
   const name = msg.forum_topic_created?.name ?? msg.forum_topic_edited?.name ?? null;
   const inTopic = Boolean(msg.is_topic_message || msg.forum_topic_created || msg.forum_topic_edited);
   const threadId = inTopic ? (msg.message_thread_id ?? 0) : 0;
@@ -137,6 +145,88 @@ async function track(ctx: Context): Promise<void> {
     console.log(`Learned topic #${threadId}${name ? ` "${name}"` : ""} in "${title ?? chat.id}" (${chat.id})`);
   }
 }
+
+// Groups the bot was removed from in this process; cleared when it is added back.
+const departed = new Set<number>();
+
+/** Is the bot still in this group? Telegram answers an error for a deleted group or a removed bot. */
+async function botStillIn(ctx: Context, chatId: number): Promise<boolean> {
+  try {
+    const m = await ctx.api.getChatMember(chatId, ctx.me.id);
+    return m.status !== "left" && m.status !== "kicked";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The bot was added to (or promoted in) a group. Link it when no group is
+ * linked. When another group is linked: if the bot is no longer in that one
+ * (deleted, or removed while the server was not listening) switch to the new
+ * group at once; otherwise keep the assembly group and ask the admins.
+ */
+async function linkOrSwitch(ctx: Context, chatId: number, title: string | null): Promise<void> {
+  const linked = await getLinkedGroup();
+  if (linked && linked.chat_id !== chatId) {
+    if (await botStillIn(ctx, linked.chat_id)) {
+      await notifyAdmins(
+        ctx.api,
+        `ℹ️ I was added to <b>${escapeHtml(title ?? String(chatId))}</b>, but <b>${escapeHtml(linked.title ?? String(linked.chat_id))}</b> is still the assembly group, so I set nothing up in the new one.`,
+        new InlineKeyboard().text("🔁 Use the new group instead", `gswitch|${chatId}`),
+      );
+      console.log(`Added to "${title ?? chatId}" (${chatId}) while "${linked.title ?? linked.chat_id}" is still linked — asked the admins`);
+      return;
+    }
+    console.log(`Linked group "${linked.title ?? linked.chat_id}" (${linked.chat_id}) is gone — switching to "${title ?? chatId}" (${chatId})`);
+    await unlinkGroup(linked.chat_id);
+    forgetChatMemo(linked.chat_id);
+    await audit(ctx.from?.id ?? "system", "group_unlinked", { chat_id: linked.chat_id, via: "replaced_by_new_group", new_chat_id: chatId });
+  }
+  await linkGroupIfUnset(chatId, title);
+}
+
+/** "Use the new group instead": unlink the current group and set up the new one as if the bot had just been promoted there. */
+groupComposer.callbackQuery(/^gswitch\|(-?\d+)$/, async (ctx) => {
+  if (!(await isAdminUser(ctx.from.id))) {
+    await ctx.answerCallbackQuery({ text: "Admins only.", show_alert: true });
+    return;
+  }
+  const chatId = Number(ctx.match[1]);
+  let chat: { title?: string; is_forum?: boolean };
+  try {
+    chat = (await ctx.api.getChat(chatId)) as unknown as { title?: string; is_forum?: boolean };
+  } catch (err) {
+    await ctx.answerCallbackQuery({ text: `I can no longer reach that group: ${(err as Error).message}`.slice(0, 190), show_alert: true });
+    return;
+  }
+  const linked = await getLinkedGroup();
+  if (linked && linked.chat_id !== chatId) {
+    await unlinkGroup(linked.chat_id);
+    forgetChatMemo(linked.chat_id);
+    await audit(ctx.from.id, "group_unlinked", { chat_id: linked.chat_id, via: "switched", new_chat_id: chatId });
+  }
+  forgetChatMemo(chatId);
+  departed.delete(chatId);
+  const title = chat.title ?? null;
+  await linkGroupIfUnset(chatId, title);
+  await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
+  await ctx.answerCallbackQuery({ text: "Switched." });
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+  const isAdminThere = await (async () => {
+    try {
+      const m = await ctx.api.getChatMember(chatId, ctx.me.id);
+      return m.status === "administrator";
+    } catch {
+      return false;
+    }
+  })();
+  if (!isAdminThere) {
+    await ctx.reply(`✅ <b>${escapeHtml(title ?? String(chatId))}</b> is now the assembly group. Make me an administrator there to set up the topics and buttons.`, { parse_mode: "HTML" });
+    return;
+  }
+  await onBotPromoted(ctx.api, chatId, title, Boolean(chat.is_forum));
+  if (config.lockGroupPermissions) await lockGroupPermissions(ctx.api, chatId);
+});
 
 async function linkGroupIfUnset(chatId: number, title: string | null): Promise<void> {
   const memo = `${chatId}:group`;
