@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { InputFile } from "grammy";
+import { InputFile, InputMediaBuilder } from "grammy";
 import { appUrl, config, emailConfigured } from "../config.js";
 import { audit, supabase } from "../db.js";
 import { bot, ensureBotReady } from "../bot/instance.js";
@@ -799,12 +799,55 @@ route("POST", `/councils/${UUID}/reissue`, true, async (ctx, [id]) => {
   return { rows, council: await getCouncil(id) };
 });
 
-/** Build the printable PDF (QR + link per invitation) and send it to the admin chat. */
+/** File-name-safe slug of a delegate's name (letters of any script are kept). */
+function fileSlug(s: string | null): string {
+  return (s ?? "").normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+/**
+ * Build the printable PDF (QR + link per invitation) and send it to the admin
+ * chat — one file for the council, or with `separate: true` one file per
+ * delegate (sent as albums of up to 10 documents) so each can be forwarded to
+ * its delegate on its own.
+ */
 route("POST", `/councils/${UUID}/invitations-pdf`, true, async (ctx, [id]) => {
   const c = await requireCouncil(id);
-  const rows = invitationRows(await ctx.body());
-  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username });
+  const body = await ctx.body();
+  const rows = invitationRows(body);
   const stamp = formatLocal(new Date()).replace(/[: ]/g, "-");
+  if (body.separate === true) {
+    const docs = [];
+    for (const [i, row] of rows.entries()) {
+      const pdf = await invitationsPdf({ council: c, rows: [row], botUsername: bot.botInfo.username });
+      const seat = String(row.seat_no ?? i + 1).padStart(2, "0");
+      const name = fileSlug(row.full_name);
+      docs.push({ pdf, file: `esa-invitation-${c.code.toLowerCase()}-${seat}${name ? `-${name}` : ""}.pdf` });
+    }
+    const caption =
+      `🎫 ${rows.length} invitation(s) for ${c.name}, one PDF per delegate — forward each file to its delegate. ` +
+      "They contain the passwords: delete them from the chat once handed over.";
+    try {
+      for (let start = 0; start < docs.length; start += 10) {
+        const batch = docs.slice(start, start + 10);
+        const isLastBatch = start + 10 >= docs.length;
+        if (batch.length === 1) {
+          await bot.api.sendDocument(ctx.user.id, new InputFile(batch[0].pdf, batch[0].file), isLastBatch ? { caption } : {});
+          continue;
+        }
+        await bot.api.sendMediaGroup(
+          ctx.user.id,
+          batch.map((d, j) =>
+            InputMediaBuilder.document(new InputFile(d.pdf, d.file), isLastBatch && j === batch.length - 1 ? { caption } : {}),
+          ),
+        );
+      }
+    } catch (err) {
+      throw new HttpError(502, `Could not send the files to your chat: ${(err as Error).message}. Send /start to the bot first.`);
+    }
+    await audit(ctx.user.id, "invitations_pdf_sent", { council: c.name, count: rows.length, separate: true, via: "app" });
+    return { ok: true, count: rows.length, files: docs.map((d) => d.file) };
+  }
+  const pdf = await invitationsPdf({ council: c, rows, botUsername: bot.botInfo.username });
   const file = `esa-invitations-${c.code.toLowerCase()}-${stamp}.pdf`;
   try {
     await bot.api.sendDocument(ctx.user.id, new InputFile(pdf, file), {

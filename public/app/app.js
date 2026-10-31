@@ -865,7 +865,8 @@
       if (params.rows && params.rows.length) {
         html += '<div class="card"><h3>✅ ' + esc(t("{n} new invitations", { n: params.rows.length })) + "</h3>" +
           '<p class="hint">' + esc(t("The passwords exist only here until you send the file. Send the PDF to your chat now, then print it or forward it to the council.")) + "</p>" +
-          '<div class="actions"><button class="btn block" data-act="pdf">📄 ' + esc(t("Send printable PDF to my chat")) + "</button>" +
+          '<div class="actions"><button class="btn block" data-act="pdfeach">📄 ' + esc(t("One PDF per delegate to my chat")) + "</button>" +
+          '<button class="btn secondary block" data-act="pdf">📄 ' + esc(t("One PDF with all invitations to my chat")) + "</button>" +
           '<button class="btn secondary block" data-act="csv">📎 ' + esc(t("Send CSV to my chat")) + "</button></div>" +
           "<details><summary>" + esc(t("Show codes here")) + "</summary>" + credsTable(params.rows) + "</details></div>";
       }
@@ -923,13 +924,14 @@
             haptic("success");
             params.rows = rr.rows; toast(t("{n} passwords renewed", { n: rr.rows.length }), "ok"); return refresh();
           }
-          if (act === "pdf") {
+          if (act === "pdf" || act === "pdfeach") {
             // Keep the button itself: the event's currentTarget is null once the handler has awaited.
             var pdfBtn = e.currentTarget;
             pdfBtn.disabled = true;
             try {
-              await api("POST", "/councils/" + c.id + "/invitations-pdf", { rows: params.rows });
-              haptic("success"); toast(t("PDF sent to your chat"), "ok");
+              var pr = await api("POST", "/councils/" + c.id + "/invitations-pdf", { rows: params.rows, separate: act === "pdfeach" });
+              haptic("success");
+              toast(act === "pdfeach" ? t("{n} PDFs sent to your chat", { n: pr.count }) : t("PDF sent to your chat"), "ok");
             } finally { pdfBtn.disabled = false; }
             return;
           }
@@ -1011,6 +1013,7 @@
         planBox.innerHTML = '<div class="section-title">' + esc(t("Preview")) + '</div><div class="list">' + plan.map(function (p) {
           return '<div class="row static"><div class="main"><div class="title">' + esc(p.name) + '</div><div class="meta">' + esc(t("{seats} invitations · {named} named", { seats: p.seats, named: p.names.length })) + (p.vote_weight > 1 ? " · " + esc(t("{n} votes each", { n: p.vote_weight })) : "") + "</div></div></div>";
         }).join("") + "</div>" +
+          '<label class="switch"><span class="lbl"><span>' + esc(t("One PDF per delegate")) + '</span><span class="hint">' + esc(t("Off: one PDF per council with all its invitations")) + '</span></span><input type="checkbox" data-each checked></label>' +
           '<button class="btn block" data-run>' + esc(t("Create {councils} councils and {n} invitations", { councils: plan.length, n: total })) + "</button>";
         planBox.querySelector("[data-run]").onclick = runImport;
       }
@@ -1030,7 +1033,8 @@
         plan = planFromRows(parseCsvText(content.querySelector("[data-text]").value)); showPlan();
       };
       async function runImport() {
-        if (!(await confirmDialog(t("Create the councils and issue all invitations now? One PDF per council will be sent to your chat.")))) return;
+        var each = planBox.querySelector("[data-each]") ? planBox.querySelector("[data-each]").checked : true;
+        if (!(await confirmDialog(each ? t("Create the councils and issue all invitations now? One PDF per delegate will be sent to your chat.") : t("Create the councils and issue all invitations now? One PDF per council will be sent to your chat.")))) return;
         planBox.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
         out.innerHTML = '<div class="card"><p class="hint" data-st>' + esc(t("Starting…")) + '</p><div class="progress"><span data-bar style="width:0%"></span></div><div data-log></div></div>';
         var st = out.querySelector("[data-st]"), bar = out.querySelector("[data-bar]"), log = out.querySelector("[data-log]");
@@ -1045,7 +1049,7 @@
             done += rows.length;
             rows.forEach(function (x) { allRows.push({ token_id: x.token_id, password: x.password, full_name: x.full_name, region: p.name }); });
             st.textContent = t("{name}: sending PDF…", { name: p.name });
-            await api("POST", "/councils/" + r.council.id + "/invitations-pdf", { rows: rows });
+            await api("POST", "/councils/" + r.council.id + "/invitations-pdf", { rows: rows, separate: each });
             log.insertAdjacentHTML("beforeend", '<p class="small">✅ ' + esc(p.name) + " — " + esc(t("{n} invitations, PDF sent", { n: rows.length })) + "</p>");
           }
           st.textContent = t("Sending the CSV with all codes…");

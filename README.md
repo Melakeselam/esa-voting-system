@@ -147,7 +147,11 @@ which recognises the invitation and only asks for the password. The
 recognised code is remembered for that Telegram account (72 h, `app_settings`
 key `pending_inv:<id>`), so the Mini App fills it in whichever way it is
 opened — inline button or menu button — and asks for the password only. Lost sheet: "New passwords for unregistered
-delegates" reissues the PDF without touching registered members. The PDF
+delegates" reissues the PDF without touching registered members. The PDF can
+be one file per council or one file per delegate (`separate: true`, the
+default in the bulk import), named `esa-invitation-<council>-<seat>-<name>.pdf`
+and sent as albums of up to 10 documents, so each file can be forwarded to
+its delegate on its own. The PDF
 **Vote weight:** each council also sets the votes per delegate (default 1), so
 6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes. The weight
 is stamped on each vote when cast (secret ballots keep no member id), the SQL

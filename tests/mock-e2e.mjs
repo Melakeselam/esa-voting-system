@@ -59,6 +59,10 @@ const tgServer = createServer(async (req, res) => {
     }
     const fn = /filename="?([^"\r\n]+)"?/.exec(raw);
     if (fn) body.filename = fn[1];
+    body.filenames = [...raw.matchAll(/filename="?([^"\r\n]+)"?/g)].map((x) => x[1]);
+    body.pdf_count = raw.split("%PDF-").length - 1;
+    const media = new RegExp(`name="media"\\r?\\n\\r?\\n([^\\r\\n]*)`).exec(raw);
+    if (media) { try { body.media = JSON.parse(media[1]); } catch { /* not JSON */ } }
     body.bytes = raw.length;
     body.is_pdf = raw.includes("%PDF-");
   }
@@ -367,6 +371,11 @@ try {
   r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv });
   const pdfCall = calls("sendDocument", (b) => Number(b.chat_id) === 1001 && /invitations-aarc/.test(b.filename ?? "") && /\.pdf$/.test(b.filename ?? ""));
   check("invitations: PDF sent to the admin chat", r.status === 200 && pdfCall.length === 1 && pdfCall[0].body.is_pdf && pdfCall[0].body.bytes > 10000, JSON.stringify([r.status, r.json, pdfCall.map((c) => c.body)]));
+  r = await api("POST", "/councils/" + AARC.id + "/invitations-pdf", USERS.admin, { rows: inv, separate: true });
+  const albums = calls("sendMediaGroup", (b) => Number(b.chat_id) === 1001);
+  check("invitations: one PDF per delegate, sent as one album", r.status === 200 && r.json?.files?.length === inv.length && albums.length === 1 && albums[0].body.pdf_count === inv.length && albums[0].body.media?.length === inv.length && albums[0].body.media.every((m) => m.type === "document"), JSON.stringify([r.status, r.json, albums.map((c) => [c.body.pdf_count, c.body.media?.length])]));
+  check("invitations: each file is named after its seat and delegate", r.json.files.every((f, i) => f.startsWith(`esa-invitation-aarc-${String(inv[i].seat_no ?? i + 1).padStart(2, "0")}`) && f.endsWith(".pdf")) && r.json.files.some((f) => /Hana-Girma/.test(f)), JSON.stringify(r.json.files));
+  check("invitations: only the last file carries the caption", albums[0].body.media.filter((m) => m.caption).length === 1 && /one PDF per delegate/.test(albums[0].body.media.at(-1).caption ?? ""), JSON.stringify(albums[0].body.media.map((m) => Boolean(m.caption))));
   r = await api("DELETE", "/councils/" + AARC.id, USERS.admin);
   eq("councils: cannot delete once invitations exist", [r.status, r.json?.code], [409, "has_members"]);
   r = await api("POST", "/councils", USERS.admin, { name: "Temporary", seats: 1 });
