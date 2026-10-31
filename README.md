@@ -217,8 +217,9 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   any topic get a short English + Amharic pointer with a button into the
   private chat (`t.me/<bot>?start=vote|status|register`); nothing personal is
   shown in the group. The same four commands are registered in the group's
-  "/" menu (English, and Amharic for Amharic clients), offered as a persistent
-  reply keyboard, and listed with descriptions in a pinned "📖 Commands /
+  "/" menu (English, and Amharic for Amharic clients), offered as a one-row
+  persistent reply keyboard ("🗳 Vote · 📋 Status · 📝 Register · ❔ Help",
+  the labels are answered like the commands), and listed with descriptions in a pinned "📖 Commands /
   ትዕዛዞች" topic the bot creates when it becomes admin (tapping a command
   in the text runs it). Setup › "Post command reference" re-posts it.
 - **Starting over:** when the bot is removed from the linked group (Telegram

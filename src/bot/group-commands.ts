@@ -14,18 +14,27 @@ import { getSetting, setSetting, upsertTopic } from "../services/settings.js";
  *    tapping a command in the text runs it.
  */
 export const COMMANDS = [
-  { command: "vote", en: "Show the resolutions open for voting and cast your ballot (in your private chat)", am: "ለድምፅ ክፍት የሆኑ የውሳኔ ሀሳቦችን ያሳያል፣ ድምፅዎን ይሰጣሉ (በግል ውይይትዎ)" },
-  { command: "status", en: "Your registration and the ballots you have cast", am: "ምዝገባዎ እና የሰጡት ድምፆች" },
-  { command: "register", en: "Register with your invitation code (first time only)", am: "በግብዣ ኮድዎ ይመዝገቡ (ለመጀመሪያ ጊዜ ብቻ)" },
-  { command: "help", en: "How this bot works", am: "ይህ ቦት እንዴት እንደሚሠራ" },
+  { command: "vote", label: "🗳 Vote", en: "Show the resolutions open for voting and cast your ballot (in your private chat)", am: "ለድምፅ ክፍት የሆኑ የውሳኔ ሀሳቦችን ያሳያል፣ ድምፅዎን ይሰጣሉ (በግል ውይይትዎ)" },
+  { command: "status", label: "📋 Status", en: "Your registration and the ballots you have cast", am: "ምዝገባዎ እና የሰጡት ድምፆች" },
+  { command: "register", label: "📝 Register", en: "Register with your invitation code (first time only)", am: "በግብዣ ኮድዎ ይመዝገቡ (ለመጀመሪያ ጊዜ ብቻ)" },
+  { command: "help", label: "❔ Help", en: "How this bot works", am: "ይህ ቦት እንዴት እንደሚሠራ" },
 ] as const;
 
 export const COMMANDS_TOPIC_NAME = "📖 Commands / ትዕዛዞች";
 
-/** Fixed buttons under the message box: tapping one sends the command. */
+/**
+ * Fixed buttons under the message box, one row so they take little space.
+ * A tap sends the label as a message; the handlers below answer it like the
+ * matching command. Telegram lays a reply keyboard out once when it is sent,
+ * so the row is fixed; the labels are kept short enough for a phone screen.
+ */
 export function commandKeyboard(): Keyboard {
-  return new Keyboard().text("/vote").text("/status").row().text("/register").text("/help").resized().persistent();
+  const kb = new Keyboard();
+  for (const c of COMMANDS) kb.text(c.label);
+  return kb.resized().persistent();
 }
+
+const LABEL_TO_COMMAND = new Map<string, (typeof COMMANDS)[number]["command"]>(COMMANDS.map((c) => [c.label, c.command]));
 
 /** The reference text pinned in the Commands topic, English then Amharic; the /commands in it are tappable. */
 export function commandReference(): string {
@@ -135,8 +144,8 @@ export async function ensureCommandTopic(
     try {
       await api.sendMessage(
         chatId,
-        `📖 Command buttons are below the message box: /vote, /status, /register, /help. The “${COMMANDS_TOPIC_NAME}” topic explains each one.\n` +
-          `📖 የትዕዛዝ አዝራሮች ከመልዕክት ሳጥኑ በታች ናቸው፦ /vote፣ /status፣ /register፣ /help። «${COMMANDS_TOPIC_NAME}» ርዕስ እያንዳንዱን ያብራራል።`,
+        `📖 The buttons below the message box — Vote, Status, Register, Help — do the same as /vote, /status, /register and /help. The “${COMMANDS_TOPIC_NAME}” topic explains each one.\n` +
+          `📖 ከመልዕክት ሳጥኑ በታች ያሉት አዝራሮች — Vote፣ Status፣ Register፣ Help — እንደ /vote፣ /status፣ /register እና /help ይሠራሉ። «${COMMANDS_TOPIC_NAME}» ርዕስ እያንዳንዱን ያብራራል።`,
         { reply_markup: commandKeyboard() },
       );
     } catch {
@@ -178,34 +187,34 @@ async function registered(ctx: Context): Promise<boolean> {
   return Boolean(m && m.is_active);
 }
 
-grp.command(["vote", "start"], async (ctx) => {
+async function answerVote(ctx: Context): Promise<void> {
   const ok = await registered(ctx);
   await ctx.reply(ok ? VOTE_TEXT : REGISTER_TEXT, {
     parse_mode: "HTML",
     message_thread_id: threadOf(ctx),
     reply_markup: ok ? privateButton(ctx, "🗳 Open my ballots", "vote") : privateButton(ctx, "📝 Register first", "register"),
   });
-});
+}
 
-grp.command("status", async (ctx) => {
+async function answerStatus(ctx: Context): Promise<void> {
   const ok = await registered(ctx);
   await ctx.reply(ok ? STATUS_TEXT : REGISTER_TEXT, {
     parse_mode: "HTML",
     message_thread_id: threadOf(ctx),
     reply_markup: ok ? privateButton(ctx, "📋 My status", "status") : privateButton(ctx, "📝 Register first", "register"),
   });
-});
+}
 
-grp.command("register", async (ctx) => {
+async function answerRegister(ctx: Context): Promise<void> {
   const ok = await registered(ctx);
   await ctx.reply(ok ? REGISTERED_TEXT : REGISTER_TEXT, {
     parse_mode: "HTML",
     message_thread_id: threadOf(ctx),
     reply_markup: ok ? privateButton(ctx, "🗳 Open my ballots", "vote") : privateButton(ctx, "📝 Register with my code", "register"),
   });
-});
+}
 
-grp.command("help", async (ctx) => {
+async function answerHelp(ctx: Context): Promise<void> {
   await ctx.reply(commandReference(), {
     parse_mode: "HTML",
     message_thread_id: threadOf(ctx),
@@ -213,4 +222,23 @@ grp.command("help", async (ctx) => {
       .url("🗳 My ballots", `https://t.me/${ctx.me.username}?start=vote`)
       .url("📝 Register", `https://t.me/${ctx.me.username}?start=register`),
   });
+}
+
+const ANSWERS: Record<(typeof COMMANDS)[number]["command"], (ctx: Context) => Promise<void>> = {
+  vote: answerVote,
+  status: answerStatus,
+  register: answerRegister,
+  help: answerHelp,
+};
+
+grp.command(["vote", "start"], answerVote);
+grp.command("status", answerStatus);
+grp.command("register", answerRegister);
+grp.command("help", answerHelp);
+
+// The reply-keyboard buttons send their label as plain text.
+grp.on("message:text", async (ctx, next) => {
+  const command = LABEL_TO_COMMAND.get(ctx.message.text.trim());
+  if (!command) return next();
+  await ANSWERS[command](ctx);
 });
