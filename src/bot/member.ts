@@ -7,7 +7,9 @@ import { getById, listResolutions } from "../services/resolutions.js";
 import { castVote, memberBallots } from "../services/votes.js";
 import { beginLoginWithToken, handleLoginMessage, inLogin, promptLogin } from "./login.js";
 import { appKeyboard, confirmKeyboard, escapeHtml, resolutionCard, voteKeyboard } from "./ui.js";
+import { afterRegistrationKeyboard } from "./group-link.js";
 import type { InlineKeyboard } from "grammy";
+import type { Member } from "../types.js";
 
 /** Member-facing handlers. Everything here runs in private chats only. */
 export const memberComposer = new Composer<Context>();
@@ -60,12 +62,47 @@ pm.command("start", async (ctx) => {
       return;
     }
   }
+  // Buttons from the group's command replies: /start vote, /start status
+  if (payload === "vote") return sendOpenBallots(ctx, member);
+  if (payload === "status") return sendStatus(ctx, member);
 
   await ctx.reply(
     `✅ You are registered as <b>${escapeHtml(member.full_name ?? member.token_id)}</b>.\n\n${HELP}`,
-    { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") },
+    { parse_mode: "HTML", reply_markup: await afterRegistrationKeyboard(ctx.api) },
   );
 });
+
+async function sendOpenBallots(ctx: Context, member: Member): Promise<void> {
+  const open = await listResolutions("open");
+  if (open.length === 0) {
+    await ctx.reply("There are no resolutions open for voting right now. You will find them here when voting opens.", {
+      reply_markup: appKeyboard("🗳 Open voting app"),
+    });
+    return;
+  }
+  const voted = await memberBallots(member.id);
+  for (const res of open) {
+    const suffix = voted.has(res.id) ? "\n\n☑️ You have already cast your ballot on this resolution." : "";
+    await ctx.reply(resolutionCard(res) + suffix, { parse_mode: "HTML", reply_markup: voteKeyboard(res) });
+  }
+}
+
+async function sendStatus(ctx: Context, member: Member): Promise<void> {
+  const [all, voted] = await Promise.all([listResolutions(), memberBallots(member.id)]);
+  const lines = [
+    `👤 Registered as: <b>${escapeHtml(member.full_name ?? member.token_id)}</b>`,
+    `🎫 Token: <code>${escapeHtml(member.token_id)}</code>`,
+    "",
+    "<b>Resolutions:</b>",
+  ];
+  if (all.length === 0) lines.push("(none created yet)");
+  for (const res of all) {
+    const state = res.status === "open" ? "🟢 open" : res.status === "closed" ? "🔴 closed" : "⚪ draft";
+    const ballot = voted.has(res.id) ? " — ☑️ ballot cast" : res.status === "open" ? " — ⏳ not voted yet" : "";
+    lines.push(`${escapeHtml(res.code)}: ${escapeHtml(res.title)} (${state})${ballot}`);
+  }
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") });
+}
 
 pm.command("help", (ctx) =>
   ctx.reply(HELP, { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") }),
@@ -81,21 +118,7 @@ pm.command("vote", async (ctx) => {
     await promptLogin(ctx);
     return;
   }
-  const open = await listResolutions("open");
-  if (open.length === 0) {
-    await ctx.reply("There are no resolutions open for voting right now. You will find them here when voting opens.", {
-      reply_markup: appKeyboard("🗳 Open voting app"),
-    });
-    return;
-  }
-  const voted = await memberBallots(member.id);
-  for (const res of open) {
-    const suffix = voted.has(res.id) ? "\n\n☑️ You have already cast your ballot on this resolution." : "";
-    await ctx.reply(resolutionCard(res) + suffix, {
-      parse_mode: "HTML",
-      reply_markup: voteKeyboard(res),
-    });
-  }
+  await sendOpenBallots(ctx, member);
 });
 
 pm.command("status", async (ctx) => {
@@ -104,20 +127,19 @@ pm.command("status", async (ctx) => {
     await promptLogin(ctx);
     return;
   }
-  const [all, voted] = await Promise.all([listResolutions(), memberBallots(member.id)]);
-  const lines = [
-    `👤 Registered as: <b>${escapeHtml(member.full_name ?? member.token_id)}</b>`,
-    `🎫 Token: <code>${escapeHtml(member.token_id)}</code>`,
-    "",
-    "<b>Resolutions:</b>",
-  ];
-  if (all.length === 0) lines.push("(none created yet)");
-  for (const res of all) {
-    const state = res.status === "open" ? "🟢 open" : res.status === "closed" ? "🔴 closed" : "⚪ draft";
-    const ballot = voted.has(res.id) ? " — ☑️ ballot cast" : res.status === "open" ? " — ⏳ not voted yet" : "";
-    lines.push(`${escapeHtml(res.code)}: ${escapeHtml(res.title)} (${state})${ballot}`);
+  await sendStatus(ctx, member);
+});
+
+pm.command("register", async (ctx) => {
+  const member = await findByTelegramId(ctx.from!.id);
+  if (!member) {
+    await promptLogin(ctx);
+    return;
   }
-  await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") });
+  await ctx.reply(`✅ You are already registered as <b>${escapeHtml(member.full_name ?? member.token_id)}</b>.`, {
+    parse_mode: "HTML",
+    reply_markup: await afterRegistrationKeyboard(ctx.api),
+  });
 });
 
 /**
@@ -244,8 +266,9 @@ pm.on("message:text", async (ctx) => {
     const member = await handleLoginMessage(ctx);
     if (member) {
       await ctx.reply(
-        `🎉 Registration complete, <b>${escapeHtml(member.full_name ?? member.token_id)}</b>!\n\n${HELP}`,
-        { parse_mode: "HTML" },
+        `🎉 Registration complete, <b>${escapeHtml(member.full_name ?? member.token_id)}</b>!\n\n` +
+          `Announcements and discussion happen in the assembly group — open it below. Ballots and results reach you here.\n\n${HELP}`,
+        { parse_mode: "HTML", reply_markup: await afterRegistrationKeyboard(ctx.api) },
       );
       const open = await listResolutions("open");
       for (const res of open) {

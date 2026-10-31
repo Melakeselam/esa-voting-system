@@ -1099,6 +1099,7 @@
       }
       html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
         (s.group ? ' <button class="btn secondary sm" data-act="signin">📝 ' + esc(t("Post sign-in topic")) + "</button>" : "") +
+        (s.group ? ' <button class="btn secondary sm" data-act="commands">📖 ' + esc(t("Post command reference")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
 
@@ -1150,6 +1151,12 @@
             if (!(await confirmDialog(t("Post the sign-in card in the group? The bot creates a “Register / Sign in” topic if there is none yet and pins the card there.")))) return;
             var si = await api("POST", "/setup/group/signin");
             if (si.note) toast(si.note, "warn"); else { haptic("success"); toast(t("Sign-in card posted"), "ok"); }
+            return refresh();
+          }
+          if (act === "commands") {
+            if (!(await confirmDialog(t("Post the command reference in the group? The bot creates a “📖 Commands” topic if there is none yet, pins the reference in English and Amharic, registers the “/” menu and shows the command buttons.")))) return;
+            var cm = await api("POST", "/setup/group/commands");
+            if (cm.note) toast(cm.note, "warn"); else { haptic("success"); toast(t("Command reference posted"), "ok"); }
             return refresh();
           }
           if (act === "lockgroup") {
@@ -1382,6 +1389,7 @@
       if (!alive()) return;
       var html = "";
       if (d.member) html += '<p class="hint">' + esc(t("Registered as")) + " <b>" + esc(d.member.full_name || d.member.token_id) + "</b>" + (d.member.vote_weight > 1 ? " · " + esc(t("your vote counts as {n} votes", { n: d.member.vote_weight })) : "") + "</p>";
+      if (d.member && state.me && state.me.group_link) html += '<div class="actions inline"><button class="btn secondary sm" data-group>👥 ' + esc(t("Open the assembly group")) + "</button></div>";
       if (!d.open.length) {
         html += '<div class="card"><p class="empty">' + esc(t("No resolutions are open for voting right now.")) + (d.drafts ? " " + esc(t("{count} being prepared.", { count: plural(d.drafts, "resolution") })) : "") + "</p></div>";
       } else {
@@ -1389,6 +1397,7 @@
       }
       if (d.closed.length) html += '<div class="section-title">' + esc(t("Recent results")) + '</div><div class="list">' + d.closed.slice(0, 3).map(function (e) { return closedRow(e, false); }).join("") + "</div>";
       content.innerHTML = html;
+      if (content.querySelector("[data-group]")) content.querySelector("[data-group]").onclick = function () { var l = state.me.group_link; if (tg && tg.openTelegramLink) tg.openTelegramLink(l); else window.open(l, "_blank"); };
       on(content, "[data-vote]", "click", function (ev) {
         var p = ev.currentTarget.dataset.vote.split(":");
         var res = d.open.filter(function (x) { return x.id === p[0]; })[0];

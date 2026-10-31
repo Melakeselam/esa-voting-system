@@ -207,6 +207,20 @@ menu button (and `/admin`) opens a Telegram Mini App served from `/app/`.
   member enters code and password unseen by the group. Setup › "Post sign-in
   topic" re-posts it; without topics or the "Manage topics" right the card
   goes to the main chat.
+- **Into the group after registering:** the "Registration complete" message
+  (chat or app) carries an "Open the assembly group" button — the group's
+  public link, or an invite link the bot creates once with join requests on
+  (`createChatInviteLink`, needs "Invite users"), which the gate approves
+  immediately for registered members. `GET /me` returns it as `group_link`
+  and the app shows the same button above the ballots.
+- **Commands in the group:** `/vote`, `/status`, `/register`, `/help` typed in
+  any topic get a short English + Amharic pointer with a button into the
+  private chat (`t.me/<bot>?start=vote|status|register`); nothing personal is
+  shown in the group. The same four commands are registered in the group's
+  "/" menu (English, and Amharic for Amharic clients), offered as a persistent
+  reply keyboard, and listed with descriptions in a pinned "📖 Commands /
+  ትዕዛዞች" topic the bot creates when it becomes admin (tapping a command
+  in the text runs it). Setup › "Post command reference" re-posts it.
 - **Group gate:** only registered members and admins belong in the assembly
   group. The bot receives `chat_member` and `chat_join_request` updates: a
   join request from a registered member is approved at once; anyone else is

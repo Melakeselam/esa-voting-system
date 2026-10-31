@@ -8,6 +8,7 @@ import { findByTelegramId } from "../services/members.js";
 import { getLinkedGroup, getSetting, setSetting, upsertTopic } from "../services/settings.js";
 import { getGateMode, getPerson, listPeople, personName, seePerson, setPersonStatus } from "../services/group-people.js";
 import { notifyAdmins } from "./notify.js";
+import { COMMANDS_TOPIC_NAME, ensureCommandTopic } from "./group-commands.js";
 import { appKeyboard, escapeHtml, signInCard, signInKeyboard } from "./ui.js";
 
 /**
@@ -209,14 +210,22 @@ export async function onBotPromoted(api: Api, chatId: number, groupTitle: string
   } catch (err) {
     console.error("setting up the sign-in topic failed:", err);
   }
+  let commandsNote: string | null = null;
+  try {
+    commandsNote = (await ensureCommandTopic(api, chatId, groupTitle, isForum)).note;
+  } catch (err) {
+    console.error("setting up the commands topic failed:", err);
+  }
   const where =
     signin?.thread_id != null
-      ? `A “${SIGNIN_TOPIC_NAME}” topic is ready with the sign-in card pinned in it: members tap “Register with your code” there and finish in their private chat with me.`
-      : `The sign-in card is posted in the main chat: members tap “Register with your code” and finish in their private chat with me.`;
+      ? `A “${SIGNIN_TOPIC_NAME}” topic is ready with the sign-in card pinned in it: members tap “Register with your code” there and finish in their private chat with me. ` +
+        `A “${COMMANDS_TOPIC_NAME}” topic lists the commands in English and Amharic, the “/” menu and the buttons under the message box offer the same.`
+      : `The sign-in card and the command reference are posted in the main chat: members tap “Register with your code” and finish in their private chat with me.`;
   await notifyAdmins(
     api,
     `🛡 I am now an administrator of <b>${escapeHtml(title)}</b>.\n${escapeHtml(where)}` +
       (signin?.note ? `\n⚠️ ${escapeHtml(signin.note)}` : "") +
+      (commandsNote ? `\n⚠️ ${escapeHtml(commandsNote)}` : "") +
       `\n\nTelegram does not let a bot list a group's members, so I cannot check the people already inside. ` +
       `They appear in Setup › “People in the group” as they post or join, marked when they are not registered; ` +
       `from there you can register them (choose their council and role) or remove them. New joiners are checked on entry.`,

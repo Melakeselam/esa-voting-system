@@ -33,6 +33,7 @@ let botMembership = "administrator"; // what getChatMember reports for the bot i
 // Member permissions of the group as Telegram would report them (all on for a new group).
 let chatPermissions = { can_send_messages: true, can_send_polls: true, can_change_info: true, can_invite_users: true, can_pin_messages: true, can_manage_topics: true };
 let lockRights = true; // whether the bot holds "Ban users" (setChatPermissions succeeds)
+let nextThreadId = 44; // forum topics the bot creates: 44 = sign-in, 45 = commands
 const tgCalls = [];
 let webhookUrl = "";
 let nextMessageId = 100;
@@ -78,7 +79,10 @@ const tgServer = createServer(async (req, res) => {
       result = { id: Number(body.chat_id), type: "supergroup", title: GROUP.title, is_forum: true, permissions: { ...chatPermissions } };
       break;
     case "createForumTopic":
-      result = { message_thread_id: 44, name: body.name, icon_color: 0x6fb9f0 };
+      result = { message_thread_id: nextThreadId++, name: body.name, icon_color: 0x6fb9f0 };
+      break;
+    case "createChatInviteLink":
+      result = { invite_link: "https://t.me/+esa-test-link", creator: BOT, creates_join_request: Boolean(body.creates_join_request), is_primary: false, is_revoked: false };
       break;
     case "setChatPermissions":
       if (!lockRights) {
@@ -268,10 +272,17 @@ try {
   eq("rooms: group linked", r.json?.group?.chat_id, GROUP.id);
   check("signin: a Register / Sign in topic was created when the bot became admin", calls("createForumTopic", (b) => Number(b.chat_id) === GROUP.id && /Sign in/.test(b.name)).length === 1, JSON.stringify(calls("createForumTopic").map((c) => c.body)));
   check("signin: card posted in that topic with a register button", sentTo(GROUP.id, 44).some((c) => /Register with your code/.test(c.body.text) && JSON.stringify(c.body.reply_markup).includes("start=register")), JSON.stringify(sentTo(GROUP.id, 44).map((c) => c.body.text)));
-  check("signin: card pinned", calls("pinChatMessage", (b) => Number(b.chat_id) === GROUP.id).length === 1);
+  check("signin: card pinned", calls("pinChatMessage", (b) => Number(b.chat_id) === GROUP.id).length >= 1);
   check("signin: admins told where members sign in", /Register \/ Sign in/.test(lastTextTo(1001)) && /cannot check the people already inside/.test(lastTextTo(1001)), lastTextTo(1001));
   r = await api("POST", "/setup/group/signin", USERS.admin);
-  check("signin: re-posted from Setup into the same topic", r.json?.thread_id === 44 && r.json.note === null && sentTo(GROUP.id, 44).length === 2 && calls("createForumTopic").length === 1, JSON.stringify(r.json));
+  check("signin: re-posted from Setup into the same topic", r.json?.thread_id === 44 && r.json.note === null && sentTo(GROUP.id, 44).length === 2 && calls("createForumTopic", (b) => /Sign in/.test(b.name)).length === 1, JSON.stringify(r.json));
+  check("commands: a Commands topic was created with the bilingual reference pinned", calls("createForumTopic", (b) => /Commands/.test(b.name)).length === 1 && sentTo(GROUP.id, 45).some((c) => /\/vote — Show/.test(c.body.text) && /\/vote — ለድምፅ/.test(c.body.text) && c.body.reply_markup?.keyboard?.flat().some((k) => k.text === "/vote")) && calls("pinChatMessage").length >= 2, JSON.stringify(sentTo(GROUP.id, 45).map((c) => c.body.text.slice(0, 40))));
+  check("commands: command buttons also shown in General", sentTo(GROUP.id, null).some((c) => /Command buttons/.test(c.body.text) && c.body.reply_markup?.keyboard), JSON.stringify(sentTo(GROUP.id, null).map((c) => c.body.text.slice(0, 40))));
+  check("commands: '/' menu registered for the group in English and Amharic", calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && !b.language_code && b.commands.some((c) => c.command === "vote")).length === 1 && calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && b.language_code === "am" && /ድምፅ/.test(b.commands[0].description)).length === 1, JSON.stringify(calls("setMyCommands").map((c) => c.body.scope)));
+  r = await api("POST", "/setup/group/commands", USERS.admin);
+  check("commands: re-posted from Setup", r.json?.thread_id === 45 && r.json.note === null && sentTo(GROUP.id, 45).length === 2, JSON.stringify(r.json));
+  await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.guest), message_thread_id: 11, is_topic_message: true, text: "/vote", entities: [{ type: "bot_command", offset: 0, length: 5 }] } });
+  check("commands: /vote in a topic by an unregistered person → register pointer in that topic", sentTo(GROUP.id, 11).some((c) => /not registered yet/.test(c.body.text) && JSON.stringify(c.body.reply_markup).includes("start=register")), JSON.stringify(sentTo(GROUP.id, 11).map((c) => c.body.text.slice(0, 50))));
   r = await api("GET", "/setup", USERS.admin);
   check("lock: member permissions locked when the bot was made admin", calls("setChatPermissions", (b) => Number(b.chat_id) === GROUP.id && b.permissions?.can_invite_users === false && b.permissions?.can_manage_topics === false && b.permissions?.can_change_info === false && b.permissions?.can_pin_messages === false && b.permissions?.can_send_messages === true && b.use_independent_chat_permissions === true).length === 1, JSON.stringify(calls("setChatPermissions").map((c) => c.body)));
   check("lock: Setup reports the group as locked", r.json?.group_lock?.locked === true && r.json?.group_rights?.can_restrict_members === true, JSON.stringify([r.json?.group_lock, r.json?.group_rights]));
@@ -287,8 +298,8 @@ try {
   r = await api("GET", "/setup", USERS.admin);
   check("rooms: bot's rights in the group reported", r.json?.group_rights?.is_admin === true && r.json?.group_rights?.can_manage_topics === true, JSON.stringify(r.json?.group_rights));
   const topicNames = Object.fromEntries((r.json?.topics ?? []).map((t) => [t.thread_id, t.name]));
-  eq("rooms: General + sign-in topic + 3 topics known", Object.keys(topicNames).length, 5);
-  eq("rooms: sign-in topic listed by name", topicNames[44], "📝 Register / Sign in");
+  eq("rooms: General + sign-in + commands + 3 topics known", Object.keys(topicNames).length, 6);
+  eq("rooms: sign-in and commands topics listed by name", [topicNames[44], topicNames[45]], ["📝 Register / Sign in", "📖 Commands / ትዕዛዞች"]);
   eq("rooms: topic names learned", [topicNames[0], topicNames[11], topicNames[22], topicNames[33]], ["General", "Day 1 — Resolutions", "JOTA-JOTI", null]);
   r = await api("PATCH", "/setup/topics/" + GROUP.id + "/33", USERS.admin, { name: "Announcements" });
   eq("rooms: topic renamed from app", r.status, 200);
@@ -365,6 +376,16 @@ try {
   check("invitation(chat): reply carries an app button with the code pre-filled", sentTo(2005).some((c) => c.body.reply_markup?.inline_keyboard?.some((row) => row.some((b) => b.web_app?.url === "https://esa.test/app/?inv=" + inv[0].token_id))));
   await update(textMessage(USERS.delegate, inv[0].password));
   check("invitation(chat): password completes registration", /Registration complete/.test(sentTo(2005).map((c) => c.body.text).join("\n")));
+  check("invitation(chat): completion message carries a button into the assembly group", sentTo(2005).some((c) => /Registration complete/.test(c.body.text) && JSON.stringify(c.body.reply_markup || {}).includes("https://t.me/+esa-test-link")), JSON.stringify(sentTo(2005).filter((c) => /Registration complete/.test(c.body.text)).map((c) => c.body.reply_markup)));
+  check("invitation(chat): the group link asks to join by request (gate approves registered members)", calls("createChatInviteLink", (b) => Number(b.chat_id) === GROUP.id && b.creates_join_request === true).length === 1);
+  r = await api("GET", "/me", USERS.delegate);
+  eq("me: group link offered to registered members", r.json?.group_link, "https://t.me/+esa-test-link");
+  await update(textMessage(USERS.delegate, "/start vote"));
+  check("start vote: opens the ballots in private chat", /no resolutions open|Voting is <b>OPEN<\/b>/.test(lastTextTo(2005)), lastTextTo(2005));
+  await update(textMessage(USERS.delegate, "/start status"));
+  check("start status: shows the status in private chat", /Registered as:/.test(lastTextTo(2005)), lastTextTo(2005));
+  await update(textMessage(USERS.delegate, "/register"));
+  check("register (private, already registered): says so and offers the group", /already registered/.test(lastTextTo(2005)));
   r = await api("GET", "/me", USERS.delegate);
   eq("invitation(chat): delegate is a member of the council", [r.json?.role, r.json?.member?.full_name, r.json?.member?.region], ["member", "Hana Girma", "Addis Ababa Regional Council"]);
   await update(textMessage(USERS.delegate2, "/start inv_" + inv[0].token_id));
@@ -383,6 +404,7 @@ try {
   eq("invitation(app): wrong password with the remembered code", r.json?.status, "wrong_password");
   r = await api("POST", "/register", USERS.delegate2, { password: inv[2].password });
   eq("invitation(app): second delegate registers with the password alone", [r.json?.status, r.json?.member?.full_name], ["ok", "Yonas Bekele"]);
+  check("invitation(app): app registration answers with the group link and sends the completion message", r.json?.group_link === "https://t.me/+esa-test-link" && sentTo(2006).some((c) => /Registration complete/.test(c.body.text) && JSON.stringify(c.body.reply_markup || {}).includes("esa-test-link")), JSON.stringify(sentTo(2006).map((c) => c.body.text.slice(0, 40))));
   r = await api("GET", "/register/pending", USERS.delegate2);
   check("invitation(app): pending code cleared after registration", r.json?.token_id === null && r.json?.registered === true, JSON.stringify(r.json));
   r = await api("POST", "/register", USERS.guest, { password: "x" });
@@ -724,7 +746,7 @@ try {
   eq("group: unlinked by hand", r.json?.group, null);
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
-  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
+  check("audit: key actions recorded", ["webhook_registered", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());
   const auditJson = JSON.stringify(await rows("audit_log"));
   check("audit: never logs passwords or choices", !auditJson.includes(creds[0].password) && !auditJson.includes('"choice'));
 

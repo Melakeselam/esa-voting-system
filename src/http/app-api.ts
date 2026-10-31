@@ -9,6 +9,8 @@ import { approveJoin, approvePendingJoin, declineJoin, ensureSignInTopic, kickFr
 import { getGateMode, getPerson, personName, setGateMode } from "../services/group-people.js";
 import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
+import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
+import { ensureCommandTopic } from "../bot/group-commands.js";
 import { closeResolution } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/setup.js";
 import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
@@ -249,6 +251,7 @@ route("GET", "/me", false, async (ctx) => {
     role: ctx.isAdmin ? "admin" : member ? "member" : "guest",
     member: member ? safeMember(member) : null,
     start_param: ctx.startParam ?? null,
+    group_link: member || ctx.isAdmin ? await groupInviteLink(bot.api) : null,
     app: {
       bot_username: bot.botInfo.username,
       tz_label: config.tzLabel,
@@ -288,7 +291,19 @@ route("POST", "/register", false, async (ctx) => {
   if (result.status === "ok") {
     await clearInvitation(ctx.user.id);
     void approvePendingJoin(bot.api, ctx.user.id); // waiting at the group door? let them in
-    return { status: "ok", member: safeMember(result.member) };
+    const groupLink = await groupInviteLink(bot.api);
+    // Same confirmation in the chat as the chat registration gives, with the way into the group.
+    try {
+      await bot.api.sendMessage(
+        ctx.user.id,
+        `🎉 Registration complete, <b>${escapeHtml(result.member.full_name ?? result.member.token_id)}</b>!\n\n` +
+          `Announcements and discussion happen in the assembly group — open it below. Ballots and results reach you here.`,
+        { parse_mode: "HTML", reply_markup: await afterRegistrationKeyboard(bot.api) },
+      );
+    } catch {
+      // The member may not have opened the bot chat yet.
+    }
+    return { status: "ok", member: safeMember(result.member), group_link: groupLink };
   }
   return { status: result.status, lock_minutes: config.lockMinutes };
 });
@@ -966,6 +981,16 @@ route("POST", "/setup/group/signin", true, async (ctx) => {
   const chat = (await bot.api.getChat(group.chat_id)) as unknown as { is_forum?: boolean };
   const result = await ensureSignInTopic(bot.api, group.chat_id, group.title, Boolean(chat.is_forum), { repost: true });
   await audit(ctx.user.id, "signin_card_posted", { chat_id: group.chat_id, thread_id: result.thread_id, created: result.created, via: "app" });
+  return result;
+});
+
+/** (Re)create the "📖 Commands" topic, pin the bilingual reference, register the command menu and show the command buttons. */
+route("POST", "/setup/group/commands", true, async (ctx) => {
+  const group = await getLinkedGroup();
+  if (!group) throw new HttpError(409, "No group is linked.");
+  const chat = (await bot.api.getChat(group.chat_id)) as unknown as { is_forum?: boolean };
+  const result = await ensureCommandTopic(bot.api, group.chat_id, group.title, Boolean(chat.is_forum), { repost: true });
+  await audit(ctx.user.id, "commands_posted", { chat_id: group.chat_id, thread_id: result.thread_id, created: result.created, via: "app" });
   return result;
 });
 
