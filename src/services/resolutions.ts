@@ -1,5 +1,14 @@
 import { supabase } from "../db.js";
+import { memberCounts } from "./members.js";
 import type { Resolution, ResolutionStatus, Threshold } from "../types.js";
+
+/**
+ * Members the quorum percentage is measured against: the count frozen when
+ * voting closed, or the live number of active members while it is open.
+ */
+export async function eligibleFor(res: Pick<Resolution, "eligible_count">): Promise<number> {
+  return res.eligible_count ?? (await memberCounts()).active;
+}
 
 export async function createResolution(input: {
   title: string;
@@ -62,24 +71,29 @@ export async function setStatus(
     patch.opened_at = new Date().toISOString();
     patch.closes_at = closesAt ? closesAt.toISOString() : null;
   }
-  if (status === "closed") patch.closed_at = new Date().toISOString();
+  if (status === "closed") {
+    patch.closed_at = new Date().toISOString();
+    patch.eligible_count = (await memberCounts()).active;
+  }
   const { error } = await supabase.from("resolutions").update(patch).eq("id", id);
   if (error) throw error;
 }
 
 /**
- * Atomically move an open resolution to closed. Returns false if it was not
+ * Atomically move an open resolution to closed, freezing the number of
+ * eligible members the quorum is measured against. Returns null if it was not
  * open (e.g. another process closed it first), so results publish only once.
  */
-export async function claimClose(id: string): Promise<boolean> {
+export async function claimClose(id: string): Promise<{ eligible: number } | null> {
+  const eligible = (await memberCounts()).active;
   const { data, error } = await supabase
     .from("resolutions")
-    .update({ status: "closed", closed_at: new Date().toISOString() })
+    .update({ status: "closed", closed_at: new Date().toISOString(), eligible_count: eligible })
     .eq("id", id)
     .eq("status", "open")
     .select("id");
   if (error) throw error;
-  return (data?.length ?? 0) > 0;
+  return (data?.length ?? 0) > 0 ? { eligible } : null;
 }
 
 /** Open resolutions whose auto-close deadline has passed. */

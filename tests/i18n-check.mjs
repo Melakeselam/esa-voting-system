@@ -43,10 +43,10 @@ if (unused.length) console.log(`note ${unused.length} dictionary entries are not
 
 // t() behaviour
 I18N.setLang("am");
-const sample = I18N.t("Quorum {n}", { n: 7 });
-if (!sample.includes("7") || sample === "Quorum {n}") { failed++; console.log("FAIL t() does not translate + interpolate in Amharic: " + sample); } else console.log("ok   t() translates and interpolates (" + sample + ")");
+const sample = I18N.t("Quorum {n}%", { n: 7 });
+if (!sample.includes("7") || sample === "Quorum {n}%") { failed++; console.log("FAIL t() does not translate + interpolate in Amharic: " + sample); } else console.log("ok   t() translates and interpolates (" + sample + ")");
 I18N.setLang("en");
-if (I18N.t("Quorum {n}", { n: 7 }) !== "Quorum 7") { failed++; console.log("FAIL t() English fallback"); } else console.log("ok   t() English fallback");
+if (I18N.t("Quorum {n}%", { n: 7 }) !== "Quorum 7%") { failed++; console.log("FAIL t() English fallback"); } else console.log("ok   t() English fallback");
 if (I18N.t("Not in the dictionary at all") !== "Not in the dictionary at all") { failed++; console.log("FAIL t() unknown key fallback"); } else console.log("ok   t() returns the key when there is no translation");
 
 // Help content parity

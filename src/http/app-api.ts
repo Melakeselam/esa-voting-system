@@ -48,6 +48,7 @@ import { ballotCount, castVote, memberBallots, memberChoices, tally } from "../s
 import { formatLocal } from "../time.js";
 import type { Member, Resolution, Threshold } from "../types.js";
 import { computeOutcome } from "../verdict.js";
+import { eligibleFor } from "../services/resolutions.js";
 import { verifyInitData, type TgUser } from "./auth.js";
 import { asObject, bool, HttpError, int, json, readJsonBody, str } from "./util.js";
 
@@ -140,7 +141,7 @@ async function enrich(res: Resolution, withCounts: boolean) {
   if (withCounts) {
     const rows = await tally(res.id);
     counts = res.options.map((_, i) => Number(rows.find((r) => r.choice_index === i)?.votes ?? 0));
-    outcome = computeOutcome(res, counts, ballots);
+    outcome = computeOutcome(res, counts, ballots, await eligibleFor(res));
   }
   return {
     ...res,
@@ -182,7 +183,7 @@ function parseResolutionBody(b: Record<string, unknown>) {
     description,
     options,
     anonymous: bool(b.anonymous, "anonymous", true),
-    quorum: int(b.quorum, "Quorum", { optional: true, min: 1, max: 1_000_000 }),
+    quorum: int(b.quorum, "Quorum (%)", { optional: true, min: 1, max: 100 }),
     threshold: parseThreshold(b.threshold),
   };
 }
@@ -421,7 +422,7 @@ route("POST", `/resolutions/${UUID}/publish`, true, async (ctx, [id]) => {
   const target = await resolveTarget(res, await ctx.body());
   const [rows, ballots] = await Promise.all([tally(res.id), ballotCount(res.id)]);
   try {
-    await bot.api.sendMessage(target.chat_id, resultsText(res, rows, ballots), {
+    await bot.api.sendMessage(target.chat_id, resultsText(res, rows, ballots, await eligibleFor(res)), {
       parse_mode: "HTML",
       message_thread_id: target.thread_id ?? undefined,
     });

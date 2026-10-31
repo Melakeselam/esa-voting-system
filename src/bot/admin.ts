@@ -14,6 +14,7 @@ import {
   setAnnounceTarget,
   setAnonymous,
   setQuorum,
+  eligibleFor,
   setStatus,
   setThreshold,
 } from "../services/resolutions.js";
@@ -33,7 +34,7 @@ const ADMIN_HELP =
   "Create a resolution (use <code>-</code> for no description). Secret ballot by default.\n\n" +
   "/listres — list all resolutions\n" +
   "<code>/secret R1 on|off</code> — toggle secret ballot (draft only)\n" +
-  "<code>/quorum R1 12</code> — minimum ballots for a valid result; <code>/quorum R1 off</code> removes it (draft only)\n" +
+  "<code>/quorum R1 50</code> — % of eligible members who must cast a ballot for a valid result; <code>/quorum R1 off</code> removes it (draft only)\n" +
   "<code>/threshold R1 simple|2/3</code> — majority required to adopt (draft only). " +
   "Options named “Abstain” count toward quorum but not the majority.\n" +
   "<code>/open R1</code> — open voting (close manually with /close)\n" +
@@ -96,7 +97,7 @@ admin.command("newres", async (ctx) => {
   await ctx.reply(
     `✅ Created <b>${res.code}</b> (draft, secret ballot).\n\n` +
       `${resolutionCard(res)}\n\n` +
-      `Next: optionally <code>/quorum ${res.code} 12</code> and <code>/threshold ${res.code} 2/3</code> ` +
+      `Next: optionally <code>/quorum ${res.code} 50</code> (percent of members) and <code>/threshold ${res.code} 2/3</code> ` +
       `(defaults: no quorum, simple majority), <code>/secret ${res.code} off</code> for an open ballot, ` +
       `then <code>/open ${res.code}</code> and <code>/announce ${res.code}</code> in the assembly topic.`,
     { parse_mode: "HTML" },
@@ -135,7 +136,7 @@ admin.command("secret", async (ctx) => {
 admin.command("quorum", async (ctx) => {
   const [code, value] = ctx.match.trim().split(/\s+/);
   if (!code || !value) {
-    await ctx.reply("Format: <code>/quorum R1 12</code> or <code>/quorum R1 off</code>", { parse_mode: "HTML" });
+    await ctx.reply("Format: <code>/quorum R1 50</code> (percent of eligible members) or <code>/quorum R1 off</code>", { parse_mode: "HTML" });
     return;
   }
   const res = await requireResolution(ctx, code);
@@ -151,13 +152,17 @@ admin.command("quorum", async (ctx) => {
     return;
   }
   const quorum = Number(value);
-  if (!Number.isInteger(quorum) || quorum < 1) {
-    await ctx.reply("Quorum must be a positive whole number, e.g. <code>/quorum R1 12</code>", { parse_mode: "HTML" });
+  if (!Number.isInteger(quorum) || quorum < 1 || quorum > 100) {
+    await ctx.reply("Quorum is a percentage from 1 to 100, e.g. <code>/quorum R1 50</code>", { parse_mode: "HTML" });
     return;
   }
   await setQuorum(res.id, quorum);
   await audit(ctx.from!.id, "quorum_set", { code: res.code, quorum });
-  await ctx.reply(`✅ ${res.code}: at least <b>${quorum}</b> ballots must be cast for the result to be valid.`, { parse_mode: "HTML" });
+  await ctx.reply(
+    `✅ ${res.code}: ballots from at least <b>${quorum}%</b> of eligible members are needed for a valid result. ` +
+      `The member count is taken when voting closes.`,
+    { parse_mode: "HTML" },
+  );
 });
 
 admin.command("threshold", async (ctx) => {
@@ -293,8 +298,8 @@ admin.command("announce", async (ctx) => {
 admin.command("results", async (ctx) => {
   const res = await requireResolution(ctx, ctx.match);
   if (!res) return;
-  const [rows, ballots] = await Promise.all([tally(res.id), ballotCount(res.id)]);
-  await ctx.reply(resultsText(res, rows, ballots), { parse_mode: "HTML" });
+  const [rows, ballots, eligible] = await Promise.all([tally(res.id), ballotCount(res.id), eligibleFor(res)]);
+  await ctx.reply(resultsText(res, rows, ballots, eligible), { parse_mode: "HTML" });
 });
 
 admin.command("stats", async (ctx) => {

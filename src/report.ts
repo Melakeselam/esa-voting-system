@@ -53,7 +53,7 @@ export async function buildReport(): Promise<AssemblyReport> {
       turnoutPct:
         counts.registered === 0 ? 0 : Math.round((ballots / counts.registered) * 100),
       leaders: top === 0 ? [] : res.options.filter((_, i) => optionCounts[i] === top),
-      outcome: computeOutcome(res, optionCounts, ballots),
+      outcome: computeOutcome(res, optionCounts, ballots, res.eligible_count ?? counts.active),
     });
   }
 
@@ -82,7 +82,9 @@ export function reportToCsv(report: AssemblyReport): string {
       "ballots_cast",
       "registered_members",
       "turnout_pct",
-      "quorum_required",
+      "quorum_pct",
+      "quorum_members",
+      "quorum_required_ballots",
       "quorum_met",
       "threshold",
       "verdict",
@@ -108,6 +110,8 @@ export function reportToCsv(report: AssemblyReport): string {
           report.membersRegistered,
           s.turnoutPct,
           s.res.quorum ?? "",
+          s.res.quorum == null ? "" : s.outcome.eligible,
+          s.outcome.quorumRequired ?? "",
           s.res.quorum == null ? "" : s.outcome.quorumMet ? "yes" : "no",
           s.res.threshold,
           csvField(verdictText(s)),
@@ -160,7 +164,7 @@ export function reportToHtml(report: AssemblyReport): string {
       const quorumMeta =
         s.res.quorum == null
           ? ""
-          : ` · Quorum: ${s.res.quorum} (${s.outcome.quorumMet ? "met" : "not met"})`;
+          : ` · Quorum: ${s.res.quorum}% of ${s.outcome.eligible} members = ${s.outcome.quorumRequired} ballots (${s.outcome.quorumMet ? "met" : "not met"})`;
       return `<section>
         <h2>${escapeHtml(s.res.code)} — ${escapeHtml(s.res.title)} ${status}</h2>
         ${s.res.description ? `<p class="desc">${escapeHtml(s.res.description)}</p>` : ""}

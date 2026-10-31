@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 const DEFAULTS = {
   members: () => ({ id: randomUUID(), full_name: null, region: null, council_id: null, seat_no: null, vote_weight: 1, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
-  resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
+  resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, eligible_count: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
   ballots: () => ({ created_at: now() }),
   votes: () => ({ id: randomUUID(), member_id: null, weight: 1, created_at: now(), updated_at: now() }),
   audit_log: () => ({ details: null, created_at: now() }),

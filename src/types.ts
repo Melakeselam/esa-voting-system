@@ -34,7 +34,8 @@ export interface Resolution {
   description: string | null;
   options: string[];
   anonymous: boolean;
-  quorum: number | null;
+  quorum: number | null; // % of eligible members who must cast a ballot (1–100); null = no quorum
+  eligible_count: number | null; // active members when voting closed; null while open
   threshold: Threshold;
   status: ResolutionStatus;
   announce_chat_id: number | null;

@@ -9,7 +9,7 @@ export function resolutionCard(res: Resolution): string {
   if (res.description) lines.push("", escapeHtml(res.description));
   lines.push("", res.anonymous ? "🔒 Secret ballot — your choice is anonymous and final." : "✏️ Open ballot — you may change your vote until voting closes.");
   lines.push(`📏 To pass: ${thresholdLabel(res.threshold)}`);
-  if (res.quorum) lines.push(`👥 Quorum: ${res.quorum} ballots required`);
+  if (res.quorum) lines.push(`👥 Quorum: ${res.quorum}% of eligible members must cast a ballot`);
   if (res.status === "open") {
     lines.push("🟢 Voting is <b>OPEN</b>.");
     if (res.closes_at) lines.push(`⏰ Voting closes automatically: <b>${formatLocal(res.closes_at)}</b>`);
@@ -51,11 +51,12 @@ export function announceKeyboard(res: Resolution, botUsername: string): InlineKe
   );
 }
 
-export function resultsText(res: Resolution, rows: TallyRow[], totalBallots: number): string {
+/** `eligible` = members the quorum percentage applies to (see eligibleFor()). */
+export function resultsText(res: Resolution, rows: TallyRow[], totalBallots: number, eligible: number): string {
   const counts = res.options.map((_, i) => rows.find((r) => r.choice_index === i)?.votes ?? 0);
   const totalVotes = counts.reduce((a, b) => a + b, 0);
   const max = Math.max(...counts, 1);
-  const outcome = computeOutcome(res, counts, totalBallots);
+  const outcome = computeOutcome(res, counts, totalBallots, eligible);
 
   const lines = [
     `📊 <b>Results — ${escapeHtml(res.code)}: ${escapeHtml(res.title)}</b>`,
@@ -64,7 +65,7 @@ export function resultsText(res: Resolution, rows: TallyRow[], totalBallots: num
   ];
   if (res.quorum) {
     lines.push(
-      `Quorum: ${res.quorum} required — ${outcome.quorumMet ? "✅ met" : `❌ not met (${totalBallots} of ${res.quorum})`}`,
+      `Quorum: ${res.quorum}% of ${eligible} members = ${outcome.quorumRequired} ballots — ${outcome.quorumMet ? "✅ met" : `❌ not met (${totalBallots} of ${outcome.quorumRequired})`}`,
     );
   }
   lines.push(

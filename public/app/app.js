@@ -303,7 +303,7 @@
   // ------------------------------------------------------------- shared blocks
   function resolutionMeta(e) {
     var bits = [e.anonymous ? "🔒 " + t("Secret ballot") : "✏️ " + t("Open ballot"), thresholdLabel(e.threshold)];
-    if (e.quorum) bits.push(t("Quorum {n}", { n: e.quorum }));
+    if (e.quorum) bits.push(t("Quorum {n}%", { n: e.quorum }));
     bits.push(plural(e.options.length, "option"));
     return bits.join(" · ");
   }
@@ -315,7 +315,7 @@
     var o = e.outcome || {};
     var leaders = o.leaders || [];
     var html = '<p class="hint">' + esc(t("Ballots cast:")) + " <b>" + e.ballots + "</b>" + (total !== e.ballots ? " · " + esc(t("Votes counted:")) + " <b>" + total + "</b>" : "") +
-      (e.quorum ? " · " + esc(t("Quorum {n}", { n: e.quorum })) + ": " + (o.quorumMet ? "✅ " + esc(t("met")) : "❌ " + esc(t("not met"))) : "") +
+      (e.quorum ? " · " + esc(t("Quorum {n}%", { n: e.quorum })) + (o.quorumRequired != null ? " (" + esc(t("{req} of {eligible} members", { req: o.quorumRequired, eligible: o.eligible })) + ")" : "") + ": " + (o.quorumMet ? "✅ " + esc(t("met")) : "❌ " + esc(t("not met"))) : "") +
       " · " + esc(t("To pass:")) + " " + esc(thresholdLabel(e.threshold)) + "</p>";
     e.options.forEach(function (opt, i) {
       var n = e.counts[i];
@@ -519,7 +519,7 @@
         '<div class="card">' +
         '<label class="switch"><span class="lbl"><span>' + esc(t("Secret ballot")) + '</span><span class="hint">' + esc(t("Choices are stored anonymously and are final")) + '</span></span><input type="checkbox" data-f="anonymous"' + (!e || e.anonymous ? " checked" : "") + "></label>" +
         '<div class="inline-fields">' +
-        '<div class="field"><label>' + esc(t("Quorum (ballots)")) + '</label><input type="number" min="1" inputmode="numeric" data-f="quorum" placeholder="' + esc(t("none")) + '" value="' + (e && e.quorum ? e.quorum : "") + '"></div>' +
+        '<div class="field"><label>' + esc(t("Quorum (% of members)")) + '</label><input type="number" min="1" max="100" inputmode="numeric" data-f="quorum" placeholder="' + esc(t("none")) + '" value="' + (e && e.quorum ? e.quorum : "") + '"></div>' +
         '<div class="field"><label>' + esc(t("Majority to adopt")) + '</label><select data-f="threshold"><option value="simple"' + (!e || e.threshold === "simple" ? " selected" : "") + ">" + esc(t("Simple majority")) + '</option><option value="two_thirds"' + (e && e.threshold === "two_thirds" ? " selected" : "") + ">" + esc(t("2/3 majority")) + "</option></select></div>" +
         "</div></div>" +
         '<button class="btn block" data-save>' + esc(e ? t("Save changes") : t("Create draft")) + "</button>";

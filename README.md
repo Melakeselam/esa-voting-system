@@ -149,7 +149,9 @@ delegates" reissues the PDF without touching registered members. The PDF
 **Vote weight:** each council also sets the votes per delegate (default 1), so
 6 delegates × 1 vote and 3 delegates × 2 votes both carry 6 votes. The weight
 is stamped on each vote when cast (secret ballots keep no member id), the SQL
-tally sums weights, majorities use votes and quorum counts ballots. The PDF
+tally sums weights and majorities use votes. The quorum is a percentage of
+active members, measured in ballots cast (people, not weights); the member
+count is frozen on the resolution when voting closes. The PDF
 is built with pdfkit + qrcode; Amharic lines are included when
 `assets/fonts/NotoSansEthiopic-Regular.ttf` is present (it is in the repo).
 

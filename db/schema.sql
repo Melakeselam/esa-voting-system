@@ -33,7 +33,7 @@ create table if not exists resolutions (
   description         text,
   options             jsonb not null,              -- array of option labels
   anonymous           boolean not null default true, -- secret ballot?
-  quorum              int,                         -- min ballots for a valid result (null = none)
+  quorum              int,                         -- % of eligible (active) members who must cast a ballot (null = none)
   threshold           text not null default 'simple'
                       check (threshold in ('simple', 'two_thirds')),
   status              text not null default 'draft'
@@ -202,5 +202,7 @@ create table if not exists councils (
 alter table councils add column if not exists vote_weight int not null default 1;
 alter table members add column if not exists council_id uuid references councils(id) on delete set null;
 alter table members add column if not exists seat_no int;
+-- Active members at the moment voting closed: the base the quorum percentage is measured against.
+alter table resolutions add column if not exists eligible_count int;
 create index if not exists members_by_council on members (council_id);
 alter table councils enable row level security;

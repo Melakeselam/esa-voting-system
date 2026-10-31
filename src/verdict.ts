@@ -8,6 +8,8 @@ import type { Resolution, Threshold } from "./types.js";
  */
 export interface VoteOutcome {
   quorumMet: boolean; // true when no quorum is set
+  quorumRequired: number | null; // ballots needed: ceil(eligible × quorum% / 100), at least 1; null when no quorum
+  eligible: number; // members the quorum percentage is measured against
   abstentions: number;
   countable: number; // votes excluding abstentions
   leaders: string[]; // leading non-abstain option(s)
@@ -25,10 +27,17 @@ export function thresholdLabel(threshold: Threshold): string {
   return threshold === "two_thirds" ? "2/3 majority" : "simple majority";
 }
 
+/** Ballots a quorum percentage demands from `eligible` members; never 0 when a quorum is set. */
+export function quorumRequired(quorumPct: number | null, eligible: number): number | null {
+  if (quorumPct == null) return null;
+  return Math.max(1, Math.ceil((eligible * quorumPct) / 100));
+}
+
 export function computeOutcome(
-  res: Resolution,
+  res: Pick<Resolution, "options" | "threshold" | "quorum">,
   counts: number[],
   totalBallots: number,
+  eligible: number,
 ): VoteOutcome {
   const abstentions = res.options.reduce(
     (sum, option, i) => (isAbstainOption(option) ? sum + counts[i] : sum),
@@ -53,10 +62,13 @@ export function computeOutcome(
       ? winnerVotes * 3 >= countable * 2
       : winnerVotes * 2 > countable);
 
-  const quorumMet = res.quorum == null || totalBallots >= res.quorum;
+  const required = quorumRequired(res.quorum, eligible);
+  const quorumMet = required === null || totalBallots >= required;
 
   return {
     quorumMet,
+    quorumRequired: required,
+    eligible,
     abstentions,
     countable,
     leaders,

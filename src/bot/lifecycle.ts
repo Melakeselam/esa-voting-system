@@ -18,12 +18,13 @@ export async function closeResolution(
   res: Resolution,
   closedBy: string | number,
 ): Promise<string | null> {
-  if (!(await claimClose(res.id))) return null;
-  await audit(closedBy, "resolution_closed", { code: res.code });
+  const claimed = await claimClose(res.id);
+  if (!claimed) return null;
+  await audit(closedBy, "resolution_closed", { code: res.code, eligible: claimed.eligible });
 
-  const closed = { ...res, status: "closed" as const };
+  const closed = { ...res, status: "closed" as const, eligible_count: claimed.eligible };
   const [rows, ballots] = await Promise.all([tally(res.id), ballotCount(res.id)]);
-  const text = resultsText(closed, rows, ballots);
+  const text = resultsText(closed, rows, ballots, claimed.eligible);
 
   if (res.announce_chat_id) {
     try {
