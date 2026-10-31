@@ -187,10 +187,12 @@ const USERS = {
   delegate3: { id: 2007, first_name: "Delegate Three" },
 };
 
-async function api(method, path, user, body) {
+// The organisation the Mini App asks for (X-Org-Id); set once the scenario's organisation exists.
+let defaultOrg = null;
+async function api(method, path, user, body, org = defaultOrg) {
   const res = await fetch(base + "/api/app" + path, {
     method,
-    headers: { "content-type": "application/json", ...(user ? { authorization: "tma " + initData(user) } : {}) },
+    headers: { "content-type": "application/json", ...(user ? { authorization: "tma " + initData(user) } : {}), ...(org ? { "x-org-id": org } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   let json = null;
@@ -249,6 +251,7 @@ try {
   r = await api("POST", "/orgs", USERS.admin, { name_en: "Ethiopia Scout Association", name_am: "የኢትዮጵያ ስካውት ማኅበር", short_code: "ESA", assembly_en: "General Assembly 2026", office_en: "National Office" });
   const ORG = r.json?.org;
   check("org: platform admin creates the organisation", r.status === 200 && ORG?.id && ORG.branded === "Ethiopia Scout Association (Kene Voting System)" && ORG.role === "admin", JSON.stringify(r.json));
+  defaultOrg = ORG.id;
 
   // Roles & auth
   r = await api("GET", "/me", USERS.admin);
@@ -991,6 +994,109 @@ try {
   eq("reset: back to ask mode", r.json?.mode, "ask");
   r = await api("POST", "/setup/reset", USERS.admin);
   check("reset: Setup button works on an empty assembly too", r.json?.ok === true && r.json.wiped.councils === 0, JSON.stringify(r.json));
+
+  // ---- A second organisation on the same bot --------------------------------
+  const AEA_ADMIN = { id: 6001, first_name: "Architects Secretary" };
+  r = await api("POST", "/orgs", AEA_ADMIN, { name_en: "Nope", short_code: "NO" }, null);
+  eq("orgs: an organisation admin-to-be cannot create organisations", r.status, 403);
+  r = await api("POST", "/orgs", USERS.admin, { name_en: "Association of Ethiopian Architects", name_am: "የኢትዮጵያ አርክቴክቶች ማኅበር", short_code: "aea", voter_term: "member", group_term: "chapter", admin_telegram_id: AEA_ADMIN.id, admin_name: "Architects Secretary" }, null);
+  const AEA = r.json?.org;
+  check("orgs: platform admin creates a second organisation with its own admin and terms", r.status === 200 && AEA?.short_code === "AEA" && AEA.terms.voter.en === "member" && AEA.terms.group.en_pl === "chapters" && AEA.branded === "Association of Ethiopian Architects (Kene Voting System)", JSON.stringify(r.json));
+  r = await api("GET", "/me", AEA_ADMIN, undefined, null);
+  check("orgs: the new organisation's admin lands in it without choosing", r.json?.role === "admin" && r.json.org?.id === AEA.id && r.json.orgs.length === 1 && !r.json.org_required, JSON.stringify([r.json?.role, r.json?.org?.id, r.json?.orgs?.length]));
+  r = await api("GET", "/orgs", USERS.admin, undefined, null);
+  eq("orgs: platform admins see every organisation", r.json?.items?.length, 2);
+  r = await api("GET", "/orgs", AEA_ADMIN, undefined, null);
+  eq("orgs: an organisation admin sees only theirs", r.json?.items?.map((o) => o.id), [AEA.id]);
+  r = await api("PATCH", "/orgs/" + ORG.id, AEA_ADMIN, { name_en: "Hijacked" }, null);
+  eq("orgs: an organisation admin cannot edit another organisation", r.status, 403);
+  r = await api("PATCH", "/orgs/" + AEA.id, AEA_ADMIN, { assembly_en: "Annual General Meeting 2026", office_en: "Secretariat" }, null);
+  check("orgs: an organisation admin edits their own", r.json?.org?.assembly_en === "Annual General Meeting 2026" && r.json.org.office_en === "Secretariat", JSON.stringify(r.json));
+  // Same names in both organisations, no clash.
+  r = await api("POST", "/councils", USERS.admin, { name: "Addis Ababa", seats: 2 }, ORG.id);
+  const esaCouncil = r.json?.council;
+  r = await api("POST", "/councils", AEA_ADMIN, { name: "Addis Ababa", seats: 2 }, null);
+  const aeaCouncil = r.json?.council;
+  check("orgs: the same council name exists in both organisations", esaCouncil?.id && aeaCouncil?.id && esaCouncil.id !== aeaCouncil.id, JSON.stringify([esaCouncil, aeaCouncil]));
+  r = await api("POST", "/resolutions", USERS.admin, { title: "ESA motion", options: ["Yes", "No"], activation_required: false }, ORG.id);
+  const esaR = r.json;
+  r = await api("POST", "/resolutions", AEA_ADMIN, { title: "AEA motion", options: ["Yes", "No"], activation_required: false }, null);
+  const aeaR = r.json;
+  check("orgs: each organisation numbers its resolutions from R1", esaR?.code === "R1" && aeaR?.code === "R1", JSON.stringify([esaR?.code, aeaR?.code]));
+  // Isolation.
+  r = await api("GET", "/resolutions", AEA_ADMIN, undefined, ORG.id); // asks for ESA — not theirs
+  check("orgs: asking for another organisation falls back to one's own — no leak", r.json?.items?.length === 1 && r.json.items[0].id === aeaR.id, JSON.stringify(r.json?.items?.map((x) => x.title)));
+  r = await api("GET", "/resolutions/" + esaR.id, AEA_ADMIN, undefined, null);
+  eq("orgs: another organisation's resolution is not found", r.status, 404);
+  r = await api("GET", "/resolutions", USERS.admin, undefined, AEA.id);
+  check("orgs: a platform admin opens any organisation", r.json?.items?.length === 1 && r.json.items[0].id === aeaR.id);
+  // One person in both organisations, registered with each organisation's code.
+  r = await api("POST", "/councils/" + aeaCouncil.id + "/invitations", AEA_ADMIN, { names: ["Sara Tesfaye"] }, null);
+  const aeaInv = r.json.rows[0];
+  check("orgs: invitation codes use the organisation's council code", /^AA-/.test(aeaInv.token_id) || /^[A-Z]+-/.test(aeaInv.token_id), aeaInv.token_id);
+  r = await api("POST", "/councils/" + esaCouncil.id + "/invitations", USERS.admin, { names: ["Sara Tesfaye"] }, ORG.id);
+  const esaInv = r.json.rows[0];
+  const SARA2 = { id: 7002, first_name: "Sara T" };
+  r = await api("POST", "/register", SARA2, { token: aeaInv.token_id, password: aeaInv.password }, null);
+  check("orgs: registering with an AEA code joins AEA", r.json?.status === "ok" && r.json.org_id === AEA.id, JSON.stringify(r.json));
+  r = await api("POST", "/register", SARA2, { token: esaInv.token_id, password: esaInv.password }, ORG.id);
+  check("orgs: the same Telegram account registers in ESA too", r.json?.status === "ok" && r.json.org_id === ORG.id, JSON.stringify(r.json));
+  r = await api("GET", "/me", SARA2, undefined, null);
+  check("orgs: the person now belongs to both; the last registration is active", r.json?.orgs?.length === 2 && r.json.org?.id === ORG.id && r.json.role === "member", JSON.stringify([r.json?.orgs?.length, r.json?.org?.id]));
+  r = await api("GET", "/me", SARA2, undefined, AEA.id);
+  check("orgs: the app can switch to the other organisation", r.json?.org?.id === AEA.id && r.json.role === "member" && r.json.member?.token_id === aeaInv.token_id, JSON.stringify(r.json?.org));
+  // Voting in each organisation.
+  await api("POST", "/resolutions/" + esaR.id + "/open", USERS.admin, {}, ORG.id);
+  await api("POST", "/resolutions/" + aeaR.id + "/open", AEA_ADMIN, {}, null);
+  r = await api("GET", "/ballots", SARA2, undefined, AEA.id);
+  check("orgs: the AEA ballot list shows only AEA's vote", r.json?.open?.length === 1 && r.json.open[0].id === aeaR.id, JSON.stringify(r.json?.open?.map((x) => x.title)));
+  r = await api("POST", "/vote", SARA2, { resolution_id: esaR.id, choice_index: 0 }, AEA.id);
+  eq("orgs: voting on another organisation's resolution from inside AEA fails", r.status, 404);
+  r = await api("POST", "/vote", SARA2, { resolution_id: aeaR.id, choice_index: 0 }, AEA.id);
+  eq("orgs: voting in AEA", r.json?.result, "ok");
+  // The bot chat: buttons carry their organisation; plain commands follow the chosen one.
+  await update(callback(SARA2, `v|${esaR.id}|1`));
+  await update(callback(SARA2, `vc|${esaR.id}|1`));
+  r = await api("GET", "/resolutions/" + esaR.id, USERS.admin, undefined, ORG.id);
+  eq("orgs(chat): a vote button works whatever organisation the chat is on", r.json?.ballots, 1);
+  await update(textMessage(SARA2, "/org"));
+  check("orgs(chat): /org offers both organisations", JSON.stringify(sentTo(SARA2.id).at(-1).body.reply_markup).includes(`org|${AEA.id}`) && JSON.stringify(sentTo(SARA2.id).at(-1).body.reply_markup).includes(`org|${ORG.id}`));
+  await update(callback(SARA2, `org|${AEA.id}`));
+  await update(textMessage(SARA2, "/status"));
+  check("orgs(chat): after choosing AEA, /status is about AEA", /AEA motion/.test(lastTextTo(SARA2.id)) && !/ESA motion/.test(lastTextTo(SARA2.id)), lastTextTo(SARA2.id));
+  // Groups: each organisation links its own.
+  const AEA_GROUP = { id: -1000900, type: "supergroup", title: "Architects AGM", is_forum: true };
+  await update({ my_chat_member: { chat: AEA_GROUP, from: from(AEA_ADMIN), date: 30, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
+  eq("orgs(group): the group added by AEA's admin becomes AEA's group", r.json?.group?.chat_id, AEA_GROUP.id);
+  const OTHER_GROUP = { id: -1000950, type: "supergroup", title: "Mystery group", is_forum: true };
+  await update({ my_chat_member: { chat: OTHER_GROUP, from: from(USERS.admin), date: 31, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  const ask = sentTo(1001).at(-1);
+  check("orgs(group): a platform admin adding the bot is asked which organisation", /Which organisation is this group for/.test(ask.body.text) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${ORG.id}`) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${AEA.id}`), JSON.stringify(ask.body));
+  await update(callback(USERS.admin, `gswitch|${OTHER_GROUP.id}|${ORG.id}`));
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("orgs(group): choosing ESA links the group to ESA", r.json?.group?.chat_id, OTHER_GROUP.id);
+  r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
+  eq("orgs(group): AEA keeps its own group", r.json?.group?.chat_id, AEA_GROUP.id);
+  await update({ message: { message_id: msgId++, date: 32, chat: AEA_GROUP, from: from(AEA_ADMIN), message_thread_id: 77, is_topic_message: true, forum_topic_created: { name: "Design review", icon_color: 0 } } });
+  r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
+  const esaTopics = (await api("GET", "/setup", USERS.admin, undefined, ORG.id)).json?.topics ?? [];
+  check("orgs(group): topics learned in AEA's group stay in AEA", (r.json?.topics ?? []).some((t) => t.thread_id === 77) && !esaTopics.some((t) => t.thread_id === 77), JSON.stringify([r.json?.topics?.map((t) => t.thread_id), esaTopics.map((t) => t.thread_id)]));
+  // Deadlines of every organisation are handled.
+  await pastDue(esaR.id);
+  await pastDue(aeaR.id);
+  eq("orgs: the scheduler closes due votes in every organisation", await tick(), 2);
+  r = await api("GET", "/resolutions/" + aeaR.id, AEA_ADMIN, undefined, null);
+  eq("orgs: AEA's vote closed with its own ballots", [r.json?.status, r.json?.ballots], ["closed", 1]);
+  // Settings and admins are per organisation.
+  r = await api("POST", "/setup/group/gate", AEA_ADMIN, { mode: "remove" }, null);
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("orgs: AEA's gate setting does not touch ESA's", r.json?.people?.gate_mode ?? "flag", "flag");
+  r = await api("GET", "/members", AEA_ADMIN, undefined, null);
+  check("orgs: AEA's member list holds only AEA's invitation", r.json?.items?.length === 1 && r.json.items[0].token_id === aeaInv.token_id, JSON.stringify(r.json?.items?.map((m) => m.token_id)));
+  r = await api("GET", "/audit?limit=200", AEA_ADMIN, undefined, null);
+  check("orgs: AEA's audit log holds only AEA's actions", (r.json?.items ?? []).length > 0 && !(r.json?.items ?? []).some((a) => /ESA motion/.test(JSON.stringify(a.details))), JSON.stringify(r.json?.items?.length));
+  defaultOrg = ORG.id;
 
   r = await api("GET", "/audit?limit=200", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));

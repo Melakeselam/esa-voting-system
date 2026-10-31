@@ -95,10 +95,18 @@
   function fmtDate(iso) { try { return new Date(iso).toLocaleString(I18N.locale()); } catch (_) { return String(iso); } }
   function fmtTime(iso) { try { return new Date(iso).toLocaleTimeString(I18N.locale()); } catch (_) { return String(iso); } }
 
+  // The organisation (assembly) the app is working in; remembered on this device.
+  var ORG_KEY = "kvs.org";
+  function savedOrg() { try { return localStorage.getItem(ORG_KEY); } catch (_) { return null; } }
+  function saveOrg(id) { try { if (id) localStorage.setItem(ORG_KEY, id); else localStorage.removeItem(ORG_KEY); } catch (_) { /* private mode */ } }
+
   async function api(method, path, body) {
+    var headers = { "content-type": "application/json", authorization: "tma " + tg.initData };
+    var org = (state && state.orgId) || savedOrg();
+    if (org) headers["x-org-id"] = org;
     var res = await fetch("/api/app" + path, {
       method: method,
-      headers: { "content-type": "application/json", authorization: "tma " + tg.initData },
+      headers: headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     var data = null;
@@ -196,7 +204,15 @@
 
     var showTabs = tabsFor().length > 0;
     var content = h('<main class="content' + (showTabs ? "" : " no-tabs") + '"><div class="screen-center"><div class="spinner"></div></div></main>');
-    app.append(header, content);
+    app.append(header);
+    // Which organisation this is; tap to switch when there is more than one.
+    if (state.me && state.me.org && view.name !== "orgpick") {
+      var canSwitch = (state.me.orgs && state.me.orgs.length > 1) || (state.me.platform && state.me.platform.admin);
+      var bar = h('<button class="org-bar' + (canSwitch ? " switch" : "") + '"' + (canSwitch ? "" : " disabled") + '><span class="org-name">' + esc(orgName(state.me.org)) + '</span><span class="org-platform">' + esc(state.me.platform.name) + "</span>" + (canSwitch ? '<span class="chev">⇄</span>' : "") + "</button>");
+      if (canSwitch) bar.onclick = function () { haptic("light"); go("orgpick"); };
+      app.append(bar);
+    }
+    app.append(content);
     if (showTabs) app.append(renderTabs());
     window.scrollTo(0, 0);
 
@@ -1247,7 +1263,13 @@
         return '<div class="check"><div class="st">' + icon + '</div><div class="body"><b>' + title + "</b>" + (detail ? '<span class="hint">' + detail + "</span>" : "") + "</div></div>";
       }
       var wh = s.webhook;
-      var html = '<div class="card"><h3>' + esc(t("Health")) + "</h3>" +
+      var og = state.me.org;
+      var html = (og ? '<div class="card"><h3>🏢 ' + esc(orgName(og)) + "</h3>" +
+        '<p class="hint">' + esc([og.assembly_en, og.office_en].filter(Boolean).join(" · ")) + "</p>" +
+        '<p class="hint">' + esc(t("Invitation codes start with {code}- · voters are called {voters} · their bodies {groups}", { code: og.short_code, voters: og.terms.voter.en_pl, groups: og.terms.group.en_pl })) + "</p>" +
+        '<div class="actions inline"><button class="btn secondary sm" data-act="orgedit">✏️ ' + esc(t("Edit organisation")) + "</button>" +
+        (state.me.platform && state.me.platform.admin ? '<button class="btn secondary sm" data-act="orgsall">🏢 ' + esc(t("All organisations")) + "</button>" : "") + "</div></div>" : "") +
+        '<div class="card"><h3>' + esc(t("Health")) + "</h3>" +
         check(s.db.ok, esc(t("Database")), s.db.ok ? esc(t("All tables present")) : esc(t("Missing tables: {tables}. Restart the app so the schema is applied, or run npm run db:migrate.", { tables: s.db.missing.join(", ") }))) +
         check(true, esc(t("Bot")), "@" + esc(s.bot.username) + " · " + esc(s.bot.name)) +
         (s.polling
@@ -1335,6 +1357,8 @@
           if (act === "webhook") { var w = await api("POST", "/setup/webhook"); haptic("success"); toast(w.ok ? t("Webhook registered") : t("Registered; Telegram reports {url}", { url: w.url }), w.ok ? "ok" : "err"); return refresh(); }
           if (act === "menu") { await api("POST", "/setup/menu"); haptic("success"); toast(t("Menu button updated"), "ok"); return; }
           if (act === "audit") return go("audit");
+          if (act === "orgedit") return go("orgform", { id: state.me.org.id });
+          if (act === "orgsall") return go("orgs");
           if (act === "reset") {
             if (!(await confirmDialog(t("Reset the assembly data? This deletes all councils, members, invitations, resolutions and ballots, and forgets the group.")))) return;
             if (!(await confirmDialog(t("Really wipe everything? This cannot be undone.")))) return;
@@ -1708,6 +1732,118 @@
     };
   }
 
+  // ---------------------------------------------------------------- ORGANISATIONS
+  /** An organisation's name in the current language. */
+  function orgName(o) { return o ? ((I18N.lang() === "am" && o.name_am) || o.name_en) : ""; }
+
+  /** Work in another organisation: remember it here and in the bot chat, then start over in it. */
+  async function selectOrg(id) {
+    state.orgId = id;
+    saveOrg(id);
+    try { await api("POST", "/orgs/" + id + "/select"); } catch (_) { /* the app still switches */ }
+    state.me = await api("GET", "/me");
+    landing({});
+  }
+
+  views.orgpick = {
+    title: function () { return t("Choose organisation"); },
+    render: async function (content, params, alive) {
+      var list = state.me.orgs || [];
+      if (state.me.platform && state.me.platform.admin) list = (await api("GET", "/orgs")).items;
+      if (!alive()) return;
+      var html = '<p class="hint">' + esc(t("You take part in several organisations. Choose the one to work in; you can switch any time from the bar at the top.")) + "</p>" +
+        '<div class="list">' + list.map(function (o) {
+          return '<button class="row" data-org="' + esc(o.id) + '"><div class="main"><div class="title">' + esc(orgName(o)) + '</div><div class="meta">' +
+            esc(o.role === "admin" ? t("administrator") : o.role === "member" ? t("member") : "") + (state.orgId === o.id ? " · ✓ " + esc(t("current")) : "") + '</div></div><span class="chev">›</span></button>';
+        }).join("") + "</div>";
+      if (state.me.platform && state.me.platform.admin) html += '<div class="actions"><button class="btn secondary block" data-act="orgs">🏢 ' + esc(t("Manage organisations")) + "</button></div>";
+      content.innerHTML = html;
+      on(content, "[data-org]", "click", function (e) { haptic("light"); selectOrg(e.currentTarget.dataset.org).catch(fail); });
+      on(content, "[data-act]", "click", function () { go("orgs"); });
+    },
+  };
+
+  /** Platform administrators: every organisation, and a new one. */
+  views.orgs = {
+    title: function () { return t("Organisations"); },
+    render: async function (content, params, alive) {
+      var d = await api("GET", "/orgs");
+      if (!alive()) return;
+      var html = '<div class="card"><p class="small">' + esc(t("{platform} serves several organisations from one bot. Each has its own members, councils, resolutions, admins and Telegram group.", { platform: state.me.platform.name })) + "</p></div>";
+      html += d.items.length ? '<div class="list">' + d.items.map(function (o) {
+        return '<button class="row" data-org="' + esc(o.id) + '"><div class="main"><div class="title">' + esc(orgName(o)) + '</div><div class="meta">' + esc(o.short_code) + " · " + esc(t("{voters} in {groups}", { voters: o.terms.voter.en_pl, groups: o.terms.group.en_pl })) + '</div></div><span class="chev">›</span></button>';
+      }).join("") + "</div>" : '<div class="card"><p class="empty">' + esc(t("No organisation yet. Create the first one.")) + "</p></div>";
+      html += '<div class="actions"><button class="btn block" data-act="new">＋ ' + esc(t("New organisation")) + "</button></div>";
+      content.innerHTML = html;
+      on(content, "[data-org]", "click", function (e) { go("orgform", { id: e.currentTarget.dataset.org }); });
+      on(content, "[data-act]", "click", function () { go("orgform", {}); });
+    },
+  };
+
+  /** Create (platform admins) or edit (its admins) an organisation's identity and terms. */
+  views.orgform = {
+    title: function (p) { return p.id ? t("Organisation") : t("New organisation"); },
+    render: async function (content, params, alive) {
+      var terms = await api("GET", "/orgs/terms");
+      var o = null;
+      if (params.id) o = ((await api("GET", "/orgs")).items || []).filter(function (x) { return x.id === params.id; })[0] || null;
+      if (!alive()) return;
+      o = o || {};
+      function field(key, label, ph, max) {
+        return '<div class="field"><label>' + esc(label) + '</label><input type="text" data-f="' + key + '" maxlength="' + (max || 160) + '" placeholder="' + esc(ph || "") + '" value="' + esc(o[key] || "") + '"></div>';
+      }
+      function termSelect(key, presets, current) {
+        return '<select data-f="' + key + '">' + Object.keys(presets).map(function (k) {
+          var p = presets[k];
+          return '<option value="' + k + '"' + (current === k ? " selected" : "") + ">" + esc(p.en + " / " + p.en_pl + " — " + p.am) + "</option>";
+        }).join("") + "</select>";
+      }
+      var html = '<div class="card"><h3>' + esc(t("Name")) + "</h3>" +
+        field("name_en", t("Organisation name (English)"), "Association of Ethiopian Architects") +
+        field("name_am", t("Organisation name (Amharic, optional)"), "የኢትዮጵያ አርክቴክቶች ማኅበር") +
+        field("short_code", t("Short code (invitation codes start with it)"), "AEA", 8) +
+        '<p class="hint">' + esc(t("Shown as “{name} ({platform})” in the bot and on invitations.", { name: o.name_en || "…", platform: state.me.platform.name })) + "</p></div>" +
+        '<div class="card"><h3>' + esc(t("Assembly")) + "</h3>" +
+        field("assembly_en", t("Assembly name (English)"), "General Assembly 2026") +
+        field("assembly_am", t("Assembly name (Amharic, optional)"), "ጠቅላላ ጉባኤ 2026") +
+        field("office_en", t("Issued by (English)"), "National Office") +
+        field("office_am", t("Issued by (Amharic, optional)"), "ብሔራዊ ጽሕፈት ቤት") + "</div>" +
+        '<div class="card"><h3>' + esc(t("Words used")) + "</h3>" +
+        '<div class="field"><label>' + esc(t("The people who vote are called")) + "</label>" + termSelect("voter_term", terms.voter, o.voter_term || "delegate") + "</div>" +
+        '<div class="field"><label>' + esc(t("The bodies they come from are called")) + "</label>" + termSelect("group_term", terms.group, o.group_term || "council") + "</div></div>";
+      if (!params.id) {
+        html += '<div class="card"><h3>' + esc(t("First administrator (optional)")) + "</h3>" +
+          '<p class="hint">' + esc(t("The person who will run this organisation's assembly. They find their Telegram ID by sending /whoami to the bot. You can add more admins later in Setup.")) + "</p>" +
+          '<div class="inline-fields"><div class="field"><label>' + esc(t("Telegram ID")) + '</label><input type="number" inputmode="numeric" data-admin-id></div>' +
+          '<div class="field"><label>' + esc(t("Name")) + '</label><input type="text" data-admin-name maxlength="120"></div></div></div>';
+      }
+      html += '<button class="btn block" data-save>' + esc(params.id ? t("Save changes") : t("Create organisation")) + "</button>";
+      if (params.id && state.orgId !== params.id) html += '<button class="btn secondary block" data-open>' + esc(t("Work in this organisation")) + "</button>";
+      content.innerHTML = html;
+      var f = function (k) { return content.querySelector("[data-f='" + k + "']"); };
+      content.querySelector("[data-save]").onclick = async function () {
+        var body = {};
+        ["name_en", "name_am", "short_code", "assembly_en", "assembly_am", "office_en", "office_am", "voter_term", "group_term"].forEach(function (k) { body[k] = f(k).value.trim(); });
+        if (body.name_en.length < 2) return toast(t("Enter the organisation's name"), "err");
+        if (body.short_code.replace(/[^A-Za-z0-9]/g, "").length < 2) return toast(t("Enter a short code of 2–8 letters"), "err");
+        if (!params.id) {
+          var aid = content.querySelector("[data-admin-id]").value.trim();
+          if (aid) { body.admin_telegram_id = Number(aid); body.admin_name = content.querySelector("[data-admin-name]").value.trim() || null; }
+        }
+        this.disabled = true;
+        try {
+          var r = params.id ? await api("PATCH", "/orgs/" + params.id, body) : await api("POST", "/orgs", body);
+          haptic("success");
+          toast(params.id ? t("Saved") : t("Organisation created"), "ok");
+          if (!params.id) return selectOrg(r.org.id);
+          state.me = await api("GET", "/me");
+          back();
+        } catch (err) { fail(err); } finally { this.disabled = false; }
+      };
+      if (content.querySelector("[data-open]")) content.querySelector("[data-open]").onclick = function () { selectOrg(params.id).catch(fail); };
+    },
+  };
+
   async function boot() {
     // Language: saved choice, else the Telegram client's language, else English.
     I18N.init(tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code);
@@ -1723,13 +1859,23 @@
     try { tg.disableVerticalSwipes(); } catch (_) { /* ignore */ }
 
     try {
+      state.orgId = savedOrg();
       state.me = await api("GET", "/me");
     } catch (err) {
       app.innerHTML = '<div class="screen-center"><h2>' + esc(t("Could not sign in")) + '</h2><p class="hint">' + esc(err.message) + '</p><button class="btn" data-retry>' + esc(t("Retry")) + "</button></div>";
       app.querySelector("[data-retry]").onclick = boot;
       return;
     }
-    var start = parseStart();
+    landing(parseStart());
+  }
+
+  /** First screen after sign-in or after switching organisation. */
+  function landing(start) {
+    start = start || {};
+    state.orgId = state.me.org ? state.me.org.id : null;
+    saveOrg(state.orgId);
+    if (state.me.org_required) return go("orgpick", {}, { root: true });
+    if (!state.me.org && state.me.platform && state.me.platform.admin) return go("orgs", {}, { root: true });
     if (state.me.role === "admin") {
       if (start.focus && state.me.member) go("ballots", { focus: start.focus }, { root: true });
       else go("home", {}, { root: true });

@@ -424,8 +424,13 @@ route("POST", "/register", false, async (ctx) => {
   const token = str(b.token, "Token", { optional: true, max: 40 }) || (await pendingInvitation(ctx.user.id)) || "";
   if (token.length < 3) throw new HttpError(400, "Token is required");
   const password = str(b.password, "Password", { min: 1, max: 100 });
-  const existing = await findByTelegramId(ctx.user.id);
-  if (existing) return { status: "ok", member: safeMember(existing), already: true };
+  // Already registered in the organisation this code belongs to? (Not the one the app happens to be on:
+  // the same person may join a second organisation with that organisation's code.)
+  const invited = await findByToken(token);
+  if (invited) {
+    const existing = await withOrg(invited.org_id, () => findByTelegramId(ctx.user.id));
+    if (existing) return { status: "ok", member: safeMember(existing), already: true, org_id: invited.org_id };
+  }
   const result = await loginWithCredentials(token, password, ctx.user.id);
   if (result.status === "ok") {
     const member = result.member;

@@ -224,3 +224,11 @@ details.help .help-warn { background: rgba(217, 162, 27, 0.18); border-radius: 1
 
 /* ---- vote waiting for quorum after its deadline ---- */
 .card.waiting { border: 1.5px solid rgba(217, 162, 27, 0.6); background: rgba(217, 162, 27, 0.08); }
+
+/* ---- organisation bar (Kene Voting System serves several organisations) ---- */
+.org-bar { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-bottom: 1px solid var(--sep); background: var(--section); padding: 6px var(--pad); text-align: left; font: inherit; color: var(--text); }
+.org-bar .org-name { font-weight: 650; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.org-bar .org-platform { font-size: 12px; color: var(--hint); white-space: nowrap; }
+.org-bar.switch { cursor: pointer; }
+.org-bar .chev { color: var(--link); font-size: 15px; }
+.org-bar[disabled] { opacity: 1; cursor: default; }

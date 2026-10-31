@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import { checkToken, verifyAndBind } from "../services/members.js";
 import { approvePendingJoin } from "./gate.js";
+import { setActiveOrg } from "../services/orgs.js";
 import { config } from "../config.js";
 import { appKeyboard } from "./ui.js";
 import type { Member } from "../types.js";
@@ -86,6 +87,7 @@ export async function handleLoginMessage(ctx: Context): Promise<Member | null> {
   switch (result.status) {
     case "ok":
       sessions.delete(userId);
+      await setActiveOrg(userId, result.member.org_id); // this chat is now about the organisation they joined
       void approvePendingJoin(ctx.api, userId); // let them into the group if they asked to join before registering
       return result.member;
     case "wrong_password":
