@@ -98,6 +98,26 @@
         ],
       },
       {
+        icon: "📝", title: "Motions: from a member's proposal to a resolution",
+        body: [
+          "A motion is what a member proposes; it becomes a resolution only when the chair puts it to the vote. The Motions tab is the chair's queue.",
+          { steps: [
+            "A member taps 📝 Motion in a group topic (or Motions › Move a motion in the app) and writes the title and wording. The motion is posted in that topic with a “Second this motion” button.",
+            "Another member taps “Second this motion”. The button disappears, the card shows the seconder, and you get a private message: the motion is in the Queue.",
+            "Open it under Motions › Queue and decide: “State the motion” puts it before the assembly and opens debate; “Rule out of order” closes it with a reason; “Merge into another motion” folds a duplicate into one already in the queue; “Reword” fixes the wording (the wording as moved is kept).",
+            "While a motion is under debate, members propose amendments with the button on its card. Amendments go through the same stages — seconded, stated, voted — and are voted on before the motion. An adopted amendment rewrites the motion.",
+            "When the debate is over, tap “Put to the vote”. A draft resolution (For / Against / Abstain) is created with the wording, mover and seconder, announced in the motion's topic. Set the rules and open voting as for any resolution.",
+            "When voting closes, the motion is marked adopted or lost and its card in the topic is updated.",
+          ] },
+          { bullets: [
+            "A motion nobody seconds can be closed with “Lapse (no seconder)”. The mover can withdraw a motion until you state it.",
+            "A motion made aloud in the meeting: Motions › “Enter a motion from the floor”, with the names of the mover and the seconder.",
+            "Constitutional motions (they change the constitution or by-laws) need a 2/3 majority. Under Motions › Motion rules you can set a notice deadline: a constitutional motion moved after it is marked “late notice”, and you can state it only by confirming that the assembly waived the notice.",
+            "Motion rules can also require the seconder to come from another council than the mover.",
+          ] },
+        ],
+      },
+      {
         icon: "🟢", title: "Open voting and announce it",
         body: [
           { steps: [
@@ -274,6 +294,26 @@
         ],
       },
       {
+        icon: "📝", title: "ሀሳቦች፦ ከአባል ሀሳብ እስከ ውሳኔ",
+        body: [
+          "ሀሳብ (motion) አባል የሚያቀርበው ነገር ነው፤ የውሳኔ ሀሳብ የሚሆነው ሰብሳቢው ለድምፅ ሲያቀርበው ብቻ ነው። የሀሳቦች ገጽ የሰብሳቢው ወረፋ ነው።",
+          { steps: [
+            "አባል በቡድኑ ርዕስ ውስጥ 📝 ሀሳብ የሚለውን ይነካል (ወይም በመተግበሪያው ሀሳቦች › ሀሳብ አቅርብ)፣ ርዕሱንና አጻጻፉን ይጽፋል። ሀሳቡ «ይህን ሀሳብ ደግፍ» ከሚል አዝራር ጋር በዚያ ርዕስ ይለጠፋል።",
+            "ሌላ አባል «ይህን ሀሳብ ደግፍ» ይነካል። አዝራሩ ይጠፋል፣ ካርዱ ደጋፊውን ያሳያል፣ እርስዎም የግል መልዕክት ይደርስዎታል፦ ሀሳቡ በወረፋ ላይ ነው።",
+            "በሀሳቦች › ወረፋ ይክፈቱትና ይወስኑ፦ «ሀሳቡን አቅርብ» ለጉባኤው አቅርቦ ውይይት ይከፍታል፤ «ከሥነ ሥርዓት ውጭ ነው በል» በምክንያት ይዘጋዋል፤ «ከሌላ ሀሳብ ጋር አዋህድ» ተመሳሳይ ሀሳብን በወረፋው ካለው ጋር ያዋህዳል፤ «አጻጻፉን ቀይር» አጻጻፉን ያስተካክላል (የቀረበበት አጻጻፍ ይቀመጣል)።",
+            "ሀሳቡ በውይይት ላይ እያለ አባላት በካርዱ ላይ ባለው አዝራር ማሻሻያ ያቀርባሉ። ማሻሻያዎች በተመሳሳይ ደረጃዎች ያልፋሉ — ይደገፋሉ፣ ይቀርባሉ፣ ድምፅ ይሰጥባቸዋል — ከዋናው ሀሳብ በፊትም ድምፅ ይሰጥባቸዋል። የጸደቀ ማሻሻያ የሀሳቡን አጻጻፍ ይቀይራል።",
+            "ውይይቱ ሲያልቅ «ለድምፅ አቅርብ» ይንኩ። አጻጻፉን፣ አቅራቢውንና ደጋፊውን የያዘ ረቂቅ የውሳኔ ሀሳብ (ድጋፍ / ተቃውሞ / ድምፀ ተአቅቦ) ይፈጠራል፣ በሀሳቡ ርዕስ ውስጥም ይታወጃል። እንደማንኛውም የውሳኔ ሀሳብ ደንቦቹን አስተካክለው ድምፅ መስጠትን ይክፈቱ።",
+            "ድምፅ መስጠት ሲዘጋ ሀሳቡ ጸድቋል ወይም አልጸደቀም ተብሎ ይመዘገባል፤ በርዕሱ ያለው ካርዱም ይዘመናል።",
+          ] },
+          { bullets: [
+            "ማንም ያልደገፈውን ሀሳብ «ይቅር (ደጋፊ የለውም)» በማለት መዝጋት ይቻላል። አቅራቢው ሀሳቡን እርስዎ እስኪያቀርቡት ድረስ ማንሳት ይችላል።",
+            "በስብሰባው በቃል የቀረበ ሀሳብ፦ ሀሳቦች › «ከመድረክ የቀረበ ሀሳብ አስገባ»፣ ከአቅራቢውና ከደጋፊው ስም ጋር።",
+            "የሕገ ደንብ ሀሳቦች (ሕገ ደንቡን ወይም መተዳደሪያ ደንቡን የሚለውጡ) የ2/3 አብላጫ ድምፅ ያስፈልጋቸዋል። በሀሳቦች › የሀሳብ ደንቦች የማስታወቂያ የመጨረሻ ቀን ማስቀመጥ ይችላሉ፤ ከዚያ በኋላ የቀረበ የሕገ ደንብ ሀሳብ «የዘገየ ማስታወቂያ» ተብሎ ይመዘገባል፣ ሊያቀርቡት የሚችሉትም ጉባኤው ማስታወቂያውን እንዳነሳ አረጋግጠው ነው።",
+            "የሀሳብ ደንቦች ደጋፊው ከአቅራቢው በተለየ ምክር ቤት እንዲሆን ሊጠይቁም ይችላሉ።",
+          ] },
+        ],
+      },
+      {
         icon: "🟢", title: "ድምፅ መስጠትን መክፈት እና ማሳወቅ",
         body: [
           { steps: [
@@ -407,6 +447,20 @@
         ],
       },
       {
+        icon: "📝", title: "Move or second a motion",
+        body: [
+          "A motion is a proposal for the assembly to decide. It needs another member to second it before the chair takes it up.",
+          { steps: [
+            "In the group topic where the matter is discussed, tap 📝 Motion, then “Write a motion”. Enter a short title and the wording (“That the assembly …”) and tap “Move the motion”.",
+            "Your motion is posted in that topic with a “Second this motion” button. Keep talking in the topic meanwhile.",
+            "To support someone else's motion, tap “Second this motion” on its card. You cannot second your own.",
+            "Once seconded, the chair states it (debate opens), rules it out of order, or merges it with a similar motion. Until the chair states it, you can withdraw your own motion under Motions.",
+            "While a motion is under debate, tap “Propose an amendment” on its card to suggest new wording. Amendments are voted on first.",
+            "When the chair puts the motion to the vote, it appears under Vote like any resolution.",
+          ] },
+        ],
+      },
+      {
         icon: "📊", title: "See the results",
         body: [
           { bullets: [
@@ -473,6 +527,20 @@
           { bullets: [
             "ከቡድኑ ርዕስ ማስታወቂያ ወይም ቦቱ ከሚልክልዎ የግል መልዕክትም ድምፅ መስጠት ይችላሉ፤ ሁለቱም ያንኑ የድምፅ መስጫ ይከፍታሉ።",
             "የመዝጊያ ሰዓቱ በእያንዳንዱ የድምፅ መስጫ ላይ ይታያል። ካለፈ በኋላ ድምፅ መስጠት ተዘግቷል እና ድምፅዎ ሊቀየር አይችልም።",
+          ] },
+        ],
+      },
+      {
+        icon: "📝", title: "ሀሳብ ማቅረብ ወይም መደገፍ",
+        body: [
+          "ሀሳብ (motion) ጉባኤው እንዲወስንበት የሚቀርብ ሀሳብ ነው። ሰብሳቢው ከመቀበሉ በፊት ሌላ አባል መደገፍ አለበት።",
+          { steps: [
+            "ጉዳዩ በሚወያይበት የቡድን ርዕስ ውስጥ 📝 ሀሳብ፣ ከዚያም «ሀሳብ ይጻፉ» ይንኩ። አጭር ርዕስና አጻጻፉን («ጉባኤው …») ያስገቡና «ሀሳቡን አቅርብ» ይንኩ።",
+            "ሀሳብዎ «ይህን ሀሳብ ደግፍ» ከሚል አዝራር ጋር በዚያ ርዕስ ይለጠፋል። እስከዚያው በርዕሱ መወያየት ይቀጥሉ።",
+            "የሌላን ሰው ሀሳብ ለመደገፍ በካርዱ ላይ «ይህን ሀሳብ ደግፍ» ይንኩ። የራስዎን ሀሳብ መደገፍ አይችሉም።",
+            "ከተደገፈ በኋላ ሰብሳቢው ያቀርቡታል (ውይይት ይከፈታል)፣ ከሥነ ሥርዓት ውጭ ነው ይላሉ፣ ወይም ከተመሳሳይ ሀሳብ ጋር ያዋህዱታል። ሰብሳቢው እስኪያቀርቡት ድረስ የራስዎን ሀሳብ በሀሳቦች ገጽ ማንሳት ይችላሉ።",
+            "ሀሳቡ በውይይት ላይ እያለ አዲስ አጻጻፍ ለመጠቆም በካርዱ ላይ «ማሻሻያ አቅርብ» ይንኩ። ማሻሻያዎች መጀመሪያ ድምፅ ይሰጥባቸዋል።",
+            "ሰብሳቢው ሀሳቡን ለድምፅ ሲያቀርቡት እንደማንኛውም የውሳኔ ሀሳብ በድምፅ ገጽ ይታያል።",
           ] },
         ],
       },

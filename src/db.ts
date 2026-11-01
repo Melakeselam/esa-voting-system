@@ -18,7 +18,7 @@ import { currentOrgId, requireOrgId } from "./org-context.js";
 export const rawDb: DbClient = createClient(config.databaseUrl, { ssl: config.databaseSsl });
 
 /** Tables whose rows belong to one organisation. */
-export const ORG_TABLES = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings"]);
+export const ORG_TABLES = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings", "motions"]);
 /** Tables whose upsert key includes org_id (their natural key is only unique within an organisation). */
 const ORG_IN_CONFLICT: Record<string, string> = { app_settings: "key", admins: "telegram_user_id" };
 

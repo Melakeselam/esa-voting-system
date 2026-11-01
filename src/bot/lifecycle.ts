@@ -6,6 +6,7 @@ import { listOrgs } from "../services/orgs.js";
 import { withOrg } from "../org-context.js";
 import { ballotCount, tally } from "../services/votes.js";
 import { resultsText } from "./ui.js";
+import { computeOutcome } from "../verdict.js";
 import type { Resolution } from "../types.js";
 
 /**
@@ -27,6 +28,18 @@ export async function closeResolution(
   const closed = { ...res, status: "closed" as const, eligible_count: claimed.eligible };
   const [rows, ballots] = await Promise.all([tally(res.id), ballotCount(res.id)]);
   const text = resultsText(closed, rows, ballots, claimed.eligible);
+
+  // A motion put to the vote is now adopted or lost.
+  if (res.motion_id) {
+    const counts = res.options.map((_, i) => Number(rows.find((r) => r.choice_index === i)?.votes ?? 0));
+    const { adopted } = computeOutcome(closed, counts, ballots, claimed.eligible);
+    try {
+      const { afterMotionVote } = await import("./motions.js");
+      await afterMotionVote(api, res.id, adopted);
+    } catch (err) {
+      console.error(`settling the motion of ${res.code} failed:`, err);
+    }
+  }
 
   if (res.announce_chat_id) {
     try {

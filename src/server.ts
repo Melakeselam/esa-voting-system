@@ -50,6 +50,9 @@ async function main(): Promise<void> {
         await registerWebhook(bot);
         console.log(`Webhook set to ${config.publicUrl}/telegram — @${bot.botInfo.username} is live.`);
         console.log(`Mini App: ${config.publicUrl}/app/`);
+        // New buttons or commands since the last start: post them in the groups once.
+        const { refreshGroupButtons } = await import("./bot/group-commands.js");
+        refreshGroupButtons(bot.api).catch((err) => console.error("refreshing group buttons failed:", err));
       } catch (err) {
         console.error("Failed to register with Telegram:", err);
       }

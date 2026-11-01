@@ -286,6 +286,10 @@ admin.command("reopen", async (ctx) => {
     await ctx.reply(`${res.code} is no longer closed.`);
     return;
   }
+  if (res.motion_id) {
+    const { afterMotionVoteReopened } = await import("./motions.js");
+    await afterMotionVoteReopened(ctx.api, res.id);
+  }
   await audit(ctx.from!.id, "resolution_reopened", { code: res.code, closes_at: closesAt?.toISOString() ?? null });
   await ctx.reply(
     `🔁 Voting on <b>${res.code}</b> is OPEN again` +

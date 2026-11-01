@@ -139,12 +139,14 @@
 
   var ADMIN_TABS = [
     { name: "home", ico: "🏠", label: "Home" },
+    { name: "motions", ico: "📝", label: "Motions" },
     { name: "resolutions", ico: "🗳", label: "Resolutions" },
     { name: "members", ico: "👥", label: "Members" },
     { name: "setup", ico: "⚙️", label: "Setup" },
   ];
   var MEMBER_TABS = [
     { name: "ballots", ico: "🗳", label: "Vote" },
+    { name: "motions", ico: "📝", label: "Motions" },
     { name: "closed", ico: "📊", label: "Results" },
     { name: "me", ico: "👤", label: "Me" },
   ];
@@ -776,6 +778,277 @@
           toast(e ? t("Saved") : t("{code} created as a draft", { code: r.code }), "ok");
           state.stack.pop();
           if (e) refresh(); else go("resolution", { id: r.id });
+        } catch (err) { this.disabled = false; fail(err); }
+      };
+    },
+  };
+
+  // ---------------------------------------------------------------- MOTIONS (members and the chair)
+  /*
+   * A member moves a motion (here, or from 📝 Motion in a group topic); its card is
+   * posted in that topic, where another member seconds it. The chair (admins)
+   * then states it, rules it out of order, merges it with another, or lets it
+   * lapse; a stated motion is debated, may be amended, and is put to the vote as
+   * a resolution, which decides whether it is adopted or lost.
+   */
+  function motionStatusLabel(s) {
+    switch (s) {
+      case "proposed": return "⏳ " + t("Waiting for a seconder");
+      case "seconded": return "✋ " + t("Seconded — in the queue");
+      case "stated": return "🧑‍⚖️ " + t("Under debate");
+      case "voting": return "🗳 " + t("Put to the vote");
+      case "adopted": return "✅ " + t("Adopted");
+      case "lost": return "❌ " + t("Lost");
+      case "withdrawn": return "↩️ " + t("Withdrawn");
+      case "out_of_order": return "⛔ " + t("Out of order");
+      case "merged": return "🔗 " + t("Merged");
+      case "lapsed": return "💤 " + t("Lapsed");
+      default: return s;
+    }
+  }
+  function motionBadgeClass(s) {
+    return s === "adopted" || s === "stated" ? "ok" : s === "seconded" || s === "voting" || s === "proposed" ? "warn" : s === "lost" || s === "out_of_order" ? "err" : "draft";
+  }
+  function motionKindLabel(k) {
+    return k === "constitutional" ? "⚖️ " + t("Constitutional") : k === "amendment" ? "✏️ " + t("Amendment") : t("Motion");
+  }
+  function motionRow(m) {
+    var meta = '<span class="badge ' + motionBadgeClass(m.status) + '">' + esc(motionStatusLabel(m.status)) + "</span> " +
+      esc(motionKindLabel(m.kind)) + " · " + esc(t("moved by {name}", { name: m.mover_name || "—" })) +
+      (m.amendments_pending ? " · " + esc(t("{n} amendments pending", { n: m.amendments_pending })) : "") +
+      (m.late_notice && (m.status === "proposed" || m.status === "seconded") ? " · ⚠️ " + esc(t("late notice")) : "");
+    return '<button class="row" data-motion="' + m.id + '"><div class="main"><div class="title">' + esc(m.code) + " — " + esc(m.title) +
+      '</div><div class="meta">' + meta + '</div></div><span class="chev">›</span></button>';
+  }
+
+  var MOTION_FILTERS = {
+    queue: ["seconded"],
+    waiting: ["proposed"],
+    debate: ["stated"],
+    voting: ["voting"],
+    decided: ["adopted", "lost"],
+    closed: ["withdrawn", "out_of_order", "merged", "lapsed"],
+  };
+  var motionFilter = null;
+
+  views.motions = {
+    title: function () { return t("Motions"); },
+    action: function () { return { label: "↻", onClick: refresh }; },
+    render: async function (content, params, alive) {
+      var d = await api("GET", "/motions");
+      if (!alive()) return;
+      var admin = state.me.role === "admin";
+      if (!motionFilter) motionFilter = admin ? "queue" : "all";
+      var chips = [["all", "All"], ["queue", "Queue"], ["waiting", "Awaiting a seconder"], ["debate", "Under debate"], ["voting", "Voting"], ["decided", "Decided"], ["closed", "Closed without a vote"]];
+      var main = d.items.filter(function (m) { return m.kind !== "amendment"; });
+      var pick = function (f) { return f === "all" ? d.items : d.items.filter(function (m) { return MOTION_FILTERS[f].indexOf(m.status) >= 0; }); };
+      var html = "";
+      html += '<div class="actions">';
+      if (d.can_move) html += '<button class="btn block" data-new>＋ ' + esc(t("Move a motion")) + "</button>";
+      if (admin) html += '<button class="btn secondary block" data-floor>🎤 ' + esc(t("Enter a motion from the floor")) + "</button>" +
+        '<button class="btn secondary block" data-rules>⚙️ ' + esc(t("Motion rules")) + "</button>";
+      html += "</div>";
+      html += '<div class="chips">' + chips.map(function (c) {
+        return '<button class="chip' + (motionFilter === c[0] ? " on" : "") + '" data-f="' + c[0] + '">' + esc(t(c[1])) + " · " + pick(c[0]).length + "</button>";
+      }).join("") + "</div>";
+      var items = pick(motionFilter);
+      html += items.length ? '<div class="list">' + items.map(motionRow).join("") + "</div>" :
+        '<div class="card"><p class="empty">' + esc(main.length || d.items.length ? t("No motions in this state.") : t("No motions yet. Members move motions from 📝 Motion in a group topic, or here.")) + "</p></div>";
+      if (admin && !d.topics.length) html += '<p class="hint">' + esc(t("Link the assembly group in Setup so motions are posted in its topics.")) + "</p>";
+      content.innerHTML = html;
+      on(content, "[data-f]", "click", function (e) { motionFilter = e.currentTarget.dataset.f; refresh(); });
+      on(content, "[data-motion]", "click", function (e) { go("motion", { id: e.currentTarget.dataset.motion }); });
+      if (content.querySelector("[data-new]")) content.querySelector("[data-new]").onclick = function () { go("motionform", {}); };
+      if (content.querySelector("[data-floor]")) content.querySelector("[data-floor]").onclick = function () { go("motionform", { floor: true }); };
+      if (content.querySelector("[data-rules]")) content.querySelector("[data-rules]").onclick = function () { motionRulesSheet(d.rules); };
+    },
+  };
+
+  /** Notice deadline for constitutional motions; seconder from another council. */
+  async function motionRulesSheet(rules) {
+    var local = "";
+    if (rules.notice_deadline) {
+      var dt = new Date(rules.notice_deadline);
+      local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+    var v = await openSheet("<h2>" + esc(t("Motion rules")) + "</h2>" +
+      '<div class="field"><label>' + esc(t("Notice deadline for constitutional motions")) + '</label><input type="datetime-local" data-deadline value="' + esc(local) + '">' +
+      '<p class="hint">' + esc(t("Constitutional motions moved after this are marked “late notice”; the chair can accept one only if the assembly waives the notice. Leave empty for no deadline.")) + "</p></div>" +
+      (isDirect() ? "" : '<label class="switch"><span class="lbl"><span>' + esc(t("Seconder from another council")) + '</span><span class="hint">' + esc(t("A motion must be seconded by a delegate of a different council than the mover's")) + '</span></span><input type="checkbox" data-council' + (rules.second_other_council ? " checked" : "") + "></label>") +
+      '<button class="btn block" data-ok>' + esc(t("Save")) + "</button>",
+      function (sheet, close) {
+        sheet.querySelector("[data-ok]").onclick = function () {
+          var dl = sheet.querySelector("[data-deadline]").value;
+          var c = sheet.querySelector("[data-council]");
+          close({ notice_deadline: dl ? new Date(dl).toISOString() : null, second_other_council: Boolean(c && c.checked) });
+        };
+      });
+    if (!v) return;
+    try { await api("POST", "/motions/rules", v); haptic("success"); toast(t("Saved"), "ok"); refresh(); } catch (err) { fail(err); }
+  }
+
+  views.motion = {
+    title: function () { return t("Motion"); },
+    action: function () { return { label: "↻", onClick: refresh }; },
+    render: async function (content, params, alive) {
+      var m = await api("GET", "/motions/" + params.id);
+      if (!alive()) return;
+      var admin = state.me.role === "admin";
+      var html = '<div class="card"><h2>' + esc(m.code) + " — " + esc(m.title) + "</h2>" +
+        '<div><span class="badge ' + motionBadgeClass(m.status) + '">' + esc(motionStatusLabel(m.status)) + "</span> " + esc(motionKindLabel(m.kind)) + "</div>";
+      if (m.parent) html += '<p class="hint">' + esc(t("Amends {code} — {title}", { code: m.parent.code, title: m.parent.title })) + ' <button class="btn secondary sm" data-open="' + m.parent.id + '">' + esc(t("Open")) + "</button></p>";
+      html += '<p style="white-space:pre-wrap">' + esc(m.body) + "</p>";
+      if (m.original_body && m.original_body !== m.body) html += '<details><summary class="hint">' + esc(t("Wording as moved")) + '</summary><p class="small" style="white-space:pre-wrap">' + esc(m.original_body) + "</p></details>";
+      var kv = [[t("Moved by"), (m.mover_name || "—") + (m.from_floor ? " (" + t("from the floor") + ")" : "")]];
+      kv.push([t("Seconded by"), m.seconder_name || "—"]);
+      if (m.topic_name) kv.push([t("Topic"), m.topic_name]);
+      kv.push([t("Moved"), m.created_at_local]);
+      if (m.decided_at_local) kv.push([t("Decided"), m.decided_at_local]);
+      if (m.resolution_code) kv.push([t("Vote"), m.resolution_code]);
+      if (m.merged_into_code) kv.push([t("Merged into"), m.merged_into_code]);
+      if (m.reason) kv.push([t("Reason"), m.reason]);
+      html += '<dl class="kv">' + kv.map(function (p) { return "<dt>" + esc(p[0]) + "</dt><dd>" + esc(p[1]) + "</dd>"; }).join("") + "</dl>";
+      if (m.late_notice && (m.status === "proposed" || m.status === "seconded")) html += '<p class="hint">⚠️ ' + esc(t("Moved after the notice deadline for constitutional motions.")) + "</p>";
+      html += "</div>";
+
+      if (m.kind !== "amendment" && (m.amendments.length || m.status === "stated")) {
+        html += '<div class="section-title">' + esc(t("Amendments")) + "</div>";
+        html += m.amendments.length ? '<div class="list">' + m.amendments.map(motionRow).join("") + "</div>" :
+          '<div class="card"><p class="empty">' + esc(t("No amendments yet.")) + "</p></div>";
+        if (m.status === "stated" && m.amendments_pending) html += '<p class="hint">' + esc(t("Amendments are voted on before the motion itself.")) + "</p>";
+      }
+
+      var acts = [];
+      if (m.can_second) acts.push(["second", "✋ " + t("Second this motion"), ""]);
+      if (m.can_amend) acts.push(["amend", "✏️ " + t("Propose an amendment"), "secondary"]);
+      if (admin) {
+        if (m.status === "seconded") acts.push(["state", "🧑‍⚖️ " + t("State the motion (open debate)"), ""]);
+        if (m.status === "stated") {
+          acts.push(["vote", "🗳 " + t("Put to the vote"), ""]);
+          if (m.kind !== "amendment") acts.push(["flooramend", "🎤 " + t("Enter an amendment from the floor"), "secondary"]);
+        }
+        if (m.status === "voting" && m.resolution_id) acts.push(["res", "🗳 " + t("Open the vote ({code})", { code: m.resolution_code || "" }), ""]);
+        if (m.status === "proposed" || m.status === "seconded" || m.status === "stated") {
+          acts.push(["reword", "📝 " + t("Reword"), "secondary"]);
+          if (m.merge_targets.length && m.kind !== "amendment") acts.push(["merge", "🔗 " + t("Merge into another motion"), "secondary"]);
+          acts.push(["ooo", "⛔ " + t("Rule out of order"), "danger"]);
+        }
+        if (m.status === "proposed") acts.push(["lapse", "💤 " + t("Lapse (no seconder)"), "secondary"]);
+      } else if ((m.status === "voting" || m.status === "adopted" || m.status === "lost") && m.resolution_id) {
+        acts.push([m.status === "voting" ? "ballot" : "results", m.status === "voting" ? "🗳 " + t("Vote") : "📊 " + t("Results"), ""]);
+      }
+      if (m.can_withdraw) acts.push(["withdraw", "↩️ " + t("Withdraw the motion"), "danger"]);
+      if (acts.length) html += '<div class="actions">' + acts.map(function (a) { return '<button class="btn ' + a[2] + ' block" data-act="' + a[0] + '">' + esc(a[1]) + "</button>"; }).join("") + "</div>";
+      content.innerHTML = html;
+
+      on(content, "[data-motion]", "click", function (e) { go("motion", { id: e.currentTarget.dataset.motion }); });
+      on(content, "[data-open]", "click", function (e) { go("motion", { id: e.currentTarget.dataset.open }); });
+      on(content, "[data-act]", "click", async function (ev) {
+        var act = ev.currentTarget.dataset.act;
+        haptic("light");
+        try {
+          if (act === "second") {
+            if (!(await confirmDialog(t("Second {code}? It then goes to the chair.", { code: m.code })))) return;
+            await api("POST", "/motions/" + m.id + "/second"); haptic("success"); toast(t("You seconded {code}", { code: m.code }), "ok"); return refresh();
+          }
+          if (act === "amend") return go("motionform", { parent: m.id });
+          if (act === "flooramend") return go("motionform", { parent: m.id, floor: true });
+          if (act === "res") return go("resolution", { id: m.resolution_id });
+          if (act === "ballot") return go("ballots", { focus: m.resolution_id });
+          if (act === "results") return go("results", { id: m.resolution_id });
+          if (act === "state") {
+            var body = {};
+            if (m.late_notice) {
+              if (!(await confirmDialog(t("{code} was moved after the notice deadline. Accept it only if the assembly agreed to waive the notice. Accept it?", { code: m.code })))) return;
+              body.override = true;
+            } else if (!(await confirmDialog(t("State {code}? It is put before the assembly: debate opens and members can propose amendments.", { code: m.code })))) return;
+            await api("POST", "/motions/" + m.id + "/state", body); haptic("success"); toast(t("{code} is under debate", { code: m.code }), "ok"); return refresh();
+          }
+          if (act === "vote") {
+            if (!(await confirmDialog(t("Put {code} to the vote? A draft resolution (For / Against / Abstain) is created; open voting on it when ready.", { code: m.code }) + (m.kind === "constitutional" || (m.parent && m.parent.kind === "constitutional") ? " " + t("A constitutional change needs a 2/3 majority.") : "")))) return;
+            var r = await api("POST", "/motions/" + m.id + "/vote"); haptic("success"); toast(t("{code} is put to the vote", { code: m.code }), "ok");
+            return go("resolution", { id: r.resolution_id });
+          }
+          if (act === "reword") return go("motionform", { id: m.id });
+          if (act === "merge") {
+            var mv = await openSheet("<h2>" + esc(t("Merge {code} into…", { code: m.code })) + '</h2><div class="list">' + m.merge_targets.map(function (x) {
+              return '<button class="row" data-into="' + x.id + '"><div class="main"><div class="title">' + esc(x.code) + " — " + esc(x.title) + "</div></div></button>";
+            }).join("") + "</div>", function (sheet, close) { on(sheet, "[data-into]", "click", function (e) { close(e.currentTarget.dataset.into); }); });
+            if (!mv) return;
+            await api("POST", "/motions/" + m.id + "/merge", { into: mv }); toast(t("Merged"), "ok"); return refresh();
+          }
+          if (act === "ooo" || act === "withdraw") {
+            var why = await openSheet("<h2>" + esc(act === "ooo" ? t("Rule {code} out of order", { code: m.code }) : t("Withdraw {code}", { code: m.code })) + "</h2>" +
+              '<div class="field"><label>' + esc(act === "ooo" ? t("Reason (shown with the motion)") : t("Reason (optional)")) + '</label><textarea data-reason maxlength="500"></textarea></div><button class="btn danger block" data-ok>' + esc(t("Confirm")) + "</button>",
+              function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close({ reason: sheet.querySelector("[data-reason]").value.trim() }); }; });
+            if (!why) return;
+            if (act === "ooo" && why.reason.length < 3) return toast(t("Please give a reason"), "err");
+            await api("POST", "/motions/" + m.id + (act === "ooo" ? "/out-of-order" : "/withdraw"), why);
+            toast(act === "ooo" ? t("Ruled out of order") : t("Motion withdrawn"), "ok"); return refresh();
+          }
+          if (act === "lapse") {
+            if (!(await confirmDialog(t("Let {code} lapse for want of a seconder?", { code: m.code })))) return;
+            await api("POST", "/motions/" + m.id + "/lapse"); toast(t("Lapsed"), "ok"); return refresh();
+          }
+        } catch (err) { fail(err); }
+      });
+    },
+  };
+
+  /** Move a motion or an amendment, enter one from the floor, or (the chair) reword one. */
+  views.motionform = {
+    title: function (p) { return p.id ? t("Reword motion") : p.parent ? t("Propose an amendment") : p.floor ? t("Motion from the floor") : t("Move a motion"); },
+    render: async function (content, params, alive) {
+      var editing = params.id ? await api("GET", "/motions/" + params.id) : null;
+      var parent = params.parent ? await api("GET", "/motions/" + params.parent) : null;
+      var list = editing || parent ? null : await api("GET", "/motions");
+      if (!alive()) return;
+      var html = "";
+      if (parent) html += '<div class="card"><h3>' + esc(t("Amending {code} — {title}", { code: parent.code, title: parent.title })) + '</h3><p class="small" style="white-space:pre-wrap">' + esc(parent.body) + '</p><p class="hint">' + esc(t("Write the motion's full wording as you want it to read after your amendment.")) + "</p></div>";
+      html += '<div class="card">';
+      if (params.floor) {
+        html += '<div class="field"><label>' + esc(t("Moved by *")) + '</label><input type="text" data-f="mover" maxlength="120" placeholder="' + esc(t("Name of the mover")) + '"></div>' +
+          '<div class="field"><label>' + esc(t("Seconded by")) + '</label><input type="text" data-f="seconder" maxlength="120" placeholder="' + esc(t("Leave empty if nobody has seconded yet")) + '"></div>';
+      }
+      html += '<div class="field"><label>' + esc(parent ? t("Title (optional)") : t("Title *")) + '</label><input type="text" data-f="title" maxlength="200" placeholder="' + esc(t("e.g. Membership fee for 2027")) + '" value="' + esc(editing ? editing.title : "") + '"></div>' +
+        '<div class="field"><label>' + esc(t("Wording *")) + '</label><textarea data-f="body" maxlength="3000" rows="6" placeholder="' + esc(t("That the assembly …")) + '">' + esc(editing ? editing.body : parent ? parent.body : "") + "</textarea></div>";
+      if (!editing && !parent) {
+        html += '<label class="switch"><span class="lbl"><span>' + esc(t("Changes the constitution or by-laws")) + '</span><span class="hint">' + esc(t("Constitutional motions need a 2/3 majority and may need prior notice")) + '</span></span><input type="checkbox" data-f="constitutional"></label>';
+        if (list.topics.length) {
+          var thread = params.thread != null ? Number(params.thread) : 0;
+          html += '<div class="field"><label>' + esc(t("Post it in the topic")) + '</label><select data-f="thread">' + list.topics.map(function (tp) {
+            return '<option value="' + tp.thread_id + '"' + (tp.thread_id === thread ? " selected" : "") + ">" + esc(tp.name) + "</option>";
+          }).join("") + "</select></div>";
+        }
+      }
+      html += "</div>";
+      if (!editing) html += '<p class="hint">' + esc(params.floor ? t("The motion is posted in the topic. Without a seconder it waits for one there.") : t("Your motion is posted in the topic with a “Second this motion” button. Once another member seconds it, it goes to the chair.")) + "</p>";
+      html += '<button class="btn block" data-save>' + esc(editing ? t("Save") : parent ? t("Propose the amendment") : t("Move the motion")) + "</button>";
+      content.innerHTML = html;
+      content.querySelector("[data-save]").onclick = async function () {
+        var f = function (n) { return content.querySelector("[data-f='" + n + "']"); };
+        var body = { title: f("title").value.trim(), body: f("body").value.trim() };
+        if (!parent && body.title.length < 3) return toast(t("Please enter a title"), "err");
+        if (body.body.length < 5) return toast(t("Please write the wording"), "err");
+        if (parent && body.body === parent.body) return toast(t("The wording is unchanged"), "err");
+        if (f("constitutional")) body.kind = f("constitutional").checked ? "constitutional" : "main";
+        if (f("thread")) body.thread_id = Number(f("thread").value);
+        if (params.floor) {
+          body.mover_name = f("mover").value.trim();
+          body.seconder_name = f("seconder").value.trim();
+          if (body.mover_name.length < 2) return toast(t("Please enter the mover's name"), "err");
+          if (parent) body.parent_id = parent.id;
+        }
+        this.disabled = true;
+        try {
+          var r = editing ? await api("PATCH", "/motions/" + editing.id, body) :
+            params.floor ? await api("POST", "/motions/floor", body) :
+            parent ? await api("POST", "/motions/" + parent.id + "/amendments", body) :
+            await api("POST", "/motions", body);
+          haptic("success");
+          toast(editing ? t("Saved") : r.posted === false ? t("{code} saved, but it could not be posted in the group", { code: r.code }) : t("{code} posted in the group", { code: r.code }), r.posted === false ? "warn" : "ok");
+          state.stack.pop();
+          if (editing) refresh(); else go("motion", { id: r.id }, { replace: false });
         } catch (err) { this.disabled = false; fail(err); }
       };
     },
@@ -2031,7 +2304,12 @@
     var q = qs.get("r");
     var inv = qs.get("inv");
     var sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-    var view = sp === "status" ? "me" : null;
+    var view = sp === "status" ? "me" : qs.get("view") === "motions" ? "motions" : null;
+    var motion = qs.get("motion");
+    var amend = qs.get("amend");
+    if (sp && /^motion_\d+$/.test(sp)) { motion = sp.slice(7); sp = null; }
+    if (sp && /^amend_[0-9a-f-]{36}$/.test(sp)) { amend = sp.slice(6); sp = null; }
+    if (sp === "motions") { view = "motions"; sp = null; }
     if (sp === "status" || sp === "vote" || sp === "register") sp = null;
     if (sp && /^inv_/.test(sp)) { try { inv = inv || decodeURIComponent(sp.slice(4)); } catch (_) { /* ignore */ } sp = null; }
     if (sp && /^(vote_|r_)/.test(sp)) sp = sp.replace(/^(vote_|r_)/, "");
@@ -2039,6 +2317,8 @@
     return {
       focus: id && /^[0-9a-f-]{36}$/.test(id) ? id : null,
       view: view,
+      motion: motion != null && /^\d+$/.test(motion) ? Number(motion) : null,
+      amend: amend && /^[0-9a-f-]{36}$/.test(amend) ? amend : null,
       inv: inv ? String(inv).trim().toUpperCase().slice(0, 40) : null,
     };
   }
@@ -2211,6 +2491,12 @@
     try { document.title = o ? orgName(o) + " · " + state.me.platform.name : state.me.platform.name; } catch (_) { /* ignore */ }
     if (state.me.org_required) return go("orgpick", {}, { root: true });
     if (!state.me.org && state.me.platform && state.me.platform.admin) return go("orgs", {}, { root: true });
+    if ((state.me.role === "admin" || state.me.role === "member") && (start.motion !== null && start.motion !== undefined || start.amend || start.view === "motions")) {
+      state.stack = [{ name: "motions", params: {} }];
+      if (start.amend) return go("motionform", { parent: start.amend });
+      if (start.motion !== null && start.motion !== undefined) return go(state.me.member ? "motionform" : "motions", state.me.member ? { thread: start.motion } : {}, state.me.member ? {} : { root: true });
+      return go("motions", {}, { root: true });
+    }
     if (state.me.role === "admin") {
       if (start.focus && state.me.member) go("ballots", { focus: start.focus }, { root: true });
       else go("home", {}, { root: true });

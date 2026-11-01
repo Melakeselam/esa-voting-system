@@ -66,6 +66,11 @@ pm.command("start", async (ctx) => {
     }
   }
   // Buttons from the group's command replies: /start vote, /start status, /start signin
+  if (typeof payload === "string" && /^(motion_\d+|amend_[0-9a-f-]{36})$/.test(payload)) {
+    const path = payload.startsWith("motion_") ? `?motion=${payload.slice("motion_".length)}` : `?amend=${payload.slice("amend_".length)}`;
+    await ctx.reply(payload.startsWith("motion_") ? "📝 Write your motion in the app:" : "✏️ Write your amendment in the app:", { reply_markup: appKeyboard("📝 Open", path) });
+    return;
+  }
   if (payload === "signin") return signIn(ctx, member);
   if (payload === "vote") return sendOpenBallots(ctx, member);
   if (payload === "status") return sendStatus(ctx, member);

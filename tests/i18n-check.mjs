@@ -22,7 +22,7 @@ let m;
 while ((m = re.exec(src))) keys.add(m[2].replace(/\\n/g, "\n").replace(/\\'/g, "'").replace(/\\"/g, '"'));
 const pre = /plural\([^,]+,\s*"([a-z]+)"\)/g;
 while ((m = pre.exec(src))) { keys.add(m[1]); keys.add(m[1] + "s"); }
-for (const k of ["Home", "Resolutions", "Members", "Setup", "Vote", "Results", "Me", "All", "Draft", "Open", "Closed", "Registered", "Not registered", "Locked", "Deactivated"]) keys.add(k);
+for (const k of ["Home", "Resolutions", "Members", "Setup", "Vote", "Results", "Me", "All", "Draft", "Open", "Closed", "Registered", "Not registered", "Locked", "Deactivated", "Motions", "Queue", "Awaiting a seconder", "Under debate", "Voting", "Decided", "Closed without a vote"]) keys.add(k);
 
 let failed = 0;
 const placeholders = (s) => (s.match(/\{[a-z]+\}/g) || []).sort().join(",");

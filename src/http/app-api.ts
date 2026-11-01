@@ -11,6 +11,24 @@ import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
 import { ensureCommandTopic, postKeyboard, setTopicReadOnly } from "../bot/group-commands.js";
+import { afterMotionVoteCancelled, afterMotionVoteReopened, noteInTopic, postMotionCard, refreshMotionCard, tellAdminsSeconded } from "../bot/motions.js";
+import {
+  amendmentsOf,
+  closeMotion,
+  createMotion,
+  getMotion,
+  getMotionRules,
+  listMotions,
+  memberName,
+  PENDING,
+  PendingAmendmentsError,
+  putToVote,
+  rewordMotion,
+  secondMotion,
+  setMotionRules,
+  stateMotion,
+  withdrawMotion,
+} from "../services/motions.js";
 import { getLang, isSignedIn, PRESENCES, presenceCounts, setAvatar, setLang, setPresence, type Lang } from "../services/presence.js";
 import { closeWaiting, extendVote } from "../bot/quorum-flow.js";
 import { assemblySummary, getResetMode, resetAssembly, setResetMode } from "../services/reset.js";
@@ -60,7 +78,7 @@ import {
 import { ballotCount, castVote, memberBallots, memberChoices, tally } from "../services/votes.js";
 import { activate, activationCount, needsActivation } from "../services/activation.js";
 import { formatLocal } from "../time.js";
-import type { Council, Member, Resolution, Threshold } from "../types.js";
+import type { Council, Member, Motion, MotionKind, Resolution, Threshold } from "../types.js";
 import { computeOutcome } from "../verdict.js";
 import { eligibleFor } from "../services/resolutions.js";
 import { verifyInitData, type TgUser } from "./auth.js";
@@ -649,6 +667,7 @@ route("DELETE", `/resolutions/${UUID}`, true, async (ctx, [id]) => {
   if (res.status !== "draft") throw new HttpError(409, "Only drafts can be deleted.");
   const ok = await deleteResolution(res.id);
   if (!ok) throw new HttpError(409, "The resolution is no longer a draft.");
+  if (res.motion_id) await afterMotionVoteCancelled(bot.api, res.motion_id);
   await audit(ctx.user.id, "resolution_deleted", { code: res.code, via: "app" });
   return { ok: true };
 });
@@ -686,6 +705,7 @@ route("POST", `/resolutions/${UUID}/reopen`, true, async (ctx, [id]) => {
   if (res.status !== "closed") throw new HttpError(409, "Only a closed resolution can be reopened.");
   const closesAt = parseDeadlineBody(await ctx.body());
   if (!(await reopenResolution(res.id, closesAt))) throw new HttpError(409, "The resolution is no longer closed.");
+  if (res.motion_id) await afterMotionVoteReopened(bot.api, res.id);
   await audit(ctx.user.id, "resolution_reopened", { code: res.code, closes_at: closesAt?.toISOString() ?? null, via: "app" });
   let notified = false;
   if (res.announce_chat_id) {
@@ -777,6 +797,302 @@ route("POST", `/resolutions/${UUID}/notify`, true, async (ctx, [id]) => {
   );
   if (result.next_offset === null) await audit(ctx.user.id, "ballot_notified", { code: res.code, total: result.total, via: "app" });
   return result;
+});
+
+// ---------------------------------------------------------------------------
+// Motions: moved by members, seconded, stated by the chair, amended, put to the vote
+// ---------------------------------------------------------------------------
+
+/** The member behind a request, when they may take part (registered, active, signed in). */
+async function participant(ctx: Ctx): Promise<Member> {
+  const member = await findByTelegramId(ctx.user.id);
+  if (!member || !member.is_active) throw new HttpError(403, "Only registered members can do this.", "not_registered");
+  if (!isSignedIn(member)) throw new HttpError(403, "You are signed out of the session. Sign in first.", "signed_out");
+  return member;
+}
+
+async function requireMotion(id: string): Promise<Motion> {
+  const m = await getMotion(id);
+  if (!m) throw new HttpError(404, "Motion not found.");
+  return m;
+}
+
+/** Topics of the linked group a motion may be moved in: General and every topic members post in. */
+async function motionTopics(): Promise<{ thread_id: number; name: string }[]> {
+  const group = await getLinkedGroup();
+  if (!group) return [];
+  return (await listTopics())
+    .filter((t) => Number(t.chat_id) === group.chat_id && !t.read_only)
+    .map((t) => ({ thread_id: Number(t.thread_id), name: t.name ?? (Number(t.thread_id) === 0 ? "General" : `Topic #${t.thread_id}`) }));
+}
+
+async function motionThread(v: unknown): Promise<{ chat_id: number | null; thread_id: number | null }> {
+  const group = await getLinkedGroup();
+  if (!group) return { chat_id: null, thread_id: null };
+  const wanted = int(v, "thread_id", { optional: true, min: 0 });
+  if (!wanted) return { chat_id: group.chat_id, thread_id: null };
+  const ok = (await motionTopics()).some((t) => t.thread_id === wanted);
+  return { chat_id: group.chat_id, thread_id: ok ? wanted : null };
+}
+
+function parseKind(v: unknown): MotionKind {
+  return v === "constitutional" ? "constitutional" : "main";
+}
+
+async function presentMotions(list: Motion[], viewer: Member | null, admin: boolean) {
+  const [all, resolutions, topics] = await Promise.all([listMotions(), listResolutions(), listTopics()]);
+  const byId = new Map(all.map((m) => [m.id, m]));
+  const resById = new Map(resolutions.map((r) => [r.id, r]));
+  return list.map((m) => {
+    const res = m.resolution_id ? resById.get(m.resolution_id) : undefined;
+    const topic = topics.find((t) => Number(t.chat_id) === Number(m.chat_id) && Number(t.thread_id) === Number(m.thread_id ?? 0));
+    const amendments = all.filter((a) => a.parent_id === m.id);
+    const mine = Boolean(viewer && m.mover_member_id === viewer.id);
+    return {
+      ...m,
+      parent_code: m.parent_id ? (byId.get(m.parent_id)?.code ?? null) : null,
+      merged_into_code: m.merged_into ? (byId.get(m.merged_into)?.code ?? null) : null,
+      resolution_code: res?.code ?? null,
+      resolution_status: res?.status ?? null,
+      topic_name: topic ? (topic.name ?? (Number(topic.thread_id) === 0 ? "General" : `Topic #${topic.thread_id}`)) : null,
+      amendments_total: amendments.length,
+      amendments_pending: amendments.filter((a) => PENDING.includes(a.status)).length,
+      created_at_local: formatLocal(m.created_at),
+      decided_at_local: m.decided_at ? formatLocal(m.decided_at) : null,
+      mine,
+      can_second: Boolean(viewer && m.status === "proposed" && !mine && isSignedIn(viewer)),
+      can_withdraw: (m.status === "proposed" || m.status === "seconded") && (mine || (admin && m.from_floor)),
+      can_amend: Boolean(viewer && m.status === "stated" && m.kind !== "amendment" && isSignedIn(viewer)),
+    };
+  });
+}
+
+async function motionViewer(ctx: Ctx): Promise<Member | null> {
+  const member = await findByTelegramId(ctx.user.id);
+  if (!ctx.isAdmin && (!member || !member.is_active)) throw new HttpError(403, "Only registered members can see the motions.", "not_registered");
+  return member && member.is_active ? member : null;
+}
+
+async function postCard(m: Motion): Promise<boolean> {
+  try {
+    return await postMotionCard(bot.api, m);
+  } catch (err) {
+    console.error(`motion ${m.code}: posting its card failed:`, (err as Error).message);
+    return false;
+  }
+}
+
+route("GET", "/motions", false, async (ctx) => {
+  const viewer = await motionViewer(ctx);
+  const [items, rules, topics] = await Promise.all([listMotions(), getMotionRules(), motionTopics()]);
+  return {
+    items: await presentMotions(items.reverse(), viewer, ctx.isAdmin),
+    rules,
+    topics,
+    can_move: Boolean(viewer && isSignedIn(viewer)),
+  };
+});
+
+route("GET", `/motions/${UUID}`, false, async (ctx, [id]) => {
+  const viewer = await motionViewer(ctx);
+  const m = await requireMotion(id);
+  const [e] = await presentMotions([m], viewer, ctx.isAdmin);
+  const parent = m.parent_id ? await getMotion(m.parent_id) : null;
+  return {
+    ...e,
+    parent: parent ? (await presentMotions([parent], viewer, ctx.isAdmin))[0] : null,
+    amendments: await presentMotions(await amendmentsOf(m.id), viewer, ctx.isAdmin),
+    merge_targets: ctx.isAdmin
+      ? (await listMotions()).filter((x) => x.id !== m.id && !x.parent_id && (x.status === "seconded" || x.status === "stated")).map((x) => ({ id: x.id, code: x.code, title: x.title }))
+      : [],
+  };
+});
+
+/** A member moves a motion; its card goes to the topic it was moved from. */
+route("POST", "/motions", false, async (ctx) => {
+  const member = await participant(ctx);
+  const b = await ctx.body();
+  const m = await createMotion({
+    kind: parseKind(b.kind),
+    title: str(b.title, "Title", { min: 3, max: 200 }),
+    body: str(b.body, "Wording", { min: 5, max: 3000 }),
+    mover: { member_id: member.id, name: memberName(member) },
+    ...(await motionThread(b.thread_id)),
+  });
+  await audit(ctx.user.id, "motion_moved", { code: m.code, kind: m.kind, via: "app" });
+  const posted = await postCard(m);
+  return { ...(await presentMotions([(await getMotion(m.id))!], member, ctx.isAdmin))[0], posted };
+});
+
+/** A member moves an amendment to a motion under debate. */
+route("POST", `/motions/${UUID}/amendments`, false, async (ctx, [id]) => {
+  const member = await participant(ctx);
+  const parent = await requireMotion(id);
+  if (parent.kind === "amendment") throw new HttpError(409, "An amendment cannot be amended here; propose a new amendment to the motion instead.");
+  if (parent.status !== "stated") throw new HttpError(409, "Amendments can be moved only while the chair has the motion under debate.");
+  const b = await ctx.body();
+  const m = await createMotion({
+    kind: "amendment",
+    parent,
+    title: str(b.title, "Title", { optional: true, max: 200 }) || `Amendment to ${parent.code}`,
+    body: str(b.body, "Wording", { min: 5, max: 3000 }),
+    mover: { member_id: member.id, name: memberName(member) },
+  });
+  await audit(ctx.user.id, "amendment_moved", { code: m.code, parent: parent.code, via: "app" });
+  const posted = await postCard(m);
+  return { ...(await presentMotions([(await getMotion(m.id))!], member, ctx.isAdmin))[0], posted };
+});
+
+route("POST", `/motions/${UUID}/second`, false, async (ctx, [id]) => {
+  const member = await participant(ctx);
+  const r = await secondMotion(id, member);
+  if ("refused" in r) {
+    const msg = {
+      not_found: "Motion not found.",
+      not_proposed: "This motion is no longer waiting for a seconder.",
+      own_motion: "You moved this motion; another member must second it.",
+      same_council: "The seconder must come from another council than the mover.",
+    }[r.refused];
+    throw new HttpError(r.refused === "not_found" ? 404 : 409, msg, r.refused);
+  }
+  await audit(ctx.user.id, "motion_seconded", { code: r.motion.code, via: "app" });
+  await refreshMotionCard(bot.api, r.motion);
+  await tellAdminsSeconded(bot.api, r.motion);
+  return (await presentMotions([r.motion], member, ctx.isAdmin))[0];
+});
+
+route("POST", `/motions/${UUID}/withdraw`, false, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  const member = await findByTelegramId(ctx.user.id);
+  const mine = Boolean(member && m.mover_member_id === member.id);
+  if (!mine && !(ctx.isAdmin && m.from_floor)) throw new HttpError(403, "Only the mover can withdraw a motion.");
+  const reason = str((await ctx.body()).reason, "Reason", { optional: true, max: 500 }) || null;
+  const row = await withdrawMotion(m, reason);
+  if (!row) throw new HttpError(409, "A motion can be withdrawn only until the chair states it.");
+  await audit(ctx.user.id, "motion_withdrawn", { code: m.code, via: "app" });
+  await refreshMotionCard(bot.api, row);
+  return (await presentMotions([row], member, ctx.isAdmin))[0];
+});
+
+// ---- the chair (admins)
+
+route("POST", "/motions/rules", true, async (ctx) => {
+  const b = await ctx.body();
+  let deadline: string | null = null;
+  if (b.notice_deadline) {
+    const d = new Date(String(b.notice_deadline));
+    if (Number.isNaN(d.getTime())) throw new HttpError(400, "Invalid notice deadline.");
+    deadline = d.toISOString();
+  }
+  const rules = { notice_deadline: deadline, second_other_council: b.second_other_council === true };
+  await setMotionRules(rules);
+  await audit(ctx.user.id, "motion_rules_set", { ...rules, via: "app" });
+  return rules;
+});
+
+/** A motion made aloud in the meeting, entered by the chair with its mover (and seconder, if any). */
+route("POST", "/motions/floor", true, async (ctx) => {
+  const b = await ctx.body();
+  const parent = b.parent_id ? await requireMotion(String(b.parent_id)) : null;
+  if (parent && (parent.status !== "stated" || parent.kind === "amendment")) throw new HttpError(409, "Amendments can be moved only to a motion under debate.");
+  const seconder = str(b.seconder_name, "Seconder", { optional: true, max: 120 });
+  const title = str(b.title, "Title", { optional: true, max: 200 });
+  if (!parent && title.length < 3) throw new HttpError(400, "Title is required");
+  const m = await createMotion({
+    kind: parent ? "amendment" : parseKind(b.kind),
+    parent,
+    title: title || `Amendment to ${parent!.code}`,
+    body: str(b.body, "Wording", { min: 5, max: 3000 }),
+    mover: { member_id: null, name: str(b.mover_name, "Mover", { min: 2, max: 120 }) },
+    seconder: seconder ? { member_id: null, name: seconder } : null,
+    from_floor: true,
+    ...(parent ? {} : await motionThread(b.thread_id)),
+  });
+  await audit(ctx.user.id, "motion_entered_from_floor", { code: m.code, via: "app" });
+  const posted = await postCard(m);
+  return { ...(await presentMotions([(await getMotion(m.id))!], null, true))[0], posted };
+});
+
+route("PATCH", `/motions/${UUID}`, true, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  const b = await ctx.body();
+  const row = await rewordMotion(m, str(b.title, "Title", { min: 3, max: 200 }), str(b.body, "Wording", { min: 5, max: 3000 }));
+  if (!row) throw new HttpError(409, "The wording can be changed only before the vote.");
+  await audit(ctx.user.id, "motion_reworded", { code: m.code, via: "app" });
+  await refreshMotionCard(bot.api, row);
+  return (await presentMotions([row], null, true))[0];
+});
+
+/** The chair states the motion: before the assembly, open for debate and amendments. */
+route("POST", `/motions/${UUID}/state`, true, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  const b = await ctx.body().catch(() => ({}) as Record<string, unknown>);
+  if (m.status !== "seconded") throw new HttpError(409, m.status === "proposed" ? "The motion needs a seconder first." : "The motion is not waiting for the chair.");
+  if (m.kind === "amendment") {
+    const parent = m.parent_id ? await getMotion(m.parent_id) : null;
+    if (!parent || parent.status !== "stated") throw new HttpError(409, "The motion this amendment changes is no longer under debate.");
+  }
+  if (m.late_notice && b.override !== true) {
+    throw new HttpError(409, "This constitutional motion was moved after the notice deadline. Accept it anyway only if the assembly agreed to waive the notice.", "late_notice");
+  }
+  const row = await stateMotion(m);
+  if (!row) throw new HttpError(409, "The motion is not waiting for the chair.");
+  await audit(ctx.user.id, "motion_stated", { code: m.code, late_notice_waived: m.late_notice, via: "app" });
+  await refreshMotionCard(bot.api, row);
+  await noteInTopic(
+    bot.api,
+    row,
+    m.kind === "amendment"
+      ? `🧑‍⚖️ The chair has stated amendment <b>${escapeHtml(m.code)}</b>. Debate it here; it is voted on before the motion it changes.\n🧑‍⚖️ ሰብሳቢው ማሻሻያ ${escapeHtml(m.code)}ን አቅርበዋል።`
+      : `🧑‍⚖️ The chair has stated <b>${escapeHtml(m.code)} — ${escapeHtml(m.title)}</b>. Debate is open; propose amendments with the button on the motion.\n🧑‍⚖️ ሰብሳቢው ${escapeHtml(m.code)}ን አቅርበዋል። ውይይቱ ተከፍቷል፤ ማሻሻያ በሀሳቡ ላይ ባለው አዝራር ያቅርቡ።`,
+  );
+  return (await presentMotions([row], null, true))[0];
+});
+
+async function closeByChair(ctx: Ctx, m: Motion, status: "out_of_order" | "merged" | "lapsed", reason: string | null, into: Motion | null = null) {
+  const row = await closeMotion(m, status, reason, into?.id ?? null);
+  if (!row) {
+    throw new HttpError(409, status === "lapsed" ? "Only a motion still waiting for a seconder can lapse." : "Only a motion not yet put to the vote can be closed this way.");
+  }
+  await audit(ctx.user.id, `motion_${status}`, { code: m.code, reason, into: into?.code ?? null, via: "app" });
+  await refreshMotionCard(bot.api, row);
+  for (const a of await amendmentsOf(m.id)) await refreshMotionCard(bot.api, a);
+  return (await presentMotions([row], null, true))[0];
+}
+
+route("POST", `/motions/${UUID}/out-of-order`, true, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  return closeByChair(ctx, m, "out_of_order", str((await ctx.body()).reason, "Reason", { min: 3, max: 500 }));
+});
+
+route("POST", `/motions/${UUID}/merge`, true, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  const b = await ctx.body();
+  const into = await requireMotion(String(b.into ?? ""));
+  if (into.id === m.id || into.parent_id || !(into.status === "seconded" || into.status === "stated")) throw new HttpError(400, "Merge into another motion in the queue or under debate.");
+  return closeByChair(ctx, m, "merged", str(b.reason, "Reason", { optional: true, max: 500 }) || `Same subject as ${into.code}.`, into);
+});
+
+route("POST", `/motions/${UUID}/lapse`, true, async (ctx, [id]) => {
+  return closeByChair(ctx, await requireMotion(id), "lapsed", null);
+});
+
+/** Put a stated motion to the vote: a draft resolution (For / Against / Abstain) the chair then opens. */
+route("POST", `/motions/${UUID}/vote`, true, async (ctx, [id]) => {
+  const m = await requireMotion(id);
+  if (m.status !== "stated") throw new HttpError(409, "Only a motion the chair has stated can be put to the vote.");
+  let res: Resolution | null;
+  try {
+    res = await putToVote(m);
+  } catch (err) {
+    if (err instanceof PendingAmendmentsError) throw new HttpError(409, err.message, "pending_amendments");
+    throw err;
+  }
+  if (!res) throw new HttpError(409, "Only a motion the chair has stated can be put to the vote.");
+  await audit(ctx.user.id, "motion_put_to_vote", { code: m.code, resolution: res.code, via: "app" });
+  const row = (await getMotion(m.id))!;
+  await refreshMotionCard(bot.api, row);
+  return { ...(await presentMotions([row], null, true))[0], resolution_id: res.id };
 });
 
 // ---------------------------------------------------------------------------
@@ -1699,7 +2015,7 @@ route("POST", "/setup/test-message", true, async (ctx) => {
 });
 
 route("GET", "/audit", true, async (ctx) => {
-  const limit = Math.min(200, Math.max(1, Number(ctx.query.get("limit") ?? 50) || 50));
+  const limit = Math.min(500, Math.max(1, Number(ctx.query.get("limit") ?? 50) || 50));
   const { data, error } = await supabase
     .from("audit_log")
     .select("id, actor, action, details, created_at")

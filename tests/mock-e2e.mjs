@@ -157,7 +157,7 @@ const REAL = Boolean(process.env.TEST_DATABASE_URL);
 if (!REAL) register("./hooks.mjs", import.meta.url);
 const { handleHttp } = await import(pathToFileURL(resolve(root, "dist/http/router.js")).href);
 const realDb = REAL ? await import(pathToFileURL(resolve(root, "dist/db.js")).href) : null;
-const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations", "user_prefs"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations", "user_prefs", "motions"];
 if (REAL) {
   await realDb.ensureSchema();
   await realDb.rawDb.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
@@ -659,7 +659,7 @@ try {
   eq("language: unknown language refused", r.status, 400);
 
   const kbRows = (c) => JSON.stringify(c.body.reply_markup?.keyboard?.map((row) => row.map((k) => k.text)));
-  const NEW_ROWS = JSON.stringify([["🗳 Vote", "📋 Status", "🌐 Language"], ["🤖 Bot", "🚪 Logout", "❔ Help"]]);
+  const NEW_ROWS = JSON.stringify([["🗳 Vote", "📝 Motion", "📋 Status"], ["🌐 Language", "🤖 Bot", "🚪 Logout", "❔ Help"]]);
   check("buttons: in General and every topic members post in", [null, 11, 22].every((th) => sentTo(GROUP.id, th).some((c) => c.body.text === "⌨️" && kbRows(c) === NEW_ROWS)), NEW_ROWS);
   check("buttons: not in the read-only Commands and sign-in topics", !sentTo(GROUP.id, 44).some((c) => c.body.text === "⌨️") && !sentTo(GROUP.id, 45).some((c) => c.body.text === "⌨️"));
   check("read-only: the Commands and sign-in topics are closed to members", calls("closeForumTopic", (b) => Number(b.message_thread_id) === 44).length >= 1 && calls("closeForumTopic", (b) => Number(b.message_thread_id) === 45).length >= 1);
@@ -925,6 +925,140 @@ try {
   r = await api("GET", "/resolutions/" + RQ3.id, USERS.admin);
   check("quorum: closed and valid, admins told it reached quorum", r.json?.status === "closed" && r.json.outcome?.quorumMet === true && r.json.awaiting_quorum_since === null, JSON.stringify([r.json?.status, r.json?.outcome?.quorumMet]));
 
+  // ---- Motions: moved → seconded → stated → amended → put to the vote → adopted ----
+  {
+    // After a deploy with new buttons, every linked group gets them (and the command reference) once.
+    const { refreshGroupButtons } = await import(pathToFileURL(resolve(root, "dist/bot/group-commands.js")).href);
+    const { bot: liveBot } = await import(pathToFileURL(resolve(root, "dist/bot/instance.js")).href);
+    const refsBefore = sentTo(GROUP.id).filter((c) => /\/motion — Move a motion/.test(c.body.text ?? "")).length;
+    await refreshGroupButtons(liveBot.api);
+    const refsAfter = sentTo(GROUP.id).filter((c) => /\/motion — Move a motion/.test(c.body.text ?? "")).length;
+    check("motions: after the update the command reference (with /motion) and the buttons are posted again", refsAfter === refsBefore + 1 && sentTo(GROUP.id, 11).some((c) => c.body.text === "⌨️" && JSON.stringify(c.body.reply_markup).includes("📝 Motion")), String([refsBefore, refsAfter]));
+    await refreshGroupButtons(liveBot.api);
+    eq("motions: … only once", sentTo(GROUP.id).filter((c) => /\/motion — Move a motion/.test(c.body.text ?? "")).length, refsAfter);
+    const motionRow = async (code) => (await rows("motions")).find((x) => x.code === code);
+    // A resolution created from a motion: votes without an activation code here, then open it.
+    const openVote = async (resId) => {
+      const g = (await api("GET", "/resolutions/" + resId, USERS.admin)).json;
+      await api("PATCH", "/resolutions/" + resId, USERS.admin, { title: g.title, description: g.description, options: g.options, anonymous: false, quorum: null, threshold: g.threshold, activation_required: false });
+      return api("POST", "/resolutions/" + resId + "/open", USERS.admin, {});
+    };
+    await update(groupText(USERS.abebe, 11, "📝 Motion"));
+    check("motions: 📝 Motion in a topic answers with a link to write one for that topic", JSON.stringify(sentTo(GROUP.id, 11).at(-1).body.reply_markup).includes("motion_11"), JSON.stringify(sentTo(GROUP.id, 11).at(-1).body));
+    r = await api("GET", "/motions", USERS.guest);
+    eq("motions: people who are not registered cannot see them", r.status, 403);
+    r = await api("POST", "/motions", USERS.guest, { title: "Guest motion", body: "That guests may move motions." });
+    eq("motions: and cannot move one", r.status, 403);
+
+    r = await api("POST", "/motions", USERS.abebe, { title: "Membership fee for 2027", body: "That the annual membership fee for 2027 be 200 birr.", thread_id: 11 });
+    const M1 = r.json;
+    check("motions: a member moves a motion; it is M1, waiting for a seconder", r.status === 200 && M1.code === "M1" && M1.status === "proposed" && M1.mover_name === "Abebe Kebede" && M1.posted === true, JSON.stringify(r.json));
+    const card = sentTo(GROUP.id, 11).find((c) => /M1/.test(c.body.text ?? "") && /Membership fee/.test(c.body.text ?? ""));
+    check("motions: its card is posted in the topic it was moved from, with “Second this motion”", card && JSON.stringify(card.body.reply_markup).includes(`ms|${M1.id}`), JSON.stringify(card?.body));
+
+    await update(groupCallback(USERS.abebe, `ms|${M1.id}`));
+    check("motions: the mover cannot second their own motion", /moved this motion/.test(lastCallbackText()) && (await motionRow("M1")).status === "proposed", lastCallbackText());
+    await update(groupCallback(USERS.guest, `ms|${M1.id}`));
+    check("motions: someone not registered cannot second", /registered members/.test(lastCallbackText()), lastCallbackText());
+    const adminMsgs = sentTo(1001).length;
+    await update(groupCallback(USERS.sara, `ms|${M1.id}`));
+    check("motions: another member seconds it from the card", (await motionRow("M1")).status === "seconded" && (await motionRow("M1")).seconder_name === "Sara Tesfaye" && /seconded M1/.test(lastCallbackText()), lastCallbackText());
+    const edited = calls("editMessageText", (b) => /M1/.test(b.text ?? "") && /Seconded by/.test(b.text ?? "")).at(-1);
+    check("motions: the card now shows the seconder and the button is gone", edited && !JSON.stringify(edited.body.reply_markup ?? {}).includes("ms|"), JSON.stringify(edited?.body));
+    check("motions: admins are told it is in the queue", sentTo(1001).length > adminMsgs && /seconded/.test(lastTextTo(1001)), lastTextTo(1001));
+    await update(groupCallback(USERS.dawit, `ms|${M1.id}`));
+    check("motions: a second seconder is told it no longer waits", /no longer waiting/.test(lastCallbackText()), lastCallbackText());
+
+    r = await api("GET", "/motions", USERS.dawit);
+    check("motions: members see the list with its stage", r.json?.items?.some((x) => x.code === "M1" && x.status === "seconded") && r.json.can_move === true && r.json.topics.some((t) => t.thread_id === 11), JSON.stringify(r.json?.items?.map((x) => [x.code, x.status])));
+    r = await api("POST", `/motions/${M1.id}/state`, USERS.abebe);
+    eq("motions: only the chair (admins) states a motion", r.status, 403);
+    r = await api("POST", `/motions/${M1.id}/vote`, USERS.admin);
+    eq("motions: a motion cannot go to the vote before the chair states it", r.status, 409);
+    r = await api("POST", `/motions/${M1.id}/state`, USERS.admin);
+    check("motions: the chair states M1 — debate is open", r.json?.status === "stated" && sentTo(GROUP.id, 11).some((c) => /chair has stated <b>M1/.test(c.body.text ?? "")), JSON.stringify(r.json));
+    r = await api("POST", `/motions/${M1.id}/withdraw`, USERS.abebe);
+    eq("motions: once stated, the mover can no longer withdraw it", r.status, 409);
+
+    // An amendment while M1 is under debate.
+    r = await api("POST", `/motions/${M1.id}/amendments`, USERS.dawit, { body: "That the annual membership fee for 2027 be 150 birr." });
+    const A1 = r.json;
+    check("motions: a member proposes an amendment; it is M1-A1", r.status === 200 && A1.code === "M1-A1" && A1.kind === "amendment" && A1.parent_code === "M1", JSON.stringify(r.json));
+    check("motions: the amendment's card goes to the same topic, as a reply to the motion", sentTo(GROUP.id, 11).some((c) => /M1-A1/.test(c.body.text ?? "") && c.body.reply_parameters), "");
+    r = await api("POST", `/motions/${M1.id}/vote`, USERS.admin);
+    check("motions: the motion cannot go to the vote while an amendment is pending", r.status === 409 && r.json?.code === "pending_amendments", JSON.stringify(r.json));
+    r = await api("POST", `/motions/${A1.id}/second`, USERS.sara);
+    eq("motions: seconding from the app works too", r.json?.status, "seconded");
+    await api("POST", `/motions/${A1.id}/state`, USERS.admin);
+    r = await api("POST", `/motions/${A1.id}/vote`, USERS.admin);
+    const A1res = r.json?.resolution_id;
+    check("motions: the amendment is put to the vote as a For / Against / Abstain resolution", r.json?.status === "voting" && A1res, JSON.stringify(r.json));
+    r = await openVote(A1res);
+    eq("motions: its vote opens like any resolution", r.json?.status, "open");
+    for (const u of [USERS.abebe, USERS.sara, USERS.dawit]) await api("POST", "/vote", u, { resolution_id: A1res, choice_index: 0 });
+    await api("POST", "/resolutions/" + A1res + "/close", USERS.admin);
+    check("motions: the amendment is adopted and rewrites the motion", (await motionRow("M1-A1")).status === "adopted" && /150 birr/.test((await motionRow("M1")).body) && /200 birr/.test((await motionRow("M1")).original_body), JSON.stringify(await motionRow("M1")));
+
+    r = await api("POST", `/motions/${M1.id}/vote`, USERS.admin);
+    const M1res = r.json?.resolution_id;
+    eq("motions: now the amended motion goes to the vote", r.json?.status, "voting");
+    r = await api("GET", "/resolutions/" + M1res, USERS.admin);
+    check("motions: its resolution carries the wording, mover and seconder, announced in the motion's topic", /150 birr/.test(r.json?.description) && /Moved by Abebe Kebede, seconded by Sara Tesfaye/.test(r.json?.description) && r.json?.announce_thread_id === 11 && r.json?.threshold === "simple", JSON.stringify(r.json));
+    await openVote(M1res);
+    await api("POST", "/vote", USERS.abebe, { resolution_id: M1res, choice_index: 0 });
+    await api("POST", "/vote", USERS.sara, { resolution_id: M1res, choice_index: 1 });
+    await api("POST", "/vote", USERS.dawit, { resolution_id: M1res, choice_index: 0 });
+    await api("POST", "/resolutions/" + M1res + "/close", USERS.admin);
+    check("motions: the vote closes and M1 is adopted", (await motionRow("M1")).status === "adopted" && calls("editMessageText", (b) => /M1 <\/b>|<b>M1<\/b>/.test(b.text ?? "") && /Adopted/.test(b.text ?? "")).length >= 1, JSON.stringify(await motionRow("M1")));
+    r = await api("POST", "/resolutions/" + M1res + "/reopen", USERS.admin, {});
+    eq("motions: reopening the vote puts the motion back to voting", (await motionRow("M1")).status, "voting");
+    await api("POST", "/resolutions/" + M1res + "/close", USERS.admin);
+    eq("motions: closing again decides it again", (await motionRow("M1")).status, "adopted");
+
+    // Withdrawn, lapsed, out of order, merged.
+    r = await api("POST", "/motions", USERS.dawit, { title: "Second annual camp", body: "That a second annual camp be held in the rainy season." });
+    const M2 = r.json;
+    r = await api("POST", `/motions/${M2.id}/withdraw`, USERS.sara);
+    eq("motions: only the mover withdraws", r.status, 403);
+    r = await api("POST", `/motions/${M2.id}/withdraw`, USERS.dawit, { reason: "Will bring it next year." });
+    eq("motions: the mover withdraws before the chair states it", r.json?.status, "withdrawn");
+    r = await api("POST", "/motions", USERS.dawit, { title: "Badge redesign", body: "That the membership badge be redesigned." });
+    const M3 = r.json;
+    r = await api("POST", `/motions/${M3.id}/lapse`, USERS.admin);
+    eq("motions: the chair lets an unseconded motion lapse", r.json?.status, "lapsed");
+    check("motions: a lapsed motion's card loses its button", !JSON.stringify(calls("editMessageText", (b) => /M3/.test(b.text ?? "")).at(-1)?.body.reply_markup ?? {}).includes("ms|"), "");
+    r = await api("POST", "/motions", USERS.abebe, { title: "Rename the association", body: "That the association change its name." });
+    const M4 = r.json;
+    r = await api("POST", `/motions/${M4.id}/out-of-order`, USERS.admin, { reason: "" });
+    eq("motions: ruling out of order needs a reason", r.status, 400);
+    r = await api("POST", `/motions/${M4.id}/out-of-order`, USERS.admin, { reason: "Outside the agenda of this assembly." });
+    check("motions: the chair rules a motion out of order, with the reason", r.json?.status === "out_of_order" && r.json.reason === "Outside the agenda of this assembly.", JSON.stringify(r.json));
+
+    // From the floor, constitutional, notice deadline, merge, cancelling a vote.
+    r = await api("POST", "/motions/rules", USERS.admin, { notice_deadline: new Date(Date.now() - 3600_000).toISOString(), second_other_council: false });
+    check("motions: the chair sets a notice deadline for constitutional motions", Boolean(r.json?.notice_deadline), JSON.stringify(r.json));
+    r = await api("POST", "/motions/floor", USERS.admin, { title: "Term of office", body: "That Article 12 be amended so the term of office is three years.", kind: "constitutional", mover_name: "Hirut Bekele", seconder_name: "Yonas Tadesse", thread_id: 11 });
+    const M5 = r.json;
+    check("motions: a motion from the floor is entered with its mover and seconder", M5?.status === "seconded" && M5.from_floor === true && M5.kind === "constitutional" && M5.late_notice === true, JSON.stringify(r.json));
+    r = await api("POST", "/motions", USERS.sara, { title: "Three-year terms", body: "That terms of office last three years." });
+    const M6 = r.json;
+    r = await api("POST", `/motions/${M6.id}/merge`, USERS.admin, { into: M5.id });
+    check("motions: the chair merges a duplicate into another motion", r.json?.status === "merged" && r.json.merged_into_code === M5.code, JSON.stringify(r.json));
+    r = await api("POST", `/motions/${M5.id}/state`, USERS.admin);
+    check("motions: a late constitutional motion is not accepted without waiving the notice", r.status === 409 && r.json?.code === "late_notice", JSON.stringify(r.json));
+    r = await api("POST", `/motions/${M5.id}/state`, USERS.admin, { override: true });
+    eq("motions: … and accepted once the notice is waived", r.json?.status, "stated");
+    r = await api("POST", `/motions/${M5.id}/vote`, USERS.admin);
+    const M5res = r.json?.resolution_id;
+    r = await api("GET", "/resolutions/" + M5res, USERS.admin);
+    eq("motions: a constitutional motion needs a 2/3 majority", r.json?.threshold, "two_thirds");
+    await api("DELETE", "/resolutions/" + M5res, USERS.admin);
+    eq("motions: deleting its draft vote puts the motion back under debate", (await motionRow(M5.code)).status, "stated");
+    r = await api("GET", `/motions/${M5.id}`, USERS.abebe);
+    check("motions: members can propose amendments to a motion under debate", r.json?.can_amend === true && r.json.can_second === false, JSON.stringify(r.json));
+    await api("POST", "/motions/rules", USERS.admin, { notice_deadline: null, second_other_council: false });
+  }
+
   // ---- Group gate: people in the group who are not registered --------------
   const memberUpd = (u, oldStatus, newStatus, by = USERS.admin) => ({ chat_member: { chat: GROUP, from: from(by), date: 20, old_chat_member: { status: oldStatus, user: from(u) }, new_chat_member: { status: newStatus, user: { ...from(u), username: u.username } } } });
   const stranger = { id: 3001, first_name: "Stranger", username: "str4nger" };
@@ -1138,8 +1272,8 @@ try {
   check("reset: cancel keeps everything", (await rows("members")).length > 0 && calls("editMessageText", (b) => /is kept/.test(b.text)).length === 1);
   await update(callback(USERS.admin, "reset|ask"));
   await update(callback(USERS.admin, "reset|yes"));
-  const left = await Promise.all(["members", "councils", "resolutions", "ballots", "votes", "chat_topics", "group_people"].map((tb) => rows(tb)));
-  check("reset: second tap wipes councils, members, resolutions, ballots, votes, topics and people", left.every((rs) => rs.length === 0), JSON.stringify(left.map((rs) => rs.length)));
+  const left = await Promise.all(["members", "councils", "resolutions", "ballots", "votes", "chat_topics", "group_people", "motions"].map((tb) => rows(tb)));
+  check("reset: second tap wipes councils, members, motions, resolutions, ballots, votes, topics and people", left.every((rs) => rs.length === 0), JSON.stringify(left.map((rs) => rs.length)));
   const settingsLeft = (await rows("app_settings")).map((s) => s.key);
   check("reset: group settings gone, preferences, the bot's own topic ids and admins kept", !settingsLeft.includes("group") && !settingsLeft.includes("group_link") && settingsLeft.includes("signin_topic") && settingsLeft.includes("group_gate") && (await rows("admins")).length > 0 && (await rows("audit_log")).length > 0, JSON.stringify(settingsLeft));
   check("reset: admins told what was wiped", /Wiped:/.test(calls("editMessageText").at(-1).body.text), calls("editMessageText").at(-1).body.text);
@@ -1370,7 +1504,7 @@ try {
   eq("direct: ESA keeps its councils", r.json?.org?.structure, "councils");
   defaultOrg = ORG.id;
 
-  r = await api("GET", "/audit?limit=200", USERS.admin);
+  r = await api("GET", "/audit?limit=500", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));
   check("audit: platform actions stay out of the organisation log", (await rows("audit_log")).some((a) => a.action === "webhook_registered" && a.org_id == null) && !actions.has("webhook_registered"));
   check("audit: key actions recorded", ["organization_created", "credentials_generated", "login_success", "login_failed", "resolution_created", "resolution_opened", "resolution_reopened", "resolution_announced", "group_locked", "signin_card_posted", "commands_posted", "invitation_revoked", "member_access_revoked", "deadline_without_quorum", "resolution_extended", "resolution_redo", "vote_activated", "vote_activation_locked", "activation_code_changed", "assembly_reset", "reset_mode_set", "member_registered_by_admin", "group_member_removed", "join_request_approved", "group_gate_set", "vote_cast", "vote_changed", "resolution_closed", "broadcast", "report_generated", "admin_added", "unbind", "council_created", "invitations_issued", "invitations_pdf_sent", "invitations_reissued", "topic_renamed", "group_unlinked"].every((a) => actions.has(a)), [...actions].join());

@@ -4,7 +4,7 @@ import { getSetting, setSetting } from "./settings.js";
 import { setOrgGroup } from "./orgs.js";
 
 /**
- * Wiping an assembly: councils, members (registered and invited), resolutions
+ * Wiping an assembly: councils, members (registered and invited), motions, resolutions
  * with their ballots and votes, the learned group, its topics and people, and
  * the group-related settings. Admin accounts and the audit log stay, and the
  * reset itself is audited. Used when a group was deleted and a fresh one takes
@@ -32,7 +32,7 @@ export async function assemblySummary(): Promise<AssemblySummary> {
 /** Settings that describe preferences rather than the assembly; they survive a reset. */
 // The bot's own topics and button messages are kept too, so a group the bot
 // comes back to reuses them instead of getting duplicates (they name their chat).
-const KEEP_SETTINGS = ["group_gate", "group_reset_mode", "signin_topic", "commands_topic", "live_board", "group_memory"];
+const KEEP_SETTINGS = ["group_gate", "group_reset_mode", "signin_topic", "commands_topic", "live_board", "group_memory", "buttons_version", "motion_rules"];
 
 async function wipe(table: string, notNullColumn: string): Promise<void> {
   const { error } = await supabase.from(table).delete().not(notNullColumn, "is", null);
@@ -44,6 +44,8 @@ export async function resetAssembly(by: string | number, reason: string): Promis
   // Ballots, votes and activations hang off this organisation's resolutions
   // (they carry no org_id): remove them resolution by resolution, children
   // first (the real database also cascades, the fake one does not).
+  // Motions first: they point at members and resolutions.
+  await wipe("motions", "id");
   const { data: resRows, error: rErr } = await supabase.from("resolutions").select("id");
   if (rErr) throw rErr;
   for (const r of resRows ?? []) {

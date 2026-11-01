@@ -392,3 +392,48 @@ alter table user_prefs enable row level security;
 alter table chat_topics add column if not exists read_only boolean not null default false;
 alter table chat_topics add column if not exists keyboard_message_id bigint; -- the "⌨️" message carrying the buttons
 alter table chat_topics add column if not exists panel_message_id bigint;    -- the pinned button panel (read-only topics)
+
+-- =============================================================
+-- Motions: what a member proposes before it becomes a resolution.
+-- Moved (in a topic, from the app) → seconded by another member → the chair
+-- (an admin) states it, rules it out of order, or merges it → debate, with
+-- amendments (motions of kind 'amendment' on it) → put to the vote as a
+-- resolution → adopted or lost. Withdrawn by the mover until it is stated;
+-- lapsed when nobody seconds it.
+-- =============================================================
+create table if not exists motions (
+  id                 uuid primary key default gen_random_uuid(),
+  org_id             uuid not null references organizations(id) on delete cascade,
+  code               text not null,                  -- M1, M2, ... (amendments: M3-A1)
+  kind               text not null default 'main'
+                     check (kind in ('main', 'constitutional', 'amendment')),
+  parent_id          uuid references motions(id) on delete cascade, -- the motion an amendment changes
+  title              text not null,
+  body               text not null,                  -- the wording ("That the assembly ...")
+  original_body      text,                           -- the wording as moved, once amendments changed it
+  replaced_body      text,                           -- (adopted amendment) the motion's wording it replaced
+  status             text not null default 'proposed'
+                     check (status in ('proposed', 'seconded', 'stated', 'voting', 'adopted', 'lost',
+                                       'withdrawn', 'out_of_order', 'merged', 'lapsed')),
+  mover_member_id    uuid references members(id) on delete set null,
+  mover_name         text,
+  seconder_member_id uuid references members(id) on delete set null,
+  seconder_name      text,
+  from_floor         boolean not null default false, -- entered by the chair for a motion made aloud
+  late_notice        boolean not null default false, -- constitutional motion moved after the notice deadline
+  chat_id            bigint,                         -- the topic it was moved in, and its card there
+  thread_id          bigint,
+  message_id         bigint,
+  resolution_id      uuid references resolutions(id) on delete set null,
+  merged_into        uuid references motions(id) on delete set null,
+  reason             text,                           -- why it was ruled out of order / withdrawn / merged
+  seconded_at        timestamptz,
+  stated_at          timestamptz,
+  decided_at         timestamptz,
+  created_at         timestamptz not null default now()
+);
+alter table motions enable row level security;
+create unique index if not exists motions_org_code on motions (org_id, code);
+create index if not exists motions_by_org on motions (org_id, created_at);
+-- The motion a resolution puts to the vote.
+alter table resolutions add column if not exists motion_id uuid references motions(id) on delete set null;

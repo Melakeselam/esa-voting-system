@@ -4,8 +4,9 @@ import { audit } from "../db.js";
 import { config } from "../config.js";
 import { isAdminUser } from "../services/admins.js";
 import { findByTelegramId } from "../services/members.js";
-import { deleteSetting, getSetting, getTopic, listTopics, setSetting, updateTopic, upsertTopic, type GroupMemory } from "../services/settings.js";
-import { orgWords, type OrgWords } from "../services/orgs.js";
+import { deleteSetting, getLinkedGroup, getSetting, getTopic, listTopics, setSetting, updateTopic, upsertTopic, type GroupMemory } from "../services/settings.js";
+import { listOrgs, orgWords, type OrgWords } from "../services/orgs.js";
+import { withOrg } from "../org-context.js";
 import { getLang, inLang, isSignedIn, setLang, setPresence, type Lang } from "../services/presence.js";
 import { ensureLiveBoard } from "./live-board.js";
 import { escapeHtml } from "./ui.js";
@@ -25,6 +26,7 @@ import { escapeHtml } from "./ui.js";
  */
 export const COMMANDS = [
   { command: "vote", en: "Show the resolutions open for voting and cast your ballot (in your private chat)", am: "ለድምፅ ክፍት የሆኑ የውሳኔ ሀሳቦችን ያሳያል፣ ድምፅዎን ይሰጣሉ (በግል ውይይትዎ)" },
+  { command: "motion", en: "Move a motion in this topic (another member seconds it, then the chair takes it up)", am: "በዚህ ርዕስ ሀሳብ ያቅርቡ (ሌላ አባል ይደግፈዋል፣ ከዚያ ሰብሳቢው ይቀበሉታል)" },
   { command: "status", en: "Your registration and the ballots you have cast", am: "ምዝገባዎ እና የሰጡት ድምፆች" },
   { command: "signin", en: "Sign in to the session (you count as present and can vote)", am: "ወደ ስብሰባው ይግቡ (እንደተገኙ ይቆጠራሉ፣ ድምፅ መስጠት ይችላሉ)" },
   { command: "logout", en: "Sign out of the session (you no longer count as present)", am: "ከስብሰባው ይውጡ (እንደተገኙ አይቆጠሩም)" },
@@ -37,7 +39,7 @@ type CommandName = (typeof COMMANDS)[number]["command"] | "bot";
 export const COMMANDS_TOPIC_NAME = "📖 Commands / ትዕዛዞች";
 
 /**
- * The buttons under the message box, two rows of three. Every member sees the
+ * The buttons under the message box: three, then four. Every member sees the
  * same buttons (Telegram has no per-person buttons in a group), so registering
  * is not among them: it lives in the "Register / Sign in" topic, and Vote
  * points anyone not registered there.
@@ -45,10 +47,11 @@ export const COMMANDS_TOPIC_NAME = "📖 Commands / ትዕዛዞች";
 const KEYBOARD: { label: string; command: CommandName }[][] = [
   [
     { label: "🗳 Vote", command: "vote" },
+    { label: "📝 Motion", command: "motion" },
     { label: "📋 Status", command: "status" },
-    { label: "🌐 Language", command: "language" },
   ],
   [
+    { label: "🌐 Language", command: "language" },
     { label: "🤖 Bot", command: "bot" },
     { label: "🚪 Logout", command: "logout" },
     { label: "❔ Help", command: "help" },
@@ -71,7 +74,7 @@ const LABEL_TO_COMMAND = new Map<string, CommandName>([
 ]);
 
 /** Where a button opens: the Mini App when it has a short name, else the private chat. */
-function openLink(botUsername: string, start: string): string {
+export function openLink(botUsername: string, start: string): string {
   return config.miniAppShortName
     ? `https://t.me/${botUsername}/${config.miniAppShortName}?startapp=${start}`
     : `https://t.me/${botUsername}?start=${start}`;
@@ -353,6 +356,31 @@ export async function ensureCommandTopic(
   return { thread_id: threadId, message_id: messageId, created, note: notes.length ? notes.join(" ") : null };
 }
 
+/** Raised whenever the buttons or the commands change, so every group gets them again once. */
+const BUTTONS_VERSION = 2; // 2: 📝 Motion
+
+/**
+ * After a start with new buttons or commands: post the command reference and
+ * the buttons again in every linked group, once (remembered per group).
+ */
+export async function refreshGroupButtons(api: Api): Promise<void> {
+  for (const org of await listOrgs()) {
+    await withOrg(org.id, async () => {
+      const group = await getLinkedGroup();
+      if (!group) return;
+      const done = await getSetting<{ v: number; chat_id: number }>("buttons_version");
+      if (done?.v === BUTTONS_VERSION && done.chat_id === group.chat_id) return;
+      try {
+        await ensureCommandTopic(api, group.chat_id, group.title ?? null, true, { repost: true });
+        await setSetting("buttons_version", { v: BUTTONS_VERSION, chat_id: group.chat_id });
+        console.log(`Buttons and command reference refreshed in "${group.title ?? group.chat_id}" (${group.chat_id})`);
+      } catch (err) {
+        console.error(`refreshing the buttons in ${group.chat_id} failed:`, (err as Error).message);
+      }
+    });
+  }
+}
+
 // ---------------------------------------------------------------- commands typed in the group
 
 export const groupCommandsComposer = new Composer<Context>();
@@ -398,6 +426,10 @@ const T = {
   loggedOut: ["🚪 You are signed out: you no longer count as present and cannot vote until you sign in again. Your registration is kept.", "🚪 ከስብሰባው ወጥተዋል፤ እንደተገኙ አይቆጠሩም፣ እንደገና እስኪገቡ ድረስ ድምፅ መስጠት አይችሉም። ምዝገባዎ ይቀመጣል።"],
   language: ["🌐 Choose your language for the bot and the app.", "🌐 ለቦቱ እና ለመተግበሪያው ቋንቋዎን ይምረጡ።"],
   bot: ["🤖 Your private chat with the bot: ballots, results and your status.", "🤖 ከቦቱ ጋር ያለዎት የግል ውይይት፦ ድምፆች፣ ውጤቶች እና ሁኔታዎ።"],
+  motion: [
+    "📝 Write your motion in the app. It is posted in this topic for another member to second; the chair then takes it up. Keep talking here meanwhile.",
+    "📝 ሀሳብዎን በመተግበሪያው ይጻፉ። ሌላ አባል እንዲደግፈው በዚህ ርዕስ ይለጠፋል፤ ከዚያ ሰብሳቢው ይቀበሉታል። እስከዚያው እዚህ መወያየት ይቀጥሉ።",
+  ],
 } as const;
 
 async function say(ctx: Context, key: keyof typeof T): Promise<string> {
@@ -469,6 +501,13 @@ async function answerLogout(ctx: Context): Promise<void> {
   await answer(ctx, await say(ctx, "loggedOut"), signInButton());
 }
 
+async function answerMotion(ctx: Context): Promise<void> {
+  const m = await memberOf(ctx);
+  if (!m) return answerUnregistered(ctx);
+  if (!isSignedIn(m)) return answer(ctx, await say(ctx, "signedOut"), signInButton());
+  await answer(ctx, await say(ctx, "motion"), new InlineKeyboard().url("📝 Write a motion / ሀሳብ ይጻፉ", openLink(ctx.me.username, `motion_${threadOf(ctx) ?? 0}`)));
+}
+
 async function answerLanguage(ctx: Context): Promise<void> {
   await answer(
     ctx,
@@ -488,6 +527,7 @@ async function answerHelp(ctx: Context): Promise<void> {
 const ANSWERS: Record<CommandName, (ctx: Context) => Promise<void>> = {
   vote: answerVote,
   status: answerStatus,
+  motion: answerMotion,
   register: answerRegister,
   signin: answerSignIn,
   logout: answerLogout,
@@ -498,6 +538,7 @@ const ANSWERS: Record<CommandName, (ctx: Context) => Promise<void>> = {
 
 grp.command(["vote", "start"], answerVote);
 grp.command("status", answerStatus);
+grp.command("motion", answerMotion);
 grp.command("register", answerRegister);
 grp.command("signin", answerSignIn);
 grp.command("logout", answerLogout);

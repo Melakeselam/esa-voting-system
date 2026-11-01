@@ -51,9 +51,53 @@ export interface Resolution {
   status: ResolutionStatus;
   announce_chat_id: number | null;
   announce_thread_id: number | null;
+  motion_id?: string | null; // the motion this resolution puts to the vote
   closes_at: string | null;
   opened_at: string | null;
   closed_at: string | null;
+}
+
+export type MotionKind = "main" | "constitutional" | "amendment";
+
+export type MotionStatus =
+  | "proposed" // moved, waiting for a seconder
+  | "seconded" // in the chair's queue
+  | "stated" // before the assembly: debate and amendments
+  | "voting" // put to the vote as a resolution
+  | "adopted"
+  | "lost"
+  | "withdrawn" // by the mover, before the chair stated it
+  | "out_of_order" // the chair's ruling
+  | "merged" // folded into another motion
+  | "lapsed"; // nobody seconded it
+
+export interface Motion {
+  id: string;
+  org_id: string;
+  code: string; // M1, M2, ...; amendments M3-A1
+  kind: MotionKind;
+  parent_id: string | null;
+  title: string;
+  body: string;
+  original_body: string | null;
+  replaced_body: string | null;
+  status: MotionStatus;
+  mover_member_id: string | null;
+  mover_name: string | null;
+  seconder_member_id: string | null;
+  seconder_name: string | null;
+  from_floor: boolean;
+  late_notice: boolean;
+  chat_id: number | null;
+  thread_id: number | null;
+  message_id: number | null;
+  resolution_id: string | null;
+  merged_into: string | null;
+  reason: string | null;
+  seconded_at: string | null;
+  stated_at: string | null;
+  decided_at: string | null;
+  created_at: string;
 }
 
 export type CastVoteResult =

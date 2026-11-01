@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 const DEFAULTS = {
   members: () => ({ id: randomUUID(), full_name: null, region: null, phone: null, council_id: null, seat_no: null, vote_weight: 1, telegram_user_id: null, registered_at: null, failed_attempts: 0, locked_until: null, is_active: true, created_at: now() }),
-  resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, eligible_count: null, activation_required: true, activation_code: null, awaiting_quorum_since: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
+  resolutions: () => ({ id: randomUUID(), description: null, anonymous: true, quorum: null, eligible_count: null, activation_required: true, activation_code: null, awaiting_quorum_since: null, threshold: "simple", status: "draft", announce_chat_id: null, announce_thread_id: null, motion_id: null, closes_at: null, opened_at: null, closed_at: null, created_at: now() }),
   ballots: () => ({ created_at: now() }),
   votes: () => ({ id: randomUUID(), member_id: null, weight: 1, created_at: now(), updated_at: now() }),
   audit_log: () => ({ details: null, created_at: now() }),
@@ -24,13 +24,14 @@ const DEFAULTS = {
   pending_invitations: () => ({ created_at: now() }),
   user_active_org: () => ({ updated_at: now() }),
   user_prefs: () => ({ lang: null, updated_at: now() }),
+  motions: () => ({ id: randomUUID(), kind: "main", parent_id: null, original_body: null, replaced_body: null, status: "proposed", mover_member_id: null, mover_name: null, seconder_member_id: null, seconder_name: null, from_floor: false, late_notice: false, chat_id: null, thread_id: null, message_id: null, resolution_id: null, merged_into: null, reason: null, seconded_at: null, stated_at: null, decided_at: null, created_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
   app_settings: ["org_id", "key"], chat_topics: ["chat_id", "thread_id"], admins: ["org_id", "telegram_user_id"], councils: ["id"],
   group_people: ["chat_id", "user_id"],
   vote_activations: ["resolution_id", "member_id"],
-  organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"], user_prefs: ["telegram_user_id"],
+  organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"], user_prefs: ["telegram_user_id"], motions: ["id"],
 };
 // Mirrors db/schema.sql: uniqueness is per organisation, invitation codes are unique everywhere.
 const UNIQUE = {
@@ -46,9 +47,10 @@ const UNIQUE = {
   pending_invitations: [["telegram_user_id"]],
   user_active_org: [["telegram_user_id"]],
   user_prefs: [["telegram_user_id"]],
+  motions: [["org_id", "code"]],
 };
 // Organisation tables: an insert without org_id is a bug the real database would reject (NOT NULL).
-const NEEDS_ORG = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings"]);
+const NEEDS_ORG = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings", "motions"]);
 
 function now() { return new Date().toISOString(); }
 function same(a, b) { return a === b || (a != null && b != null && String(a) === String(b)); }
