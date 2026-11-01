@@ -125,17 +125,22 @@ async function askWhichOrgForGroup(ctx: Context): Promise<void> {
   askedGroups.set(chat.id, Date.now());
   const kb = new InlineKeyboard();
   for (const org of mine) kb.text(org.name_en, `gswitch|${chat.id}|${org.id}`).row();
-  const question = `👥 I was added to <b>${escapeHtml(title)}</b>. Which organisation is this group for?`;
+  // Ask in the group, where the person who just added the bot is looking; the
+  // set-up (topics, buttons, group name) waits for this answer.
+  const question =
+    `👥 <b>Which organisation is this group for?</b>\n` +
+    `Tap it below. I then name the group after it and set up the sign-in and commands topics.\n\n` +
+    `<i>Only an administrator of that organisation can choose.</i>`;
   try {
-    await ctx.api.sendMessage(from.id, question, { parse_mode: "HTML", reply_markup: kb });
-    console.log(`Added to "${title}" (${chat.id}) — asked ${from.id} privately which organisation it is for`);
+    await ctx.api.sendMessage(chat.id, question, { parse_mode: "HTML", reply_markup: kb });
+    console.log(`Added to "${title}" (${chat.id}) — asked in the group which organisation it is for`);
     return;
   } catch {
-    // The admin never opened a private chat with the bot (e.g. a new bot): ask in the group instead.
+    // Not allowed to post there (e.g. added without the right to send messages): ask privately instead.
   }
   try {
-    await ctx.api.sendMessage(chat.id, `${question}\n\n<i>Only an administrator can choose.</i>`, { parse_mode: "HTML", reply_markup: kb });
-    console.log(`Added to "${title}" (${chat.id}) — asked in the group which organisation it is for`);
+    await ctx.api.sendMessage(from.id, `👥 I was added to <b>${escapeHtml(title)}</b>. Which organisation is this group for?`, { parse_mode: "HTML", reply_markup: kb });
+    console.log(`Added to "${title}" (${chat.id}) — asked ${from.id} privately which organisation it is for`);
   } catch (err) {
     console.error(`Added to "${title}" (${chat.id}) but could not ask which organisation it is for:`, (err as Error).message);
   }
@@ -158,6 +163,9 @@ orgComposer.use(async (ctx: Context, next: NextFunction) => {
     return;
   }
 
+  // Removed from a group: the next time it is added, ask about the organisation again.
+  const gone = ctx.myChatMember?.new_chat_member.status;
+  if (ctx.myChatMember && (gone === "left" || gone === "kicked")) askedGroups.delete(ctx.myChatMember.chat.id);
   // A group without Topics: warn, tell whoever added the bot, and leave.
   if (await refuseGroupWithoutTopics(ctx)) return;
 

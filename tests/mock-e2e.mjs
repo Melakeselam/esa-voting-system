@@ -1087,8 +1087,8 @@ try {
   check("brand: AEA's per-member PDF is named after AEA", r.json?.files?.[0]?.startsWith("aea-invitation-"), JSON.stringify(r.json?.files));
   const OTHER_GROUP = { id: -1000950, type: "supergroup", title: "Mystery group", is_forum: true };
   await update({ my_chat_member: { chat: OTHER_GROUP, from: from(USERS.admin), date: 31, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
-  const ask = sentTo(1001).at(-1);
-  check("orgs(group): a platform admin adding the bot is asked which organisation", /Which organisation is this group for/.test(ask.body.text) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${ORG.id}`) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${AEA.id}`), JSON.stringify(ask.body));
+  const ask = sentTo(OTHER_GROUP.id).find((c) => /Which organisation is this group for/.test(c.body.text ?? "")) ?? { body: {} };
+  check("orgs(group): a platform admin adding the bot is asked in the group which organisation", /Which organisation is this group for/.test(ask.body.text) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${ORG.id}`) && JSON.stringify(ask.body.reply_markup).includes(`gswitch|${OTHER_GROUP.id}|${AEA.id}`), JSON.stringify(ask.body));
   await update(callback(USERS.admin, `gswitch|${OTHER_GROUP.id}|${ORG.id}`));
   r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
   eq("orgs(group): choosing ESA links the group to ESA", r.json?.group?.chat_id, OTHER_GROUP.id);
@@ -1096,6 +1096,7 @@ try {
   eq("orgs(group): AEA keeps its own group", r.json?.group?.chat_id, AEA_GROUP.id);
   // A new bot the admin never started privately: the question is asked in the group instead.
   const FRESH_GROUP = { id: -1000960, type: "supergroup", title: "Fresh group", is_forum: true };
+  chatInfo.set(FRESH_GROUP.id, FRESH_GROUP);
   blockedUsers.add(1001);
   await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 33, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "member", user: BOT } } });
   await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 34, old_chat_member: { status: "member", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
@@ -1107,7 +1108,16 @@ try {
   await update(freshPress);
   r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
   eq("orgs(group): choosing in the group links it", r.json?.group?.chat_id, FRESH_GROUP.id);
+  const edited = calls("editMessageText").at(-1);
+  check("orgs(group): the question turns into the choice made", (edited?.body.text ?? "").includes("is now the group of <b>Ethiopia Scout Association (Kene Voting System)</b>"), JSON.stringify(edited?.body));
+  check("orgs(group): the chosen group is renamed", calls("setChatTitle", (b) => Number(b.chat_id) === FRESH_GROUP.id).at(-1)?.body.title === "Fresh group | Ethiopia Scout Association (Kene Voting System)", JSON.stringify(calls("setChatTitle").at(-1)?.body));
   check("orgs(group): the chosen group gets the sign-in topic", sentTo(FRESH_GROUP.id).some((c) => /Sign in/.test(c.body.text ?? "")), JSON.stringify(sentTo(FRESH_GROUP.id).map((c) => c.body.text?.slice(0, 40))));
+  const REDO = { id: -1000965, type: "supergroup", title: "Redo group", is_forum: true };
+  const redoAsks = () => sentTo(REDO.id).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length;
+  await update({ my_chat_member: { chat: REDO, from: from(USERS.admin), date: 40, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  await update({ my_chat_member: { chat: REDO, from: from(USERS.admin), date: 41, old_chat_member: { status: "administrator", user: BOT }, new_chat_member: { status: "left", user: BOT } } });
+  await update({ my_chat_member: { chat: REDO, from: from(USERS.admin), date: 42, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  eq("orgs(group): removed and added again, the bot asks again", redoAsks(), 2);
   await update(callback(USERS.admin, `gswitch|${OTHER_GROUP.id}|${ORG.id}`));
   r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
   eq("orgs(group): switching back restores the earlier group", r.json?.group?.chat_id, OTHER_GROUP.id);

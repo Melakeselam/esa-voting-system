@@ -10,6 +10,7 @@ import { lockGroupPermissions } from "./group-lock.js";
 import { onBotPromoted } from "./gate.js";
 import { onBotRemoved } from "./reset-flow.js";
 import { getLinkedGroup, setLinkedGroup, unlinkGroup, upsertTopic } from "../services/settings.js";
+import { brandedName, currentOrg } from "../services/orgs.js";
 
 /**
  * Learns the assembly group and its forum topics from the updates the bot
@@ -223,8 +224,13 @@ groupComposer.callbackQuery(/^gswitch\|(-?\d+)(?:\|[0-9a-f-]{36})?$/, async (ctx
   const title = chat.title ?? null;
   await linkGroupIfUnset(chatId, title);
   await upsertTopic({ chat_id: chatId, thread_id: 0, name: "General", chat_title: title });
-  await ctx.answerCallbackQuery({ text: "Switched." });
-  await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+  const org = await currentOrg();
+  await ctx.answerCallbackQuery({ text: org ? `Linked to ${org.name_en}.` : "Switched." });
+  try {
+    await ctx.editMessageText(`✅ <b>${escapeHtml(title ?? String(chatId))}</b> is now the group of <b>${escapeHtml(brandedName(org))}</b>.`, { parse_mode: "HTML" });
+  } catch {
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+  }
   const isAdminThere = await (async () => {
     try {
       const m = await ctx.api.getChatMember(chatId, ctx.me.id);
