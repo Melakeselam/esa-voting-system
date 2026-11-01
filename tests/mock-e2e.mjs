@@ -68,6 +68,9 @@ const tgServer = createServer(async (req, res) => {
     if (media) { try { body.media = JSON.parse(media[1]); } catch { /* not JSON */ } }
     body.bytes = raw.length;
     body.is_pdf = raw.includes("%PDF-");
+    body.is_xlsx = raw.includes("PK\u0003\u0004") && raw.includes("xl/workbook.xml");
+    // Cell texts of a (stored, uncompressed) .xlsx in file order: the first sheet's header comes first.
+    body.xlsx_texts = [...raw.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((x) => x[1]);
   }
   tgCalls.push({ method, body });
   if (method === "sendMessage" && blockedUsers.has(Number(body.chat_id))) {
@@ -299,7 +302,7 @@ try {
   r = await api("POST", "/setup/group/signin", USERS.admin);
   check("signin: re-posted from Setup into the same topic", r.json?.thread_id === 44 && r.json.note === null && sentTo(GROUP.id, 44).length === 2 && calls("createForumTopic", (b) => /Sign in/.test(b.name)).length === 1, JSON.stringify(r.json));
   check("commands: a Commands topic was created with the bilingual reference pinned", calls("createForumTopic", (b) => /Commands/.test(b.name)).length === 1 && sentTo(GROUP.id, 45).some((c) => /\/vote — Show/.test(c.body.text) && /\/vote — ለድምፅ/.test(c.body.text) && c.body.reply_markup?.keyboard?.length === 1 && c.body.reply_markup.keyboard[0].map((k) => k.text).join("|") === "🗳 Vote|📋 Status|📝 Register|❔ Help") && calls("pinChatMessage").length >= 2, JSON.stringify(sentTo(GROUP.id, 45).map((c) => c.body.text.slice(0, 40))));
-  check("commands: command buttons also shown in General", sentTo(GROUP.id, null).some((c) => /buttons below the message box/.test(c.body.text) && c.body.reply_markup?.keyboard), JSON.stringify(sentTo(GROUP.id, null).map((c) => c.body.text.slice(0, 40))));
+  check("commands: command buttons also shown in General", sentTo(GROUP.id, null).some((c) => c.body.text === "⌨️" && c.body.reply_markup?.keyboard), JSON.stringify(sentTo(GROUP.id, null).map((c) => c.body.text.slice(0, 40))));
   check("commands: '/' menu registered for the group in English and Amharic", calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && !b.language_code && b.commands.some((c) => c.command === "vote")).length === 1 && calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && b.language_code === "am" && /ድምፅ/.test(b.commands[0].description)).length === 1, JSON.stringify(calls("setMyCommands").map((c) => c.body.scope)));
   r = await api("POST", "/setup/group/commands", USERS.admin);
   check("commands: re-posted from Setup", r.json?.thread_id === 45 && r.json.note === null && sentTo(GROUP.id, 45).length === 2, JSON.stringify(r.json));
@@ -871,7 +874,7 @@ try {
   check("gate: remove from Setup", r.json?.ok === true && calls("banChatMember", (b) => Number(b.user_id) === 3002).length === 1);
 
   // ---- Revoking invitations and access ----------------------------------------
-  r = await api("POST", "/councils", USERS.admin, { name: "Revoke Test Council", seats: 2 });
+  r = await api("POST", "/councils", USERS.admin, { name: "Revoke Test Council", seats: 3 });
   const RTC = r.json.council;
   r = await api("POST", "/councils/" + RTC.id + "/invitations", USERS.admin, { count: 1 });
   const revInv = r.json.rows[0];
@@ -895,6 +898,42 @@ try {
   check("revoke: member deactivated and Telegram account detached", revoked && revoked.is_active === false && revoked.telegram_user_id === null, JSON.stringify(revoked));
   r = await api("GET", "/me", { id: 3001, first_name: "Stranger" });
   eq("revoke: the person is a guest again", r.json?.role, "guest");
+
+  // ---- Seats are the limit -----------------------------------------------------
+  r = await api("POST", "/councils", USERS.admin, { name: "Seat Limit Council", seats: 2 });
+  const SLC = r.json.council;
+  r = await api("POST", "/councils/" + SLC.id + "/invitations", USERS.admin, { count: 3 });
+  check("seats: more invitations than seats at once is refused", r.status === 409 && r.json?.code === "seats_full" && /2 voting seat/.test(r.json?.error ?? ""), JSON.stringify([r.status, r.json]));
+  check("seats: nothing was issued by the refused request", (await rows("members")).filter((m) => m.council_id === SLC.id).length === 0);
+  r = await api("POST", "/councils/" + SLC.id + "/invitations", USERS.admin, { count: 2 });
+  eq("seats: up to the seats is fine", [r.status, r.json?.rows?.length, r.json?.council?.occupied], [200, 2, 2]);
+  r = await api("POST", "/councils/" + SLC.id + "/invitations", USERS.admin, { names: ["One Too Many"] });
+  check("seats: a full council refuses one more", r.status === 409 && r.json?.code === "seats_full" && /no more can be issued/.test(r.json?.error ?? ""), JSON.stringify([r.status, r.json]));
+  r = await api("PATCH", "/councils/" + SLC.id, USERS.admin, { seats: 1 });
+  eq("seats: cannot be lowered below the invitations issued", [r.status, r.json?.code], [409, "seats_below_issued"]);
+  r = await api("GET", "/councils/" + SLC.id, USERS.admin);
+  const slcFirst = r.json.invitations[0];
+  r = await api("POST", "/members/" + slcFirst.id + "/active", USERS.admin, { active: false });
+  r = await api("POST", "/councils/" + SLC.id + "/invitations", USERS.admin, { names: ["Replacement"] });
+  eq("seats: a deactivated invitation frees its seat", [r.status, r.json?.council?.occupied, r.json?.council?.issued], [200, 2, 3]);
+  r = await api("POST", "/members/" + slcFirst.id + "/active", USERS.admin, { active: true });
+  eq("seats: reactivating into a full council is refused", [r.status, r.json?.code], [409, "seats_full"]);
+  r = await api("PATCH", "/councils/" + SLC.id, USERS.admin, { seats: 3 });
+  r = await api("POST", "/members/" + slcFirst.id + "/active", USERS.admin, { active: true });
+  eq("seats: after raising the seats it can be reactivated", [r.status, r.json?.is_active], [200, true]);
+  r = await api("GET", "/councils", USERS.admin);
+  eq("seats: the council list reports the occupied seats", r.json.items.find((c) => c.id === SLC.id)?.occupied, 3);
+
+  // ---- Excel templates ----------------------------------------------------------
+  for (const [kind, header] of [["councils", ["Council", "Name", "Phone", "Seats", "Votes each"]], ["delegates", ["Name", "Phone"]], ["members", ["Name", "Phone", "Votes"]]]) {
+    r = await api("POST", "/templates", USERS.admin, { kind });
+    const doc = calls("sendDocument", (b) => Number(b.chat_id) === 1001 && b.filename === r.json?.file).at(-1);
+    check(`templates: ${kind} template sent to the admin chat as .xlsx with its header row`, r.status === 200 && /-template\.xlsx$/.test(r.json?.file ?? "") && doc?.body.is_xlsx && JSON.stringify(doc.body.xlsx_texts.slice(0, header.length)) === JSON.stringify(header), JSON.stringify([r.status, r.json, doc?.body.xlsx_texts?.slice(0, 6)]));
+  }
+  r = await api("POST", "/templates", USERS.admin, { kind: "nope" });
+  eq("templates: an unknown template is refused", r.status, 400);
+  r = await api("POST", "/templates", USERS.guest, { kind: "councils" });
+  check("templates: admins only", r.status === 403 || r.status === 401, String(r.status));
 
   // ---- Delegates by phone number ---------------------------------------------
   r = await api("POST", "/councils/" + RTC.id + "/invitations", USERS.admin, { people: [{ name: "Kebede Alemu", phone: "0911 23 45 67" }, { phone: "+251-922-345-678" }, { name: "", phone: "911555666" }] });

@@ -52,7 +52,8 @@
           "Use this instead of plain credentials when voting members are chosen by councils (regions, sections). Each council gets a fixed number of invitations; each invitation is one voting seat.",
           { steps: [
             "Members → “＋ Invitations” → “Add council”: enter the council name and the number of voting delegates (seats). Paste the delegate names one per line if you know them; leave the box empty for anonymous invitations the council assigns itself.",
-            "Or tap “Import councils from Excel / CSV” and upload a sheet with the columns Council, Name, Seats (one row per delegate, or one row per council with a number of seats). Check the preview, then “Create councils and invitations”.",
+            "Or tap “Import councils from Excel / CSV”: tap “📥 Download Excel template” to get a sheet with the columns Council, Name, Phone, Seats, Votes each in your chat, fill it in and upload it. One row per delegate, or one row per council with only its number of seats — that many anonymous invitations are then issued. Check the preview, then “Create councils and invitations”.",
+            "The number of voting delegates (seats) is a limit: a council never gets more invitations than its seats. Raise the seats (Edit on the council page) before adding more delegates; revoking an unused invitation frees its seat.",
             "The bot sends you one PDF per council: two invitations per A4 page, each with the council, the delegate, the invitation code, the password, a QR code and a link. Print it and cut along the dashed line, or forward the PDF to the council.",
             "The council hands one invitation to each chosen member. The member scans the QR code (or opens the link), taps Start, and enters the password: the code is already filled in.",
             "On the council page you see who has registered. “New passwords for unregistered delegates” renews the sheet if it was lost; registered delegates are not affected.",
@@ -227,7 +228,8 @@
           "ድምፅ ሰጪ አባላት በምክር ቤቶች (ክልሎች፣ ክፍሎች) ሲመረጡ ከተራ የመግቢያ መረጃ ይልቅ ይህንን ይጠቀሙ። እያንዳንዱ ምክር ቤት የተወሰነ ቁጥር ያላቸው ጥሪዎች ያገኛል፤ እያንዳንዱ ጥሪ አንድ የድምፅ መቀመጫ ነው።",
           { steps: [
             "«አባላት» → «＋ ጥሪዎች» → «ምክር ቤት አክል»፦ የምክር ቤቱን ስም እና የድምፅ ሰጪ ተወካዮች ብዛት (መቀመጫዎች) ያስገቡ። ስሞቹን ካወቁ በእያንዳንዱ መስመር አንድ ተወካይ ይለጥፉ፤ ምክር ቤቱ ራሱ የሚያከፋፍላቸው ስም-አልባ ጥሪዎች ከፈለጉ ሳጥኑን ባዶ ይተውት።",
-            "ወይም «ምክር ቤቶችን ከኤክሴል / CSV አስመጣ»ን ነክተው ምክር ቤት፣ ስም፣ መቀመጫዎች የሚሉ አምዶች ያሉት ሰንጠረዥ ይስቀሉ (በእያንዳንዱ ተወካይ አንድ ረድፍ፣ ወይም በእያንዳንዱ ምክር ቤት የመቀመጫ ብዛት ያለው አንድ ረድፍ)። ቅድመ እይታውን ይመልከቱ፣ ከዚያ «ምክር ቤቶች እና ጥሪዎች ፍጠር»።",
+            "ወይም «ምክር ቤቶችን ከኤክሴል / CSV አስመጣ»ን ይንኩ፦ «📥 የኤክሴል ቅጽ አውርድ»ን ነክተው ምክር ቤት፣ ስም፣ ስልክ፣ መቀመጫዎች፣ ድምፅ ለእያንዳንዱ የሚሉ አምዶች ያሉት ሉህ በቻትዎ ያግኙ፣ ይሙሉት እና ይስቀሉት። በእያንዳንዱ ተወካይ አንድ ረድፍ፣ ወይም በእያንዳንዱ ምክር ቤት የመቀመጫ ብዛቱን ብቻ የያዘ አንድ ረድፍ — ያንን ያህል ስም-አልባ ጥሪዎች ይሰጣሉ። ቅድመ እይታውን ይመልከቱ፣ ከዚያ «ምክር ቤቶች እና ጥሪዎች ፍጠር»።",
+            "የድምፅ ሰጪ ተወካዮች ብዛት (መቀመጫዎች) ገደብ ነው፦ ምክር ቤት ከመቀመጫዎቹ በላይ ጥሪ አያገኝም። ተጨማሪ ተወካዮችን ከማከልዎ በፊት መቀመጫዎቹን ይጨምሩ (በምክር ቤቱ ገጽ ላይ አርትዕ)፤ ያልተጠቀመ ጥሪን መሰረዝ መቀመጫውን ነፃ ያደርጋል።",
             "ቦቱ ለእያንዳንዱ ምክር ቤት አንድ PDF ይልክልዎታል፦ በእያንዳንዱ A4 ገጽ ሁለት ጥሪዎች፣ እያንዳንዱ ምክር ቤቱን፣ ተወካዩን፣ የጥሪ ኮዱን፣ የይለፍ ቃሉን፣ QR ኮድ እና አገናኝ የያዘ። አትመው በነጥብ መስመሩ ይቁረጡ፣ ወይም PDFውን ለምክር ቤቱ ያስተላልፉ።",
             "ምክር ቤቱ ለእያንዳንዱ የተመረጠ አባል አንድ ጥሪ ይሰጣል። አባሉ QR ኮዱን ይቃኛል (ወይም አገናኙን ይከፍታል)፣ Start ይነካል፣ እና የይለፍ ቃሉን ያስገባል፤ ኮዱ አስቀድሞ ተሞልቷል።",
             "በምክር ቤቱ ገጽ ላይ ማን እንደተመዘገበ ያያሉ። «ላልተመዘገቡ ተወካዮች አዲስ የይለፍ ቃላት» ወረቀቱ ከጠፋ ያድሰዋል፤ የተመዘገቡ ተወካዮች አይነኩም።",

@@ -144,12 +144,8 @@ export async function ensureCommandTopic(
   // The buttons live with the message they were sent with, so show them in the main chat too.
   if (threadId !== null) {
     try {
-      await api.sendMessage(
-        chatId,
-        `📖 The buttons below the message box — Vote, Status, Register, Help — do the same as /vote, /status, /register and /help. The “${COMMANDS_TOPIC_NAME}” topic explains each one.\n` +
-          `📖 ከመልዕክት ሳጥኑ በታች ያሉት አዝራሮች — Vote፣ Status፣ Register፣ Help — እንደ /vote፣ /status፣ /register እና /help ይሠራሉ። «${COMMANDS_TOPIC_NAME}» ርዕስ እያንዳንዱን ያብራራል።`,
-        { reply_markup: commandKeyboard() },
-      );
+      // Telegram shows buttons only with a message; keep it to a keyboard sign, the buttons speak for themselves.
+      await api.sendMessage(chatId, "⌨️", { reply_markup: commandKeyboard() });
     } catch {
       // Not essential.
     }

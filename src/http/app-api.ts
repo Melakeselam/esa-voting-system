@@ -19,8 +19,9 @@ import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText,
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
 import { credentialsCsv, generateCredentials, normalizePhone, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
-import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, reissuePasswords, updateCouncil, type DelegateEntry } from "../services/councils.js";
+import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, occupiedSeats, reissuePasswords, SeatsFullError, updateCouncil, type DelegateEntry } from "../services/councils.js";
 import { ethiopicFontAvailable, invitationLink, invitationsPdf, type InvitationRow } from "../invitations.js";
+import { TEMPLATE_KINDS, templateFile, type TemplateKind } from "../templates.js";
 import {
   findById,
   findByTelegramId,
@@ -798,6 +799,12 @@ route("POST", `/members/${UUID}/active`, true, async (ctx, [id]) => {
   const m = await findById(id);
   if (!m) throw new HttpError(404, "Member not found.");
   const active = bool((await ctx.body()).active, "active", !m.is_active);
+  if (active && !m.is_active && m.council_id) {
+    // Reactivating takes a seat back: only while the council has one free.
+    const c = await getCouncil(m.council_id);
+    const occupied = occupiedSeats(await councilMembers(m.council_id));
+    if (c && occupied >= c.seats) throw new HttpError(409, new SeatsFullError(c, occupied, 1).message, "seats_full");
+  }
   await setMemberActive(id, active);
   await audit(ctx.user.id, active ? "member_activated" : "member_deactivated", { token: m.token_id, via: "app" });
   return { ok: true, is_active: active };
@@ -911,6 +918,21 @@ route("POST", "/members/credentials-file", true, async (ctx) => {
   return { ok: true, count: rows.length };
 });
 
+/** Send a fill-in Excel template for an upload (councils + delegates, a council's delegates, or members) to the admin's chat. */
+route("POST", "/templates", true, async (ctx) => {
+  const kind = str((await ctx.body()).kind, "kind") as TemplateKind;
+  if (!TEMPLATE_KINDS.includes(kind)) throw new HttpError(400, "Unknown template.");
+  const file = templateFile(kind, await orgWords());
+  try {
+    await bot.api.sendDocument(ctx.user.id, new InputFile(file.data, file.name), {
+      caption: "📥 Fill in the first sheet (keep its header row), then upload the file in the app. The second sheet explains each column.",
+    });
+  } catch (err) {
+    throw new HttpError(502, `Could not send the file to your chat: ${(err as Error).message}. Send /start to the bot first.`);
+  }
+  return { ok: true, file: file.name };
+});
+
 /** DM all registered members, in batches (call again with next_offset). */
 route("POST", "/broadcast", true, async (ctx) => {
   const b = await ctx.body();
@@ -1005,7 +1027,13 @@ route("PATCH", `/councils/${UUID}`, true, async (ctx, [id]) => {
     patch.name = name;
   }
   const seats = int(b.seats, "Seats", { optional: true, min: 1, max: 1000 });
-  if (seats !== null) patch.seats = seats;
+  if (seats !== null) {
+    const occupied = occupiedSeats(await councilMembers(id));
+    if (seats < occupied) {
+      throw new HttpError(409, `${occupied} invitation(s) of this council are already issued, so it needs at least ${occupied} voting seats. Revoke unused invitations first to lower it.`, "seats_below_issued");
+    }
+    patch.seats = seats;
+  }
   const voteWeight = int(b.vote_weight, "Votes per delegate", { optional: true, min: 1, max: 100 });
   if (voteWeight !== null) patch.vote_weight = voteWeight;
   await updateCouncil(id, patch);
@@ -1045,7 +1073,13 @@ route("POST", `/councils/${UUID}/invitations`, true, async (ctx, [id]) => {
   }
   if (entries.length === 0) throw new HttpError(400, "Nobody to invite.");
   if (entries.length > INVITE_BATCH) throw new HttpError(400, `At most ${INVITE_BATCH} per request; the app sends larger lists in batches.`);
-  const rows = await issueInvitations(c, entries);
+  let rows: CredentialRow[];
+  try {
+    rows = await issueInvitations(c, entries);
+  } catch (err) {
+    if (err instanceof SeatsFullError) throw new HttpError(409, err.message, "seats_full");
+    throw err;
+  }
   await audit(ctx.user.id, "invitations_issued", { council: c.name, count: rows.length, via: "app" });
   return { rows, council: await getCouncil(id) };
 });

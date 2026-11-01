@@ -12,6 +12,7 @@ import { generateCredentials, type CredentialRow } from "./credentials.js";
 
 export interface CouncilSummary extends Council {
   issued: number;      // invitations created
+  occupied: number;    // active invitations: each holds one of the seats
   registered: number;  // delegates who have bound a Telegram account
   total_votes: number; // seats × vote_weight
 }
@@ -35,21 +36,24 @@ export function suggestCode(name: string): string {
 export async function listCouncils(): Promise<CouncilSummary[]> {
   const [{ data: councils, error }, { data: members, error: mErr }] = await Promise.all([
     supabase.from("councils").select("*").order("name", { ascending: true }),
-    supabase.from("members").select("council_id, telegram_user_id").not("council_id", "is", null),
+    supabase.from("members").select("council_id, telegram_user_id, is_active").not("council_id", "is", null),
   ]);
   if (error) throw error;
   if (mErr) throw mErr;
   const issued = new Map<string, number>();
   const registered = new Map<string, number>();
+  const occupied = new Map<string, number>();
   for (const m of members ?? []) {
     const id = String(m.council_id);
     issued.set(id, (issued.get(id) ?? 0) + 1);
+    if (m.is_active) occupied.set(id, (occupied.get(id) ?? 0) + 1);
     if (m.telegram_user_id !== null) registered.set(id, (registered.get(id) ?? 0) + 1);
   }
   return (councils ?? []).map((c: Council) => ({
     ...c,
     vote_weight: c.vote_weight ?? 1,
     issued: issued.get(c.id) ?? 0,
+    occupied: occupied.get(c.id) ?? 0,
     registered: registered.get(c.id) ?? 0,
     total_votes: c.seats * (c.vote_weight ?? 1),
   }));
@@ -137,13 +141,37 @@ export interface DelegateEntry {
   phone?: string | null;
 }
 
+/** Invitations that hold a seat: every active one (revoked access frees the seat). */
+export function occupiedSeats(members: Pick<Invitation, "is_active">[]): number {
+  return members.filter((m) => m.is_active).length;
+}
+
+/** Issuing would give a council more invitations than its number of voting delegates. */
+export class SeatsFullError extends Error {
+  constructor(
+    readonly council: Pick<Council, "name" | "seats">,
+    readonly occupied: number,
+    readonly requested: number,
+  ) {
+    const left = Math.max(0, council.seats - occupied);
+    super(
+      `${council.name} has ${council.seats} voting seat(s) and ${occupied} invitation(s) already hold one, ` +
+        (left ? `so only ${left} more can be issued (not ${requested}).` : "so no more can be issued.") +
+        " Raise the number of voting delegates first.",
+    );
+  }
+}
+
 /**
  * Create invitations (token + password) for a council: one per entry (a name,
  * a phone number, or both); an empty entry is an anonymous delegate seat.
- * Seat numbers continue from the last one.
+ * Never more active invitations than the council's seats. Seat numbers
+ * continue from the last one.
  */
 export async function issueInvitations(council: Council, entries: DelegateEntry[]): Promise<CredentialRow[]> {
   const existing = await councilMembers(council.id);
+  const occupied = occupiedSeats(existing);
+  if (occupied + entries.length > council.seats) throw new SeatsFullError(council, occupied, entries.length);
   let seat = existing.reduce((m, r) => Math.max(m, r.seat_no ?? 0), 0);
   const people = entries.map((e) => ({ name: e.name, phone: e.phone ?? null, region: council.name, council_id: council.id, seat_no: ++seat, vote_weight: council.vote_weight ?? 1 }));
   return generateCredentials(people, council.code);

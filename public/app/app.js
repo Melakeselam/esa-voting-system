@@ -869,7 +869,7 @@
 
   // ---------------------------------------------------------------- ADMIN: councils & invitations
   function councilMeta(c) {
-    return t("{issued} of {seats} invitations issued · {registered} registered", { issued: c.issued, seats: c.seats, registered: c.registered }) +
+    return t("{issued} of {seats} invitations issued · {registered} registered", { issued: c.occupied, seats: c.seats, registered: c.registered }) +
       (c.vote_weight > 1 ? " · " + t("{n} votes each", { n: c.vote_weight }) : "");
   }
   function splitNames(text) {
@@ -903,6 +903,21 @@
   }
   /** The organisation's members vote for themselves (no councils). */
   function isDirect() { return Boolean(state.me && state.me.org && state.me.org.structure === "direct"); }
+  /** "📥 Excel template" button: the server sends the fill-in .xlsx to the admin's chat. */
+  function templateButton(kind) {
+    return '<button type="button" class="btn secondary sm" data-template="' + kind + '">📥 ' + esc(t("Download Excel template")) + "</button>";
+  }
+  function wireTemplateButtons(root) {
+    root.querySelectorAll("[data-template]").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        b.disabled = true;
+        try {
+          await api("POST", "/templates", { kind: b.dataset.template });
+          haptic("success"); toast(t("Template sent to your chat"), "ok");
+        } catch (err) { fail(err); } finally { b.disabled = false; }
+      });
+    });
+  }
   /** Read an uploaded .csv or .xlsx into rows of cells. */
   async function readTableFile(file) {
     if (/\.csv$/i.test(file.name) || /csv|text/.test(file.type)) return parseCsvText(await file.text());
@@ -945,7 +960,10 @@
           var names = e.id ? [] : splitNames(sheet.querySelector("[data-names]").value);
           var seats = Number(sheet.querySelector("[data-seats]").value) || 0;
           var weight = Number(sheet.querySelector("[data-weight]").value) || 0;
-          close({ name: sheet.querySelector("[data-name]").value.trim(), seats: Math.max(seats, names.length), vote_weight: weight, names: names });
+          // The seats are the limit: never more invitations than voting delegates.
+          if (names.length > seats) return toast(t("{n} names but only {seats} seats: raise the number of voting delegates or remove names", { n: names.length, seats: seats }), "err");
+          if (e.id && seats < (e.occupied || 0)) return toast(t("{n} invitations are already issued: the council needs at least {n} seats. Revoke unused invitations first.", { n: e.occupied }), "err");
+          close({ name: sheet.querySelector("[data-name]").value.trim(), seats: seats, vote_weight: weight, names: names });
         };
       });
   }
@@ -961,6 +979,7 @@
       var html = '<div class="card"><p class="small">' + esc(t("Each member votes for themselves. One per line: a name, a phone number, or both — and, if members carry several votes (for example shares), the number of votes.")) + "</p>" +
         '<div class="field"><textarea data-names rows="7" placeholder="' + esc(t("Abebe Kebede, 0911234567, 250\nSara Tesfaye, , 120\n+251922345678")) + '"></textarea></div>' +
         '<div class="field"><label>' + esc(t("Or upload a CSV or Excel file (columns: name, phone, votes — any may be empty)")) + '</label><input type="file" data-file accept=".csv,.xlsx,.xls,text/csv"></div>' +
+        '<div class="actions inline">' + templateButton("members") + "</div>" +
         '<p class="hint" data-count-hint></p>' +
         '<button class="btn block" data-issue>' + esc(t("Issue invitations")) + "</button></div>";
       if (params.rows && params.rows.length) {
@@ -973,6 +992,7 @@
       }
       content.innerHTML = html;
       var area = content.querySelector("[data-names]"), hint = content.querySelector("[data-count-hint]");
+      wireTemplateButtons(content);
       function people() {
         var ds = delegatesFromRows(parseCsvText(area.value));
         var votes = ds.reduce(function (a, d) { return a + (d.votes || 1); }, 0);
@@ -1066,7 +1086,7 @@
       if (!alive()) return;
       var c = d.council;
       var html = '<div class="card"><h2>' + esc(c.name) + ' <span class="badge">' + esc(c.code) + "</span></h2>" +
-        '<dl class="kv"><dt>' + esc(t("Seats")) + "</dt><dd>" + c.seats + "</dd><dt>" + esc(t("Votes per delegate")) + "</dt><dd>" + c.vote_weight + "</dd><dt>" + esc(t("Total votes")) + "</dt><dd>" + c.total_votes + "</dd><dt>" + esc(t("Issued")) + "</dt><dd>" + c.issued + "</dd><dt>" + esc(t("Registered")) + "</dt><dd>" + c.registered + "</dd></dl>" +
+        '<dl class="kv"><dt>' + esc(t("Seats")) + "</dt><dd>" + c.seats + "</dd><dt>" + esc(t("Votes per delegate")) + "</dt><dd>" + c.vote_weight + "</dd><dt>" + esc(t("Total votes")) + "</dt><dd>" + c.total_votes + "</dd><dt>" + esc(t("Issued")) + "</dt><dd>" + c.occupied + "</dd><dt>" + esc(t("Free seats")) + "</dt><dd>" + Math.max(0, c.seats - c.occupied) + "</dd><dt>" + esc(t("Registered")) + "</dt><dd>" + c.registered + "</dd></dl>" +
         '<p class="hint">' + esc(t("Invitation codes start with {code}-. Registered delegates appear under Members as well.", { code: c.code })) + "</p>" +
         '<div class="actions inline"><button class="btn secondary sm" data-act="edit">✏️ ' + esc(t("Edit")) + "</button>" +
         (c.issued === 0 ? '<button class="btn danger sm" data-act="delete">🗑 ' + esc(t("Delete")) + "</button>" : "") + "</div></div>";
@@ -1111,18 +1131,24 @@
             toast(t("Council deleted"), "ok"); return back();
           }
           if (act === "add") {
+            var free = Math.max(0, c.seats - c.occupied);
+            if (!free) return alertDialog(t("All {seats} seats of {name} have invitations. Raise the number of voting delegates (Edit) or revoke an unused invitation first.", { seats: c.seats, name: c.name }));
             var a = await openSheet("<h2>" + esc(t("Add delegates")) + "</h2>" +
+              '<p class="hint">' + esc(t("{free} of {seats} seats free: at most {free} more invitations.", { free: free, seats: c.seats })) + "</p>" +
+              '<div class="actions inline">' + templateButton("delegates") + "</div>" +
               '<div class="field"><label>' + esc(t("Delegates, one per line: a name, a phone number, or both")) + '</label><textarea data-names rows="6" placeholder="' + esc(t("Abebe Kebede, 0911234567\n+251922345678\nSara Tesfaye")) + '"></textarea></div>' +
               '<div class="field"><label>' + esc(t("Or upload a CSV or Excel file (columns: name, phone — either may be empty)")) + '</label><input type="file" data-file accept=".csv,.xlsx,.xls,text/csv"></div>' +
               '<p class="hint" data-count-hint></p>' +
-              '<div class="field"><label>' + esc(t("Or number of anonymous invitations")) + '</label><input type="number" min="1" max="1000" inputmode="numeric" data-count placeholder="' + esc(t("e.g. 5")) + '"></div>' +
+              '<div class="field"><label>' + esc(t("Or number of anonymous invitations")) + '</label><input type="number" min="1" max="' + free + '" inputmode="numeric" data-count placeholder="' + esc(t("up to {free}", { free: free })) + '"></div>' +
               '<button class="btn block" data-ok>' + esc(t("Issue invitations")) + "</button>",
               function (sheet, close) {
                 var area = sheet.querySelector("[data-names]"), hint = sheet.querySelector("[data-count-hint]");
+                wireTemplateButtons(sheet);
                 function update() {
                   var ds = delegatesFromRows(parseCsvText(area.value));
                   var phones = ds.filter(function (d) { return d.phone; }).length;
-                  hint.textContent = ds.length ? t("{n} delegates ({p} with a phone number)", { n: ds.length, p: phones }) : "";
+                  hint.textContent = ds.length ? t("{n} delegates ({p} with a phone number)", { n: ds.length, p: phones }) + (ds.length > free ? " — " + t("only {free} seats free", { free: free }) : "") : "";
+                  hint.classList.toggle("danger-text", ds.length > free);
                   return ds;
                 }
                 area.addEventListener("input", update);
@@ -1141,6 +1167,7 @@
             if (!a) return;
             var names = a.people.length ? a.people : Array.apply(null, Array(a.count)).map(function () { return ""; });
             if (!names.length) return toast(t("Add at least one delegate"), "err");
+            if (names.length > free) return alertDialog(t("{name} has {free} free seats, so at most {free} more invitations can be issued (you listed {n}). Raise the number of voting delegates first.", { name: c.name, free: free, n: names.length }));
             if (!(await confirmDialog(t("Issue {n} invitations for {name}?", { n: names.length, name: c.name })))) return;
             toast(t("Issuing invitations…"));
             var rows = await issueForCouncil(c.id, names);
@@ -1195,61 +1222,128 @@
       return out.map(function (x) { return x.trim(); });
     });
   }
-  /** Rows (arrays) → plan [{name, seats, names[]}]. Header row with "council" is optional; columns: Council, Name, Seats. */
+  // A header cell of the councils sheet: the body column under any of the organisation terms, or a known column.
+  var GROUP_HEADER = /^(council|region|chapter|branch|committee|constituency|ምክር|ቅርንጫፍ|ክልል|ኮሚቴ|የምርጫ)/;
+  var COLUMN_HEADER = /^(council|region|chapter|branch|committee|constituency|name|full name|delegate|member|representative|voter|phone|mobile|tel|seats?|votes?|ምክር|ቅርንጫፍ|ክልል|ኮሚቴ|ስም|ስልክ)/;
+  /** A small whole number (seats or votes), never a phone number. */
+  function isCountLike(s) { return /^\d{1,4}$/.test(String(s || "").trim()); }
+  /**
+   * Rows (arrays) → plan [{name, declared, vote_weight, names[]}]. The first
+   * column is the council; with a header row (as in the template) columns are
+   * found by name: Council, Name, Phone, Seats, Votes each. Without one, each
+   * cell is read by its look: a phone number, a count (seats, then votes
+   * each), or a name. A council with only a number of seats gets that many
+   * anonymous invitations.
+   */
   function planFromRows(rows) {
+    rows = rows.filter(function (r) { return r.some(function (c) { return String(c || "").trim(); }); });
     if (!rows.length) return [];
     var head = rows[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
-    var ci = 0, ni = 1, si = 2, wi = 3, pi = -1;
-    if (head.some(function (h) { return /council|region|ም/.test(h); })) {
-      ci = head.findIndex(function (h) { return /council|region/.test(h); }); if (ci < 0) ci = 0;
-      ni = head.findIndex(function (h) { return /^(name|delegate|member|full)/.test(h); });
-      pi = head.findIndex(function (h) { return /phone|mobile|tel|ስልክ/.test(h); });
-      wi = head.findIndex(function (h) { return /weight|per delegate|votes each/.test(h); });
-      si = head.findIndex(function (h, k) { return k !== wi && k !== pi && /seat|vote|delegates|count|number/.test(h); });
+    var cols = null;
+    // A header row: every filled cell is a column title ("Region 1, Abebe" is data).
+    if (head.every(function (h) { return !h || (COLUMN_HEADER.test(h) && h.length <= 40); })) {
+      var find = function (re, not) { return head.findIndex(function (h, k) { return (not || []).indexOf(k) < 0 && re.test(h); }); };
+      var ci = find(GROUP_HEADER);
+      var pi = find(/phone|mobile|tel|ስልክ/);
+      var wi = find(/weight|per delegate|votes? each|each/);
+      var si = find(/seat|delegates|count|number of|መቀመጫ/, [pi, wi]);
+      if (si < 0) si = find(/votes?|ድምፅ/, [pi, wi]);
+      var ni = find(/^(name|full|delegate|member|representative|voter|ስም)/, [ci, pi, wi, si]);
+      cols = { c: ci < 0 ? 0 : ci, n: ni, p: pi, s: si, w: wi };
       rows = rows.slice(1);
     }
+    var num = function (v) { return Number(String(v || "").replace(/[^0-9]/g, "")) || 0; };
     var plan = {}, order = [];
     rows.forEach(function (r) {
-      var council = String(r[ci] || "").trim();
+      var council = String(r[cols ? cols.c : 0] || "").trim();
       if (!council) return;
-      var name = ni >= 0 ? String(r[ni] || "").trim() : "";
-      var phone = pi >= 0 ? String(r[pi] || "").trim() : "";
-      // Without a header, a phone number may sit in the name column or in a column after the counts.
-      if (!phone && isPhoneLike(name)) { phone = name; name = ""; }
-      if (!phone && pi < 0) r.forEach(function (c, k) { if (!phone && k > 1 && k !== si && k !== wi && isPhoneLike(c) && String(c).replace(/\D/g, "").length >= 9) phone = String(c).trim(); });
-      var seats = si >= 0 && !isPhoneLike(r[si]) ? Number(String(r[si] || "").replace(/[^0-9]/g, "")) || 0 : 0;
-      var weight = wi >= 0 && !isPhoneLike(r[wi]) ? Number(String(r[wi] || "").replace(/[^0-9]/g, "")) || 0 : 0;
+      var name = "", phone = "", seats = 0, weight = 0;
+      if (cols) {
+        name = cols.n >= 0 ? String(r[cols.n] || "").trim() : "";
+        phone = cols.p >= 0 ? String(r[cols.p] || "").trim() : "";
+        if (!phone && isPhoneLike(name) && !isCountLike(name)) { phone = name; name = ""; }
+        seats = cols.s >= 0 ? num(r[cols.s]) : 0;
+        weight = cols.w >= 0 ? num(r[cols.w]) : 0;
+      } else {
+        r.slice(1).forEach(function (cell) {
+          cell = String(cell || "").trim();
+          if (!cell) return;
+          if (isCountLike(cell)) { if (!seats) seats = num(cell); else if (!weight) weight = num(cell); }
+          else if (!phone && isPhoneLike(cell)) phone = cell;
+          else if (!name) name = cell;
+        });
+      }
       var key = council.toLowerCase();
-      if (!plan[key]) { plan[key] = { name: council, seats: 0, vote_weight: 1, names: [] }; order.push(key); }
+      if (!plan[key]) { plan[key] = { name: council, declared: 0, vote_weight: 1, names: [] }; order.push(key); }
       if (name || phone) plan[key].names.push({ name: name, phone: phone });
-      if (seats > plan[key].seats) plan[key].seats = seats;
+      if (seats > plan[key].declared) plan[key].declared = seats;
       if (weight > plan[key].vote_weight) plan[key].vote_weight = weight;
     });
-    return order.map(function (k) { var p = plan[k]; p.seats = Math.max(p.seats, p.names.length, 1); return p; });
+    return order.map(function (k) { return plan[k]; });
+  }
+  /**
+   * What importing each council does, checked against the councils that
+   * already exist: the seats to set, the invitations to issue (the names, or
+   * as many anonymous ones as the seats), and an error when that would give
+   * the council more invitations than voting seats.
+   */
+  function assessPlan(plan, existing) {
+    var byName = {};
+    existing.forEach(function (c) { byName[c.name.trim().toLowerCase()] = c; });
+    plan.forEach(function (p) {
+      var ex = byName[p.name.trim().toLowerCase()] || null;
+      var occupied = ex ? ex.occupied : 0;
+      // Seats are only ever raised on an existing council, never lowered.
+      p.seats = Math.max(ex ? ex.seats : 0, p.declared || 0);
+      if (p.names.length) {
+        p.issue = p.names.length;
+        if (!p.declared && !ex) p.seats = p.names.length; // no seats given: one per listed delegate
+      } else {
+        p.issue = p.declared ? Math.max(0, p.declared - occupied) : (ex ? 0 : 1);
+        if (!p.seats) p.seats = 1;
+      }
+      p.existing = ex;
+      p.error = null;
+      if (p.declared && p.names.length > p.declared) p.error = t("{n} delegates listed but only {seats} seats", { n: p.names.length, seats: p.declared });
+      else if (occupied + p.issue > p.seats) p.error = t("{occupied} of {seats} seats already have invitations: only {free} more allowed, {n} listed", { occupied: occupied, seats: p.seats, free: Math.max(0, p.seats - occupied), n: p.issue });
+    });
+    return plan;
   }
 
   views.councilImport = {
     title: function () { return t("Import councils"); },
     render: async function (content) {
       var plan = [];
+      var existing = (await api("GET", "/councils")).items || [];
       content.innerHTML = '<div class="card"><p class="small">' + esc(t("Upload an Excel (.xlsx) or CSV file, or paste rows below. One row per delegate, or one row per council with the number of seats. An optional last column gives the votes per delegate (default 1):")) + "</p>" +
-        '<table class="creds"><tr><th>Council</th><th>Name</th><th>Seats</th><th>Votes each</th><th>Phone</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td></td><td></td><td>0911234567</td></tr><tr><td>Addis Ababa</td><td></td><td></td><td></td><td>+251922345678</td></tr><tr><td>Oromia</td><td></td><td>3</td><td>2</td><td></td></tr></table>' +
+        '<div class="actions inline">' + templateButton("councils") + "</div>" +
+        '<table class="creds"><tr><th>' + esc(t("Council")) + "</th><th>" + esc(t("Name")) + "</th><th>" + esc(t("Phone")) + "</th><th>" + esc(t("Seats")) + "</th><th>" + esc(t("Votes each")) + '</th></tr><tr><td>Addis Ababa</td><td>Abebe Kebede</td><td>0911234567</td><td>3</td><td></td></tr><tr><td>Addis Ababa</td><td></td><td>+251922345678</td><td></td><td></td></tr><tr><td>Oromia</td><td></td><td></td><td>5</td><td>2</td></tr></table>' +
         '<p class="hint">' + esc(t("A Phone column is optional: a delegate can be listed by name, by phone number, or both. Local numbers (09…) are stored as +251…")) + "</p>" +
-        '<p class="hint">' + esc(t("A council with names gets one named invitation per row; a council with only a number of seats gets that many anonymous invitations. Existing councils are reused.")) + "</p></div>" +
+        '<p class="hint">' + esc(t("A council with names gets one named invitation per row; a council with only a number of seats gets that many anonymous invitations. Existing councils are reused.")) + "</p>" +
+        '<p class="hint">' + esc(t("Seats are the limit: a council never gets more invitations than its number of voting delegates.")) + "</p></div>" +
         '<div class="card"><div class="field"><label>' + esc(t("File")) + '</label><input type="file" data-file accept=".xlsx,.xls,.csv,text/csv"></div>' +
         '<div class="field"><label>' + esc(t("Or paste rows (Council, Name, Seats, Votes each)")) + '</label><textarea data-text rows="6" placeholder="Addis Ababa, Abebe Kebede&#10;Oromia, , 3, 2"></textarea></div>' +
         '<button class="btn secondary block" data-preview>' + esc(t("Preview")) + "</button></div>" +
         '<div data-plan></div><div data-out></div>';
+      wireTemplateButtons(content);
       var planBox = content.querySelector("[data-plan]");
       var out = content.querySelector("[data-out]");
       function showPlan() {
         if (!plan.length) { planBox.innerHTML = '<div class="card"><p class="empty">' + esc(t("Nothing to import yet.")) + "</p></div>"; return; }
-        var total = plan.reduce(function (a, p) { return a + p.seats; }, 0);
+        assessPlan(plan, existing);
+        var total = plan.reduce(function (a, p) { return a + p.issue; }, 0);
+        var errors = plan.filter(function (p) { return p.error; }).length;
         planBox.innerHTML = '<div class="section-title">' + esc(t("Preview")) + '</div><div class="list">' + plan.map(function (p) {
-          return '<div class="row static"><div class="main"><div class="title">' + esc(p.name) + '</div><div class="meta">' + esc(t("{seats} invitations · {named} named", { seats: p.seats, named: p.names.length })) + (p.vote_weight > 1 ? " · " + esc(t("{n} votes each", { n: p.vote_weight })) : "") + "</div></div></div>";
+          var what = p.names.length
+            ? t("{n} named invitations", { n: p.issue })
+            : t("{n} anonymous invitations", { n: p.issue });
+          return '<div class="row static"><div class="main"><div class="title">' + (p.error ? "⚠️ " : "") + esc(p.name) + (p.existing ? ' <span class="badge">' + esc(t("existing")) + "</span>" : "") + '</div><div class="meta">' +
+            esc(t("{seats} seats", { seats: p.seats })) + " · " + esc(what) + (p.vote_weight > 1 ? " · " + esc(t("{n} votes each", { n: p.vote_weight })) : "") + "</div>" +
+            (p.error ? '<div class="meta danger-text">' + esc(p.error) + "</div>" : "") + "</div></div>";
         }).join("") + "</div>" +
+          (errors ? '<div class="card"><p class="danger-text">' + esc(t("Fix the marked rows (or raise the seats in the sheet) and upload again: no council may get more invitations than its seats.")) + "</p></div>" : "") +
           '<label class="switch"><span class="lbl"><span>' + esc(t("One PDF per delegate")) + '</span><span class="hint">' + esc(t("Off: one PDF per council with all its invitations")) + '</span></span><input type="checkbox" data-each checked></label>' +
-          '<button class="btn block" data-run>' + esc(t("Create {councils} councils and {n} invitations", { councils: plan.length, n: total })) + "</button>";
+          '<button class="btn block" data-run' + (errors || !total ? " disabled" : "") + ">" + esc(t("Create {councils} councils and {n} invitations", { councils: plan.length, n: total })) + "</button>";
         planBox.querySelector("[data-run]").onclick = runImport;
       }
       async function readFile(file) {
@@ -1273,13 +1367,14 @@
         planBox.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
         out.innerHTML = '<div class="card"><p class="hint" data-st>' + esc(t("Starting…")) + '</p><div class="progress"><span data-bar style="width:0%"></span></div><div data-log></div></div>';
         var st = out.querySelector("[data-st]"), bar = out.querySelector("[data-bar]"), log = out.querySelector("[data-log]");
-        var done = 0, total = plan.reduce(function (a, p) { return a + p.seats; }, 0), allRows = [];
+        var done = 0, total = plan.reduce(function (a, p) { return a + p.issue; }, 0), allRows = [];
         try {
           for (var i = 0; i < plan.length; i++) {
             var p = plan[i];
             st.textContent = t("{name}: creating council…", { name: p.name });
             var r = await api("POST", "/councils", { name: p.name, seats: p.seats, vote_weight: p.vote_weight || 1, upsert: true });
-            var names = p.names.length ? p.names : Array.apply(null, Array(p.seats)).map(function () { return ""; });
+            if (!p.issue) continue;
+            var names = p.names.length ? p.names : Array.apply(null, Array(p.issue)).map(function () { return ""; });
             var rows = await issueForCouncil(r.council.id, names, function (n) { st.textContent = t("{name}: {done} of {total} invitations…", { name: p.name, done: n, total: names.length }); bar.style.width = Math.round((done + n) / total * 100) + "%"; });
             done += rows.length;
             rows.forEach(function (x) { allRows.push({ token_id: x.token_id, password: x.password, full_name: x.full_name, region: p.name, phone: x.phone || null }); });
