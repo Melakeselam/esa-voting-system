@@ -603,6 +603,10 @@ try {
   check("presence: answered with a pop-up only they see", /signed in/.test(lastCallbackText()), lastCallbackText());
   await update(groupCallback(USERS.guest, "pr|in"));
   check("presence: someone not registered is told to register", /not registered/.test(lastCallbackText()), lastCallbackText());
+  await update(groupCallback(USERS.admin, "pr|in"));
+  check("presence: an administrator is told they need no registration, not asked to register", /administrator/.test(lastCallbackText()) && !/not registered/.test(lastCallbackText()) && lastCallbackText().length <= 200, lastCallbackText());
+  await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 11, is_topic_message: true, text: "/vote", entities: [{ type: "bot_command", offset: 0, length: 5 }] } });
+  check("commands: /vote by an administrator → 'you are an administrator' with the app, not a register pointer", /You are an administrator/.test(lastTextTo(GROUP.id)) && !/not registered/.test(lastTextTo(GROUP.id)) && JSON.stringify(sentTo(GROUP.id).at(-1).body.reply_markup).includes("Open the app"), lastTextTo(GROUP.id));
   r = await api("POST", "/me/presence", USERS.abebe, { presence: "away" });
   eq("presence: stepped away, from the app", r.status, 200);
   r = await api("GET", "/presence", USERS.abebe);

@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard, Keyboard } from "grammy";
 import type { Api, Context } from "grammy";
 import { audit } from "../db.js";
 import { config } from "../config.js";
+import { isAdminUser } from "../services/admins.js";
 import { findByTelegramId } from "../services/members.js";
 import { deleteSetting, getSetting, getTopic, listTopics, setSetting, updateTopic, upsertTopic, type GroupMemory } from "../services/settings.js";
 import { orgWords, type OrgWords } from "../services/orgs.js";
@@ -386,6 +387,12 @@ const T = {
   status: ["📋 Your registration and ballots are shown to you privately. Tap below.", "📋 ምዝገባዎ እና ድምፆችዎ ለእርስዎ በግል ይታያሉ። ከታች ይንኩ።"],
   register: ["📝 You are not registered yet. Register in a private chat with the bot using your invitation code. Tap below.", "📝 ገና አልተመዘገቡም። በግብዣ ኮድዎ ከቦቱ ጋር በግል ውይይት ይመዝገቡ። ከታች ይንኩ።"],
   registered: ["✅ You are already registered.", "✅ አስቀድመው ተመዝግበዋል።"],
+  admin: [
+    "🛡 You are an administrator: you run the assembly from the app and need no registration. Signing in and voting are for delegates; to vote as well, register with an invitation code of your own.",
+    "🛡 እርስዎ አስተዳዳሪ ነዎት፤ ጉባኤውን ከመተግበሪያው ያስተዳድራሉ፣ ምዝገባ አያስፈልግዎትም። መግባትና ድምፅ መስጠት ለተወካዮች ነው፤ እርስዎም ድምፅ ለመስጠት በራስዎ የግብዣ ኮድ ይመዝገቡ።",
+  ],
+  // Pop-ups hold 200 characters.
+  adminShort: ["🛡 You are an administrator: no registration needed. Signing in and voting are for delegates.", "🛡 አስተዳዳሪ ነዎት፤ ምዝገባ አያስፈልግዎትም። መግባትና ድምፅ መስጠት ለተወካዮች ነው።"],
   signedOut: ["🚪 You are signed out of the session, so you cannot vote. Sign in first.", "🚪 ከስብሰባው ወጥተዋል፤ ድምፅ መስጠት አይችሉም። መጀመሪያ ይግቡ።"],
   signedIn: ["🙋 You are signed in to the session.", "🙋 ወደ ስብሰባው ገብተዋል።"],
   loggedOut: ["🚪 You are signed out: you no longer count as present and cannot vote until you sign in again. Your registration is kept.", "🚪 ከስብሰባው ወጥተዋል፤ እንደተገኙ አይቆጠሩም፣ እንደገና እስኪገቡ ድረስ ድምፅ መስጠት አይችሉም። ምዝገባዎ ይቀመጣል።"],
@@ -403,6 +410,18 @@ async function memberOf(ctx: Context) {
   return m && m.is_active ? m : null;
 }
 
+/**
+ * Someone without a delegate registration tapped a button: an administrator
+ * (who runs the assembly from the app) is told so and pointed at the app;
+ * anyone else is asked to register.
+ */
+async function answerUnregistered(ctx: Context): Promise<void> {
+  if (await isAdminUser(ctx.from?.id)) {
+    return answer(ctx, await say(ctx, "admin"), new InlineKeyboard().url("⚙️ Open the app", openLink(ctx.me.username, "home")));
+  }
+  await answer(ctx, await say(ctx, "register"), registerButton(ctx));
+}
+
 function registerButton(ctx: Context): InlineKeyboard {
   return new InlineKeyboard().url("📝 Register with my code", openLink(ctx.me.username, "register"));
 }
@@ -413,26 +432,26 @@ function signInButton(): InlineKeyboard {
 
 async function answerVote(ctx: Context): Promise<void> {
   const m = await memberOf(ctx);
-  if (!m) return answer(ctx, await say(ctx, "register"), registerButton(ctx));
+  if (!m) return answerUnregistered(ctx);
   if (!isSignedIn(m)) return answer(ctx, await say(ctx, "signedOut"), signInButton());
   await answer(ctx, await say(ctx, "vote"), new InlineKeyboard().url("🗳 Open my ballots", openLink(ctx.me.username, "vote")));
 }
 
 async function answerStatus(ctx: Context): Promise<void> {
   const m = await memberOf(ctx);
-  if (!m) return answer(ctx, await say(ctx, "register"), registerButton(ctx));
+  if (!m) return answerUnregistered(ctx);
   await answer(ctx, await say(ctx, "status"), new InlineKeyboard().url("📋 My status", openLink(ctx.me.username, "status")));
 }
 
 async function answerRegister(ctx: Context): Promise<void> {
   const m = await memberOf(ctx);
   if (m) return answer(ctx, await say(ctx, "registered"), new InlineKeyboard().url("🗳 Open my ballots", openLink(ctx.me.username, "vote")));
-  await answer(ctx, await say(ctx, "register"), registerButton(ctx));
+  await answerUnregistered(ctx);
 }
 
 async function answerSignIn(ctx: Context): Promise<void> {
   const m = await memberOf(ctx);
-  if (!m) return answer(ctx, await say(ctx, "register"), registerButton(ctx));
+  if (!m) return answerUnregistered(ctx);
   if (!isSignedIn(m)) {
     await setPresence(m.id, "available");
     await audit(ctx.from!.id, "signed_in", { via: "group" });
@@ -442,7 +461,7 @@ async function answerSignIn(ctx: Context): Promise<void> {
 
 async function answerLogout(ctx: Context): Promise<void> {
   const m = await memberOf(ctx);
-  if (!m) return answer(ctx, await say(ctx, "register"), registerButton(ctx));
+  if (!m) return answerUnregistered(ctx);
   if (isSignedIn(m)) {
     await setPresence(m.id, "out");
     await audit(ctx.from!.id, "signed_out", { via: "group" });
@@ -498,7 +517,8 @@ groupCommandsComposer.callbackQuery(/^pr\|(in|out)$/, async (ctx) => {
   const lang = await getLang(ctx.from.id);
   const m = await findByTelegramId(ctx.from.id);
   if (!m || !m.is_active) {
-    await ctx.answerCallbackQuery({ text: inLang(lang, T.register[0], T.register[1]).slice(0, 200), show_alert: true });
+    const key = (await isAdminUser(ctx.from.id)) ? "adminShort" : "register";
+    await ctx.answerCallbackQuery({ text: inLang(lang, T[key][0], T[key][1]).slice(0, 200), show_alert: true });
     return;
   }
   const signIn = ctx.match[1] === "in";
