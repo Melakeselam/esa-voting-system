@@ -114,6 +114,14 @@ const tgServer = createServer(async (req, res) => {
     case "sendDocument":
       result = { message_id: nextMessageId++, date: Math.floor(Date.now() / 1000), chat: { id: Number(body.chat_id), type: Number(body.chat_id) < 0 ? "supergroup" : "private" }, text: body.text ?? "" };
       break;
+    case "sendChatAction":
+      // Thread 404 is no topic of the group.
+      if (Number(body.message_thread_id) === 404) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error_code: 400, description: "Bad Request: message thread not found" }));
+        return;
+      }
+      break;
     case "editForumTopic":
     case "editGeneralForumTopic":
       // Simulate a bot without the "Manage topics" right for one particular name.
@@ -348,6 +356,15 @@ try {
   eq("rooms: adding a topic by ID in the linked group works", r.status, 200);
   r = await api("DELETE", "/setup/topics/" + GROUP.id + "/44", USERS.admin);
   eq("rooms: topic removed from the list again", r.status, 200);
+  r = await api("POST", "/setup/topics", USERS.admin, { chat_id: GROUP.id, thread_id: 404, name: "Day 1 — no such topic" });
+  check("rooms: adding an ID that is no topic in the group is refused", r.status === 400 && r.json?.code === "no_topic", JSON.stringify(r.json));
+  r = await api("POST", "/setup/topics/new", USERS.admin, { name: "Day 1 — Resolutions" });
+  const newThread = r.json?.thread_id;
+  check("rooms: 'New topic' creates it in the group", r.status === 200 && calls("createForumTopic", (b) => b.name === "Day 1 — Resolutions" && Number(b.chat_id) === GROUP.id).length === 1, JSON.stringify(r.json));
+  check("rooms: the new topic is listed and gets the buttons", (await rows("chat_topics")).some((t) => Number(t.thread_id) === newThread && t.name === "Day 1 — Resolutions" && t.keyboard_message_id), "");
+  r = await api("POST", "/setup/test-message", USERS.admin, { chat_id: GROUP.id, thread_id: newThread });
+  eq("rooms: a test message reaches the new topic", r.status, 200);
+  r = await api("DELETE", "/setup/topics/" + GROUP.id + "/" + newThread, USERS.admin);
   r = await api("POST", "/setup/test-message", USERS.admin, { chat_id: GROUP.id, thread_id: 22 });
   check("rooms: test message lands in JOTA-JOTI topic", r.status === 200 && sentTo(GROUP.id, 22).filter((c) => /Test message/.test(c.body.text)).length === 1);
 

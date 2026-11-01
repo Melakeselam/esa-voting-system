@@ -10,7 +10,7 @@ import { getGateMode, getPerson, personName, setGateMode } from "../services/gro
 import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
-import { ensureCommandTopic, setTopicReadOnly } from "../bot/group-commands.js";
+import { ensureCommandTopic, postKeyboard, setTopicReadOnly } from "../bot/group-commands.js";
 import { getLang, isSignedIn, PRESENCES, presenceCounts, setAvatar, setLang, setPresence, type Lang } from "../services/presence.js";
 import { closeWaiting, extendVote } from "../bot/quorum-flow.js";
 import { assemblySummary, getResetMode, resetAssembly, setResetMode } from "../services/reset.js";
@@ -1590,6 +1590,30 @@ route("DELETE", "/setup/group", true, async (ctx) => {
   return { ok: true, left, reason };
 });
 
+const NO_TOPIC = /thread not found|TOPIC_ID_INVALID|TOPIC_DELETED/i;
+
+/** "New topic": the bot creates it in the linked group, then lists it with the buttons under its message box. */
+route("POST", "/setup/topics/new", true, async (ctx) => {
+  const name = str((await ctx.body()).name, "Name", { min: 1, max: 128 });
+  const linked = await getLinkedGroup();
+  if (!linked) throw new HttpError(409, "No group is linked.");
+  let threadId: number;
+  try {
+    threadId = (await bot.api.createForumTopic(linked.chat_id, name)).message_thread_id;
+  } catch (err) {
+    const reason = (err as Error).message;
+    throw new HttpError(/rights|CHAT_ADMIN_REQUIRED|administrator/i.test(reason) ? 403 : 502, `Telegram refused: ${reason}`, "telegram");
+  }
+  await upsertTopic({ chat_id: linked.chat_id, thread_id: threadId, name, chat_title: linked.title ?? null });
+  try {
+    await postKeyboard(bot.api, linked.chat_id, threadId, linked.title ?? null);
+  } catch (err) {
+    console.error("posting the buttons in a new topic failed:", (err as Error).message);
+  }
+  await audit(ctx.user.id, "topic_created", { chat_id: linked.chat_id, thread_id: threadId, name, via: "app" });
+  return { ok: true, thread_id: threadId };
+});
+
 route("POST", "/setup/topics", true, async (ctx) => {
   const b = await ctx.body();
   const chatId = int(b.chat_id, "chat_id")!;
@@ -1600,6 +1624,16 @@ route("POST", "/setup/topics", true, async (ctx) => {
   const linked = await getLinkedGroup();
   if (linked && chatId !== linked.chat_id) throw new HttpError(400, `Chat ID must be the linked group's ID (${linked.chat_id}).`);
   if (!linked && chatId >= 0) throw new HttpError(400, "Chat ID must be a supergroup ID (it starts with -100).");
+  // A number that is no topic in the group would be listed but could never be reached.
+  if (linked && threadId > 0) {
+    try {
+      await bot.api.sendChatAction(chatId, "typing", { message_thread_id: threadId });
+    } catch (err) {
+      if (NO_TOPIC.test((err as Error).message)) {
+        throw new HttpError(400, `The group has no topic with ID ${threadId}. Use “New topic” to create one, or copy the ID from the topic's link.`, "no_topic");
+      }
+    }
+  }
   await upsertTopic({ chat_id: chatId, thread_id: threadId, name, chat_title: linked?.title ?? null });
   return { ok: true };
 });

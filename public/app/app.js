@@ -1591,7 +1591,8 @@
           }).join("") + "</div>";
         });
       }
-      html += '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
+      html += (s.group ? '<button class="btn sm" data-act="newtopic">＋ ' + esc(t("New topic")) + "</button>" : "") +
+        '<button class="btn secondary sm" data-act="addtopic">＋ ' + esc(t("Add topic by ID")) + "</button>" +
         (s.group ? ' <button class="btn secondary sm" data-act="signin">📝 ' + esc(t("Post sign-in topic")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="commands">📖 ' + esc(t("Post command reference")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
@@ -1687,6 +1688,14 @@
             if (ul.left) { haptic("success"); toast(t("The bot left the group"), "ok"); }
             else toast(t("Group unlinked, but the bot could not leave it: {reason}. Remove it in the group's member list.", { reason: ul.reason || "?" }), "warn");
             return refresh();
+          }
+          if (act === "newtopic") {
+            var nv = await openSheet("<h2>" + esc(t("New topic")) + '</h2><p class="hint">' + esc(t("The bot creates the topic in the group and puts the buttons under its message box.")) + "</p>" +
+              '<div class="field"><label>' + esc(t("Name")) + '</label><input type="text" data-name maxlength="128" placeholder="' + esc(t("e.g. Day 1 — Resolutions")) + '"></div><button class="btn block" data-ok>' + esc(t("Create")) + "</button>",
+              function (sheet, close) { sheet.querySelector("[data-ok]").onclick = function () { close({ name: sheet.querySelector("[data-name]").value.trim() }); }; });
+            if (!nv) return;
+            if (!nv.name) return toast(t("Name is required"), "err");
+            await api("POST", "/setup/topics/new", nv); haptic("success"); toast(t("Topic created in the group"), "ok"); return refresh();
           }
           if (act === "addtopic") {
             var tv = await openSheet("<h2>" + esc(t("Add topic by ID")) + '</h2><p class="hint">' + esc(t("Open the topic in Telegram Desktop/Web: the URL ends in /<topic id>. The group chat ID is shown above once linked.")) + "</p>" +
