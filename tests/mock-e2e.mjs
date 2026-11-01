@@ -1054,8 +1054,12 @@ try {
   await update({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(USERS.admin), message_thread_id: 33, is_topic_message: true, text: "ping" } });
   r = await api("GET", "/setup", USERS.admin);
   check("setup: last update from Telegram is reported", r.json?.last_update?.kind === "message" && r.json?.last_update?.chat_id === GROUP.id && r.json?.last_update?.thread_id === 33, JSON.stringify(r.json?.last_update));
+  const membersBeforeLeave = (await rows("members")).length;
   r = await api("DELETE", "/setup/group", USERS.admin);
-  eq("group: admin can unlink by hand", r.status, 200);
+  eq("group: admin can remove the bot from the group in Setup", r.status, 200);
+  check("group: 'Remove bot from group' makes the bot leave the group", r.json?.left === true && calls("leaveChat", (x) => Number(x.chat_id) === GROUP.id).length === 1, JSON.stringify(r.json));
+  await update(botStatus("administrator", "left", 9)); // Telegram reports the bot's own departure
+  check("group: leaving from Setup keeps the assembly data", (await rows("members")).length === membersBeforeLeave && membersBeforeLeave > 0, "");
   r = await api("GET", "/setup", USERS.admin);
   eq("group: unlinked by hand", r.json?.group, null);
 

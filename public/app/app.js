@@ -1594,7 +1594,7 @@
         (s.group ? ' <button class="btn secondary sm" data-act="signin">📝 ' + esc(t("Post sign-in topic")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="commands">📖 ' + esc(t("Post command reference")) + "</button>" : "") +
         (s.group ? ' <button class="btn secondary sm" data-act="lockgroup">🔒 ' + esc(t("Lock group for members")) + "</button>" : "") +
-        (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Unlink group")) + "</button>" : "") + "</div>";
+        (s.group ? ' <button class="btn secondary sm" data-act="unlinkgroup">' + esc(t("Remove bot from group")) + "</button>" : "") + "</div>";
 
       // People in the group (who is inside without being registered)
       if (s.group && s.people) {
@@ -1681,8 +1681,11 @@
             return refresh();
           }
           if (act === "unlinkgroup") {
-            if (!(await confirmDialog(t("Unlink this group? Its topics are removed from the list. The bot links a group again as soon as it sees a message there.")))) return;
-            await api("DELETE", "/setup/group"); haptic("success"); toast(t("Group unlinked"), "ok"); return refresh();
+            if (!(await confirmDialog(t("Remove the bot from this group? It leaves the group and stops answering there. Councils, members and resolutions are kept; add the bot back as an administrator to link the group again.")))) return;
+            var ul = await api("DELETE", "/setup/group");
+            if (ul.left) { haptic("success"); toast(t("The bot left the group"), "ok"); }
+            else toast(t("Group unlinked, but the bot could not leave it: {reason}. Remove it in the group's member list.", { reason: ul.reason || "?" }), "warn");
+            return refresh();
           }
           if (act === "addtopic") {
             var tv = await openSheet("<h2>" + esc(t("Add topic by ID")) + '</h2><p class="hint">' + esc(t("Open the topic in Telegram Desktop/Web: the URL ends in /<topic id>. The group chat ID is shown above once linked.")) + "</p>" +

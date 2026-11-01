@@ -1565,12 +1565,29 @@ route("POST", "/setup/group/lock", true, async (ctx) => {
   return { ...result, lock: await readLockState(bot.api, group.chat_id) };
 });
 
+// "Remove the bot from the group": unlink first, so the bot's own departure
+// is not taken for a removal by a group admin (which may wipe the data),
+// then leave. The assembly data stays.
 route("DELETE", "/setup/group", true, async (ctx) => {
   const group = await getLinkedGroup();
   await unlinkGroup();
   if (group) forgetChatMemo(group.chat_id);
-  await audit(ctx.user.id, "group_unlinked", { chat_id: group?.chat_id ?? null, via: "app" });
-  return { ok: true };
+  let left = false;
+  let reason: string | null = null;
+  if (group) {
+    try {
+      left = await bot.api.leaveChat(group.chat_id);
+    } catch (err) {
+      reason = (err as Error).message;
+      // Already gone from the group: nothing left to do.
+      if (/chat not found|not a member|kicked|bot was removed/i.test(reason)) {
+        left = true;
+        reason = null;
+      }
+    }
+  }
+  await audit(ctx.user.id, "group_unlinked", { chat_id: group?.chat_id ?? null, via: "app", left, reason });
+  return { ok: true, left, reason };
 });
 
 route("POST", "/setup/topics", true, async (ctx) => {
