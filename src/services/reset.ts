@@ -30,7 +30,9 @@ export async function assemblySummary(): Promise<AssemblySummary> {
 }
 
 /** Settings that describe preferences rather than the assembly; they survive a reset. */
-const KEEP_SETTINGS = ["group_gate", "group_reset_mode"];
+// The bot's own topics and button messages are kept too, so a group the bot
+// comes back to reuses them instead of getting duplicates (they name their chat).
+const KEEP_SETTINGS = ["group_gate", "group_reset_mode", "signin_topic", "commands_topic", "live_board", "group_memory"];
 
 async function wipe(table: string, notNullColumn: string): Promise<void> {
   const { error } = await supabase.from(table).delete().not(notNullColumn, "is", null);

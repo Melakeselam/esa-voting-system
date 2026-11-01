@@ -36,6 +36,9 @@ export interface ChatTopic {
   name: string | null;
   chat_title: string | null;
   updated_at: string;
+  read_only?: boolean; // only admins post (the topic is closed in Telegram)
+  keyboard_message_id?: number | null; // the "⌨️" message carrying the buttons
+  panel_message_id?: number | null; // the pinned button panel of a read-only topic
 }
 
 /**
@@ -79,6 +82,15 @@ export async function getTopic(chatId: number, threadId: number): Promise<ChatTo
   return data as ChatTopic | null;
 }
 
+export async function updateTopic(
+  chatId: number,
+  threadId: number,
+  patch: Partial<Pick<ChatTopic, "read_only" | "keyboard_message_id" | "panel_message_id">>,
+): Promise<void> {
+  const { error } = await supabase.from("chat_topics").update(patch).eq("chat_id", chatId).eq("thread_id", threadId);
+  if (error) throw error;
+}
+
 export async function renameTopic(chatId: number, threadId: number, name: string): Promise<void> {
   const { error } = await supabase
     .from("chat_topics")
@@ -98,6 +110,12 @@ export async function deleteSetting(key: string): Promise<void> {
   if (error) throw error;
 }
 
+/** What the bot posted in a group it was removed from, in case it is added back. */
+export interface GroupMemory {
+  chat_id: number;
+  topics: { thread_id: number; keyboard_message_id?: number | null; panel_message_id?: number | null; read_only?: boolean }[];
+}
+
 /**
  * Forget the linked group and every topic learned in it — used when the bot
  * is removed from the group, or when an admin unlinks it in Setup. With a
@@ -107,8 +125,15 @@ export async function unlinkGroup(chatId?: number): Promise<void> {
   const linked = await getLinkedGroup();
   if (chatId !== undefined && linked && linked.chat_id !== chatId) return;
   if (linked) await setOrgGroup(null, null);
-  await deleteSetting("signin_topic");
-  await deleteSetting("commands_topic");
+  // The ids of the bot's own topics ("Register / Sign in", "Commands") and of
+  // the live board are kept: they name their chat, so they are only used if
+  // the bot comes back to that same group — which then gets its topics reused
+  // instead of a second copy of each. The button messages posted in the
+  // topics are remembered for the same reason, so they can be replaced.
+  if (linked) {
+    const { data: topics } = await supabase.from("chat_topics").select("thread_id, keyboard_message_id, panel_message_id, read_only").eq("chat_id", linked.chat_id);
+    await setSetting("group_memory", { chat_id: linked.chat_id, topics: topics ?? [] } satisfies GroupMemory);
+  }
   await deleteSetting("group_link");
   // Only one group is ever linked, so every learned topic goes — including
   // rows that were added by hand under a wrong chat id.

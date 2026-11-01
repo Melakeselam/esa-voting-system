@@ -12,6 +12,7 @@ import type { InlineKeyboard } from "grammy";
 import type { Member, Resolution } from "../types.js";
 import { activate, needsActivation } from "../services/activation.js";
 import { orgWords, setActiveOrg } from "../services/orgs.js";
+import { isSignedIn, setPresence } from "../services/presence.js";
 
 /** Member-facing handlers. Everything here runs in private chats only. */
 export const memberComposer = new Composer<Context>();
@@ -64,7 +65,8 @@ pm.command("start", async (ctx) => {
       return;
     }
   }
-  // Buttons from the group's command replies: /start vote, /start status
+  // Buttons from the group's command replies: /start vote, /start status, /start signin
+  if (payload === "signin") return signIn(ctx, member);
   if (payload === "vote") return sendOpenBallots(ctx, member);
   if (payload === "status") return sendStatus(ctx, member);
 
@@ -105,6 +107,32 @@ async function sendStatus(ctx: Context, member: Member): Promise<void> {
   }
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") });
 }
+
+const SIGNED_OUT_ALERT = "🚪 You signed out of the session. Send /signin (or tap 🙋 Sign in in the group) to vote again.";
+
+async function signIn(ctx: Context, member: Member): Promise<void> {
+  if (!isSignedIn(member)) {
+    await setPresence(member.id, "available");
+    await audit(ctx.from!.id, "signed_in", { via: "bot" });
+  }
+  await ctx.reply("🙋 You are signed in to the session.\n🙋 ወደ ስብሰባው ገብተዋል።", { reply_markup: appKeyboard("🗳 Open voting app") });
+}
+
+pm.command("signin", async (ctx) => {
+  const member = await findByTelegramId(ctx.from!.id);
+  if (!member) return promptLogin(ctx);
+  await signIn(ctx, member);
+});
+
+pm.command("logout", async (ctx) => {
+  const member = await findByTelegramId(ctx.from!.id);
+  if (!member) return promptLogin(ctx);
+  if (isSignedIn(member)) {
+    await setPresence(member.id, "out");
+    await audit(ctx.from!.id, "signed_out", { via: "bot" });
+  }
+  await ctx.reply("🚪 You are signed out: you no longer count as present and cannot vote until you /signin again. Your registration is kept.\n🚪 ከስብሰባው ወጥተዋል፤ እንደገና /signin እስኪሉ ድረስ ድምፅ መስጠት አይችሉም። ምዝገባዎ ይቀመጣል።");
+});
 
 pm.command("help", (ctx) =>
   ctx.reply(HELP, { parse_mode: "HTML", reply_markup: appKeyboard("🗳 Open voting app") }),
@@ -179,6 +207,10 @@ memberComposer.callbackQuery(/^v\|([0-9a-f-]{36})\|(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Please register first: send /start to the bot.", show_alert: true });
     return;
   }
+  if (!isSignedIn(member)) {
+    await ctx.answerCallbackQuery({ text: SIGNED_OUT_ALERT, show_alert: true });
+    return;
+  }
   const pre = await getById(ctx.match[1]);
   if (pre && pre.status === "open" && (await needsActivation(pre, member.id))) {
     await ctx.answerCallbackQuery({ text: "Enter the activation code shown in the meeting first.", show_alert: true });
@@ -218,6 +250,10 @@ memberComposer.callbackQuery(/^vc\|([0-9a-f-]{36})\|(\d+)$/, async (ctx) => {
   const member = await findByTelegramId(ctx.from.id);
   if (!member || !member.is_active) {
     await ctx.answerCallbackQuery({ text: "Please register first: send /start to the bot.", show_alert: true });
+    return;
+  }
+  if (!isSignedIn(member)) {
+    await ctx.answerCallbackQuery({ text: SIGNED_OUT_ALERT, show_alert: true });
     return;
   }
   const res = await getById(ctx.match[1]);

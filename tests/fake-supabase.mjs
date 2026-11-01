@@ -23,13 +23,14 @@ const DEFAULTS = {
   organizations: () => ({ id: randomUUID(), structure: "councils", name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
   pending_invitations: () => ({ created_at: now() }),
   user_active_org: () => ({ updated_at: now() }),
+  user_prefs: () => ({ lang: null, updated_at: now() }),
 };
 const PRIMARY = {
   members: ["id"], resolutions: ["id"], ballots: ["resolution_id", "member_id"], votes: ["id"], audit_log: ["id"],
   app_settings: ["org_id", "key"], chat_topics: ["chat_id", "thread_id"], admins: ["org_id", "telegram_user_id"], councils: ["id"],
   group_people: ["chat_id", "user_id"],
   vote_activations: ["resolution_id", "member_id"],
-  organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"],
+  organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"], user_prefs: ["telegram_user_id"],
 };
 // Mirrors db/schema.sql: uniqueness is per organisation, invitation codes are unique everywhere.
 const UNIQUE = {
@@ -44,6 +45,7 @@ const UNIQUE = {
   organizations: [["group_chat_id"]],
   pending_invitations: [["telegram_user_id"]],
   user_active_org: [["telegram_user_id"]],
+  user_prefs: [["telegram_user_id"]],
 };
 // Organisation tables: an insert without org_id is a bug the real database would reject (NOT NULL).
 const NEEDS_ORG = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings"]);

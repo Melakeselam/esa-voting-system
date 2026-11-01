@@ -173,6 +173,8 @@
     I18N.setLang(langs[(i + 1) % langs.length]);
     document.documentElement.lang = I18N.lang();
     haptic("light");
+    // Remembered for the person, so the bot's answers in the group follow it too.
+    api("POST", "/me/lang", { lang: I18N.lang() }).catch(function () { /* the app still switches */ });
     render();
   }
 
@@ -211,6 +213,7 @@
       var bar = h('<button class="org-bar' + (canSwitch ? " switch" : "") + '"' + (canSwitch ? "" : " disabled") + '><span class="org-name">' + esc(orgName(state.me.org)) + '</span><span class="org-platform">' + esc(state.me.platform.name) + "</span>" + (canSwitch ? '<span class="chev">⇄</span>' : "") + "</button>");
       if (canSwitch) bar.onclick = function () { haptic("light"); go("orgpick"); };
       app.append(bar);
+      if (view.name !== "help" && (state.me.member || state.me.role === "admin")) app.append(presenceBar());
     }
     app.append(content);
     if (showTabs) app.append(renderTabs());
@@ -225,6 +228,98 @@
         '<button class="btn secondary block" data-retry>' + esc(t("Retry")) + "</button>";
       content.querySelector("[data-retry]").onclick = refresh;
     }
+  }
+
+  // ------------------------------------------------------------- presence bar
+  var PRESENCE = {
+    available: { ico: "🟢", label: "Available" },
+    away: { ico: "☕", label: "Stepped away" },
+    out: { ico: "🚪", label: "Signed out" },
+  };
+  function myPhoto() {
+    if (state.me.avatar) return state.me.avatar;
+    var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    return (u && u.photo_url) || null;
+  }
+  function initials() {
+    var u = state.me.user || {};
+    return ((u.first_name || "?").charAt(0) + (u.last_name || "").charAt(0)).toUpperCase();
+  }
+  /** My photo and status, how many are signed in, and the open votes still waiting for me. Tap the photo to change either. */
+  function presenceBar() {
+    var photo = myPhoto();
+    var mine = state.me.member;
+    var bar = h('<div class="me-bar">' +
+      '<button class="me-avatar"' + (mine ? "" : " disabled") + ' aria-label="' + esc(t("My status")) + '">' + (photo ? '<img alt="" src="' + esc(photo) + '">' : "<span>" + esc(initials()) + "</span>") + '<i class="dot"></i></button>' +
+      '<div class="me-info"><div class="me-name">' + esc((mine && mine.full_name) || state.me.user.first_name) + '</div><div class="me-status hint">…</div></div>' +
+      '<div class="me-stats"></div></div>');
+    var avatarBtn = bar.querySelector(".me-avatar");
+    if (mine) avatarBtn.onclick = function () { haptic("light"); presenceSheet(); };
+    api("GET", "/presence").then(function (p) {
+      var pr = PRESENCE[p.presence || "available"];
+      bar.querySelector(".dot").className = "dot " + (p.presence || (mine ? "available" : "none"));
+      bar.querySelector(".me-status").textContent = mine ? pr.ico + " " + t(pr.label) : t("Administrator");
+      var stats = bar.querySelector(".me-stats");
+      stats.innerHTML = '<span class="stat" title="' + esc(t("Signed in")) + '">🙋 <b>' + p.signed_in + "</b>/" + p.registered + "</span>" +
+        (mine ? '<button class="stat' + (p.waiting ? " hot" : "") + '" data-waiting>🗳 <b>' + p.waiting + "</b></button>" : '<span class="stat">🗳 <b>' + p.open + "</b></span>");
+      var w = stats.querySelector("[data-waiting]");
+      if (w) w.onclick = function () { haptic("light"); go("ballots", {}, { root: true }); };
+      stats.title = t("{in} of {all} signed in ({away} stepped away) · {open} open votes", { in: p.signed_in, all: p.registered, away: p.away, open: p.open });
+    }).catch(function () { bar.querySelector(".me-status").textContent = ""; });
+    return bar;
+  }
+
+  async function presenceSheet() {
+    var html = "<h2>" + esc(t("My status")) + '</h2><div class="list">' + ["available", "away", "out"].map(function (k) {
+      var pr = PRESENCE[k];
+      return '<button class="row" data-p="' + k + '"><div class="main"><div class="title">' + pr.ico + " " + esc(t(k === "out" ? "Sign out (Logout)" : pr.label)) + '</div><div class="meta">' +
+        esc(t(k === "available" ? "In the session and following" : k === "away" ? "Still signed in; stepped out for a moment" : "Leave the session: you no longer count as present and cannot vote until you sign in again")) + "</div></div></button>";
+    }).join("") + "</div>" +
+      '<div class="section-title">' + esc(t("Photo")) + '</div><div class="actions"><button class="btn secondary block" data-photo>🖼 ' + esc(t("Choose a photo")) + "</button>" +
+      (state.me.avatar ? '<button class="btn secondary block" data-tgphoto>↺ ' + esc(t("Use my Telegram photo")) + "</button>" : "") +
+      '<input type="file" accept="image/*" data-file hidden></div>';
+    var a = await openSheet(html, function (sheet, close) {
+      on(sheet, "[data-p]", "click", function (e) { close({ presence: e.currentTarget.dataset.p }); });
+      var file = sheet.querySelector("[data-file]");
+      sheet.querySelector("[data-photo]").onclick = function () { file.click(); };
+      file.onchange = function () { if (file.files && file.files[0]) close({ file: file.files[0] }); };
+      if (sheet.querySelector("[data-tgphoto]")) sheet.querySelector("[data-tgphoto]").onclick = function () { close({ avatar: null }); };
+    });
+    if (!a) return;
+    try {
+      if (a.presence) {
+        if (a.presence === "out" && !(await confirmDialog(t("Sign out of the session? You will not count as present and cannot vote until you sign in again.")))) return;
+        await api("POST", "/me/presence", { presence: a.presence });
+        state.me.member.presence = a.presence;
+        haptic("success");
+        toast(a.presence === "out" ? t("Signed out") : t("Status updated"), "ok");
+      } else {
+        var data = a.file ? await shrinkPhoto(a.file) : null;
+        await api("POST", "/me/avatar", { avatar: data });
+        state.me.avatar = data;
+        haptic("success");
+        toast(t("Photo updated"), "ok");
+      }
+      refresh();
+    } catch (err) { fail(err); }
+  }
+
+  /** A square 160 px JPEG of the chosen picture (cropped to the centre), as a data URL. */
+  function shrinkPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        var side = Math.min(img.width, img.height);
+        var c = document.createElement("canvas");
+        c.width = c.height = 160;
+        c.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 160, 160);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error(t("That file is not a picture."))); };
+      img.src = url;
+    });
   }
 
   // ------------------------------------------------------------- sheets
@@ -1491,7 +1586,7 @@
         groupTopics(s.topics).forEach(function (g) {
           html += '<div class="section-title">' + esc(g.title) + '</div><div class="list">' + g.topics.map(function (tp) {
             return '<button class="row" data-topic="' + tp.chat_id + ":" + tp.thread_id + '"><div class="main"><div class="title">' + esc(topicName(tp)) +
-              '</div><div class="meta">' + esc(tp.thread_id === 0 ? t("General") : t("ID {id}", { id: tp.thread_id })) + '</div></div><span class="chev">›</span></button>';
+              '</div><div class="meta">' + esc(tp.thread_id === 0 ? t("General") : t("ID {id}", { id: tp.thread_id })) + (tp.read_only ? " · 🔒 " + esc(t("read-only")) : "") + '</div></div><span class="chev">›</span></button>';
           }).join("") + "</div>";
         });
       }
@@ -1608,6 +1703,9 @@
         var a = await openSheet("<h2>" + esc(topicName(tp)) + '</h2><p class="hint">' + esc(t("Chat {chat} · topic {thread}", { chat: chat, thread: thread })) + "</p>" +
           '<div class="field"><label>' + esc(t("Name")) + '</label><input type="text" data-name maxlength="128" value="' + esc(tp.name || "") + '"></div>' +
           '<div class="actions"><button class="btn block" data-a="rename">' + esc(t("Save name")) + '</button><button class="btn secondary block" data-a="test">✉️ ' + esc(t("Send a test message here")) + "</button>" +
+          (thread !== 0 ? (tp.read_only
+            ? '<button class="btn secondary block" data-a="open">🔓 ' + esc(t("Let members post here")) + "</button>"
+            : '<button class="btn secondary block" data-a="readonly">🔒 ' + esc(t("Make read-only (only admins post)")) + "</button>") : "") +
           (thread !== 0 ? '<button class="btn danger block" data-a="delete">' + esc(t("Remove from list")) + "</button>" : "") + "</div>",
           function (sheet, close) { on(sheet, "[data-a]", "click", function (e2) { close({ a: e2.currentTarget.dataset.a, name: sheet.querySelector("[data-name]").value.trim() }); }); });
         if (!a) return;
@@ -1622,6 +1720,10 @@
             return refresh();
           }
           else if (a.a === "test") { await api("POST", "/setup/test-message", { chat_id: chat, thread_id: thread }); }
+          else if (a.a === "readonly" || a.a === "open") {
+            if (a.a === "readonly" && !(await confirmDialog(t("Make this topic read-only? Only admins can post in it; members get a pinned panel of buttons instead.")))) return;
+            await api("POST", "/setup/topics/" + chat + "/" + thread + "/read-only", { on: a.a === "readonly" });
+          }
           else if (a.a === "delete") { await api("DELETE", "/setup/topics/" + chat + "/" + thread); }
           haptic("success"); toast(t("Done"), "ok"); refresh();
         } catch (err) { fail(err); }
@@ -1822,6 +1924,7 @@
       if (!alive()) return;
       var html = "";
       if (d.member) html += '<p class="hint">' + esc(t("Registered as")) + " <b>" + esc(d.member.full_name || d.member.token_id) + "</b>" + (d.member.vote_weight > 1 ? " · " + esc(t("your vote counts as {n} votes", { n: d.member.vote_weight })) : "") + "</p>";
+      if (d.member && d.member.presence === "out") html += '<div class="card warn"><h3>🚪 ' + esc(t("You are signed out")) + '</h3><p class="small">' + esc(t("You signed out of the session, so you cannot vote. Sign in when you are back.")) + '</p><button class="btn block" data-signin>🙋 ' + esc(t("Sign in")) + "</button></div>";
       if (d.member && state.me && state.me.group_link) html += '<div class="actions inline"><button class="btn secondary sm" data-group>👥 ' + esc(t("Open the assembly group")) + "</button></div>";
       if (!d.open.length) {
         html += '<div class="card"><p class="empty">' + esc(t("No resolutions are open for voting right now.")) + (d.drafts ? " " + esc(t("{count} being prepared.", { count: plural(d.drafts, "resolution") })) : "") + "</p></div>";
@@ -1830,6 +1933,9 @@
       }
       if (d.closed.length) html += '<div class="section-title">' + esc(t("Recent results")) + '</div><div class="list">' + d.closed.slice(0, 3).map(function (e) { return closedRow(e, false); }).join("") + "</div>";
       content.innerHTML = html;
+      if (content.querySelector("[data-signin]")) content.querySelector("[data-signin]").onclick = async function () {
+        try { await api("POST", "/me/presence", { presence: "available" }); state.me.member.presence = "available"; haptic("success"); toast(t("Signed in"), "ok"); refresh(); } catch (err) { fail(err); }
+      };
       if (content.querySelector("[data-group]")) content.querySelector("[data-group]").onclick = function () { var l = state.me.group_link; if (tg && tg.openTelegramLink) tg.openTelegramLink(l); else window.open(l, "_blank"); };
       on(content, "[data-activate]", "click", async function (ev) {
         var id = ev.currentTarget.dataset.activate;
@@ -1912,11 +2018,14 @@
     var q = qs.get("r");
     var inv = qs.get("inv");
     var sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+    var view = sp === "status" ? "me" : null;
+    if (sp === "status" || sp === "vote" || sp === "register") sp = null;
     if (sp && /^inv_/.test(sp)) { try { inv = inv || decodeURIComponent(sp.slice(4)); } catch (_) { /* ignore */ } sp = null; }
     if (sp && /^(vote_|r_)/.test(sp)) sp = sp.replace(/^(vote_|r_)/, "");
     var id = q || sp || null;
     return {
       focus: id && /^[0-9a-f-]{36}$/.test(id) ? id : null,
+      view: view,
       inv: inv ? String(inv).trim().toUpperCase().slice(0, 40) : null,
     };
   }
@@ -2068,6 +2177,8 @@
     try {
       state.orgId = savedOrg();
       state.me = await api("GET", "/me");
+      // A language chosen in the group (🌐 Language) or on another device wins over this device's last choice.
+      if (state.me.lang && state.me.lang !== I18N.lang()) { I18N.setLang(state.me.lang); document.documentElement.lang = I18N.lang(); }
     } catch (err) {
       app.innerHTML = '<div class="screen-center"><h2>' + esc(t("Could not sign in")) + '</h2><p class="hint">' + esc(err.message) + '</p><button class="btn" data-retry>' + esc(t("Retry")) + "</button></div>";
       app.querySelector("[data-retry]").onclick = boot;
@@ -2091,7 +2202,8 @@
       if (start.focus && state.me.member) go("ballots", { focus: start.focus }, { root: true });
       else go("home", {}, { root: true });
     } else if (state.me.role === "member") {
-      go("ballots", { focus: start.focus }, { root: true });
+      if (start.view === "me") go("me", {}, { root: true });
+      else go("ballots", { focus: start.focus }, { root: true });
     } else {
       go("register", { focus: start.focus, inv: start.inv }, { root: true });
     }

@@ -54,20 +54,24 @@ export function signInCard(groupTitle: string | null, w: OrgWords): string {
     `1️⃣ Tap <b>Register with your code</b> below.\n` +
     `2️⃣ Enter your code (${escapeHtml(w.shortCode)}-2026-XXXXX) and the password from your invitation sheet. This happens in a private chat with the bot, so nobody here sees it.\n` +
     `3️⃣ Done — ballots and results reach you in that private chat; announcements stay here in the group.\n\n` +
-    `Already registered? Nothing more to do. Lost your code? Ask the ${escapeHtml(w.office)}.`
+    `Already registered? Tap <b>🙋 Sign in</b> when you arrive and <b>🚪 Logout</b> when you leave the session. Lost your code? Ask the ${escapeHtml(w.office)}.`
   );
 }
 
-/** Buttons under the sign-in card. Inline web-app buttons do not work in groups, so these are links. */
+/**
+ * Buttons under the sign-in card. Inline web-app buttons do not work in
+ * groups, so these are links; signing in and out answer with a pop-up (the
+ * topic is read-only, so nothing may be posted there).
+ */
 export function signInKeyboard(botUsername: string): InlineKeyboard {
   const chat = `https://t.me/${botUsername}?start=register`;
-  if (config.miniAppShortName) {
-    return new InlineKeyboard()
-      .url("📝 Register with your code", `https://t.me/${botUsername}/${config.miniAppShortName}?startapp=register`)
-      .row()
-      .url("💬 Open a private chat with the bot", chat);
-  }
-  return new InlineKeyboard().url("📝 Register with your code", chat);
+  const kb = config.miniAppShortName
+    ? new InlineKeyboard()
+        .url("📝 Register with your code", `https://t.me/${botUsername}/${config.miniAppShortName}?startapp=register`)
+        .row()
+        .url("💬 Open a private chat with the bot", chat)
+    : new InlineKeyboard().url("📝 Register with your code", chat);
+  return kb.row().text("🙋 Sign in", "pr|in").text("🚪 Logout", "pr|out");
 }
 
 export function announceKeyboard(res: Resolution, botUsername: string): InlineKeyboard {

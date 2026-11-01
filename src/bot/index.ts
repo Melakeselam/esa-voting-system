@@ -8,6 +8,7 @@ import { resetComposer } from "./reset-flow.js";
 import { quorumComposer } from "./quorum-flow.js";
 import { memberComposer } from "./member.js";
 import { config } from "../config.js";
+import { watchLiveChanges } from "./live-board.js";
 
 export function createBot(): Bot {
   // 30 s per API call instead of grammY's 500 s default: a hung call must fail
@@ -39,6 +40,9 @@ export function createBot(): Bot {
   bot.use(quorumComposer);
   bot.use(adminComposer);
   bot.use(memberComposer);
+
+  // Keep the pinned live board in step with presence and votes.
+  watchLiveChanges(bot.api);
 
   bot.catch((err) => {
     const e = err.error;

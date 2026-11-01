@@ -149,7 +149,7 @@ const REAL = Boolean(process.env.TEST_DATABASE_URL);
 if (!REAL) register("./hooks.mjs", import.meta.url);
 const { handleHttp } = await import(pathToFileURL(resolve(root, "dist/http/router.js")).href);
 const realDb = REAL ? await import(pathToFileURL(resolve(root, "dist/db.js")).href) : null;
-const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations", "user_prefs"];
 if (REAL) {
   await realDb.ensureSchema();
   await realDb.rawDb.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
@@ -301,7 +301,7 @@ try {
   check("signin: admins told where members sign in", /Register \/ Sign in/.test(lastTextTo(1001)) && /cannot check the people already inside/.test(lastTextTo(1001)), lastTextTo(1001));
   r = await api("POST", "/setup/group/signin", USERS.admin);
   check("signin: re-posted from Setup into the same topic", r.json?.thread_id === 44 && r.json.note === null && sentTo(GROUP.id, 44).length === 2 && calls("createForumTopic", (b) => /Sign in/.test(b.name)).length === 1, JSON.stringify(r.json));
-  check("commands: a Commands topic was created with the bilingual reference pinned", calls("createForumTopic", (b) => /Commands/.test(b.name)).length === 1 && sentTo(GROUP.id, 45).some((c) => /\/vote — Show/.test(c.body.text) && /\/vote — ለድምፅ/.test(c.body.text) && c.body.reply_markup?.keyboard?.length === 1 && c.body.reply_markup.keyboard[0].map((k) => k.text).join("|") === "🗳 Vote|📋 Status|📝 Register|❔ Help") && calls("pinChatMessage").length >= 2, JSON.stringify(sentTo(GROUP.id, 45).map((c) => c.body.text.slice(0, 40))));
+  check("commands: a Commands topic was created with the bilingual reference pinned", calls("createForumTopic", (b) => /Commands/.test(b.name)).length === 1 && sentTo(GROUP.id, 45).some((c) => /\/vote — Show/.test(c.body.text) && /\/vote — ለድምፅ/.test(c.body.text) && JSON.stringify(c.body.reply_markup?.inline_keyboard ?? []).includes("pr|in")) && calls("pinChatMessage").length >= 2, JSON.stringify(sentTo(GROUP.id, 45).map((c) => c.body.text.slice(0, 40))));
   check("commands: command buttons also shown in General", sentTo(GROUP.id, null).some((c) => c.body.text === "⌨️" && c.body.reply_markup?.keyboard), JSON.stringify(sentTo(GROUP.id, null).map((c) => c.body.text.slice(0, 40))));
   check("commands: '/' menu registered for the group in English and Amharic", calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && !b.language_code && b.commands.some((c) => c.command === "vote")).length === 1 && calls("setMyCommands", (b) => b.scope?.type === "chat" && Number(b.scope.chat_id) === GROUP.id && b.language_code === "am" && /ድምፅ/.test(b.commands[0].description)).length === 1, JSON.stringify(calls("setMyCommands").map((c) => c.body.scope)));
   r = await api("POST", "/setup/group/commands", USERS.admin);
@@ -349,7 +349,7 @@ try {
   r = await api("DELETE", "/setup/topics/" + GROUP.id + "/44", USERS.admin);
   eq("rooms: topic removed from the list again", r.status, 200);
   r = await api("POST", "/setup/test-message", USERS.admin, { chat_id: GROUP.id, thread_id: 22 });
-  check("rooms: test message lands in JOTA-JOTI topic", r.status === 200 && sentTo(GROUP.id, 22).length === 1);
+  check("rooms: test message lands in JOTA-JOTI topic", r.status === 200 && sentTo(GROUP.id, 22).filter((c) => /Test message/.test(c.body.text)).length === 1);
 
   // ---- 3. Credentials -----------------------------------------------------
   r = await api("POST", "/members/generate", USERS.admin, { people: [{ name: "Abebe Kebede", region: "Addis Ababa" }, { name: "Sara Tesfaye", region: "Oromia" }, { name: "Dawit Alemu", region: "Amhara" }], prefix: "ESA-2026" });
@@ -579,6 +579,84 @@ try {
   eq("results(admin): interim tally R1", [r.json?.counts, r.json?.ballots, r.json?.outcome?.leaders], [[2, 1, 0], 3, ["Yes"]]);
   r = await api("GET", "/results/" + R1.id, USERS.abebe);
   eq("results(member): hidden while open", r.status, 403);
+
+  // ---- The group screen: sign in / out, language, read-only topics, live board ----
+  const groupText = (u, thread, text) => ({ message: { message_id: msgId++, date: 1, chat: GROUP, from: from(u), message_thread_id: thread, is_topic_message: true, text, ...(text.startsWith("/") ? { entities: [{ type: "bot_command", offset: 0, length: text.split(" ")[0].length }] } : {}) } });
+  const groupCallback = (u, data) => ({ callback_query: { id: "cq" + msgId, from: from(u), chat_instance: "ci", data, message: { message_id: msgId++, date: 1, chat: GROUP, from: BOT, text: "panel" } } });
+  const presenceOf = async (name) => (await rows("members")).find((m) => m.full_name === name)?.presence ?? "available";
+  const lastCallbackText = () => calls("answerCallbackQuery").at(-1)?.body.text ?? "";
+  const delCount = calls("deleteMessage").length;
+  await update(groupText(USERS.abebe, 11, "🚪 Logout"));
+  eq("presence: 🚪 Logout in the group signs the member out", await presenceOf("Abebe Kebede"), "out");
+  check("presence: the tap is removed from the topic", calls("deleteMessage").length > delCount);
+  check("presence: the answer offers Sign in", /signed out/.test(lastTextTo(GROUP.id)) && JSON.stringify(sentTo(GROUP.id, 11).at(-1).body.reply_markup).includes("pr|in"), lastTextTo(GROUP.id));
+  r = await api("POST", "/vote", USERS.abebe, { resolution_id: R2.id, choice_index: 1 });
+  eq("presence: a signed-out member cannot vote in the app", [r.status, r.json?.code], [403, "signed_out"]);
+  await update(callback(USERS.abebe, `vc|${R2.id}|1`));
+  check("presence: nor with the chat buttons", /signed out/i.test(lastCallbackText()), lastCallbackText());
+  r = await api("GET", "/ballots", USERS.abebe);
+  eq("presence: the app shows it", r.json?.member?.presence, "out");
+  r = await api("GET", "/presence", USERS.admin);
+  eq("presence: counted as not signed in", [r.json?.registered, r.json?.signed_in, r.json?.open], [6, 5, 2]);
+  await update(groupCallback(USERS.abebe, "pr|in"));
+  eq("presence: 🙋 Sign in on a panel signs back in", await presenceOf("Abebe Kebede"), "available");
+  check("presence: answered with a pop-up only they see", /signed in/.test(lastCallbackText()), lastCallbackText());
+  await update(groupCallback(USERS.guest, "pr|in"));
+  check("presence: someone not registered is told to register", /not registered/.test(lastCallbackText()), lastCallbackText());
+  r = await api("POST", "/me/presence", USERS.abebe, { presence: "away" });
+  eq("presence: stepped away, from the app", r.status, 200);
+  r = await api("GET", "/presence", USERS.abebe);
+  eq("presence: stepped away still counts as signed in", [r.json?.signed_in, r.json?.away, r.json?.presence, r.json?.waiting], [6, 1, "away", 0]);
+  r = await api("POST", "/vote", USERS.abebe, { resolution_id: R2.id, choice_index: 1 });
+  eq("presence: stepped away can still vote", r.json?.result, "changed");
+  await api("POST", "/me/presence", USERS.abebe, { presence: "available" });
+  r = await api("POST", "/me/presence", USERS.guest, { presence: "out" });
+  eq("presence: guests have none", r.status, 403);
+  r = await api("POST", "/me/presence", USERS.abebe, { presence: "asleep" });
+  eq("presence: unknown status refused", r.status, 400);
+  r = await api("POST", "/me/avatar", USERS.abebe, { avatar: "data:image/jpeg;base64,/9j/4AAQSkZJRg==" });
+  eq("avatar: a photo of their own is saved", r.status, 200);
+  eq("avatar: returned with the profile", (await api("GET", "/me", USERS.abebe)).json?.avatar, "data:image/jpeg;base64,/9j/4AAQSkZJRg==");
+  r = await api("POST", "/me/avatar", USERS.abebe, { avatar: "javascript:alert(1)" });
+  eq("avatar: anything but an image refused", r.status, 400);
+  await api("POST", "/me/avatar", USERS.abebe, { avatar: null });
+  eq("avatar: back to the Telegram photo", (await api("GET", "/me", USERS.abebe)).json?.avatar, null);
+  await update(groupCallback(USERS.abebe, "lang|am"));
+  eq("language: chosen with a button in the group", (await api("GET", "/me", USERS.abebe)).json?.lang, "am");
+  await update(groupText(USERS.abebe, 11, "📋 Status"));
+  check("language: the group answers that member in Amharic only", /ምዝገባዎ/.test(lastTextTo(GROUP.id)) && !/Your registration/.test(lastTextTo(GROUP.id)), lastTextTo(GROUP.id));
+  await api("POST", "/me/lang", USERS.abebe, { lang: "en" });
+  eq("language: changed from the app", (await api("GET", "/me", USERS.abebe)).json?.lang, "en");
+  r = await api("POST", "/me/lang", USERS.abebe, { lang: "fr" });
+  eq("language: unknown language refused", r.status, 400);
+
+  const kbRows = (c) => JSON.stringify(c.body.reply_markup?.keyboard?.map((row) => row.map((k) => k.text)));
+  const NEW_ROWS = JSON.stringify([["🗳 Vote", "📋 Status", "🌐 Language"], ["🤖 Bot", "🚪 Logout", "❔ Help"]]);
+  check("buttons: in General and every topic members post in", [null, 11, 22].every((th) => sentTo(GROUP.id, th).some((c) => c.body.text === "⌨️" && kbRows(c) === NEW_ROWS)), NEW_ROWS);
+  check("buttons: not in the read-only Commands and sign-in topics", !sentTo(GROUP.id, 44).some((c) => c.body.text === "⌨️") && !sentTo(GROUP.id, 45).some((c) => c.body.text === "⌨️"));
+  check("read-only: the Commands and sign-in topics are closed to members", calls("closeForumTopic", (b) => Number(b.message_thread_id) === 44).length >= 1 && calls("closeForumTopic", (b) => Number(b.message_thread_id) === 45).length >= 1);
+  check("buttons: one keyboard message per topic (the previous one is removed on re-post)", (await rows("chat_topics")).filter((t) => Number(t.chat_id) === GROUP.id && t.keyboard_message_id).length >= 3);
+  const kb22 = (await rows("chat_topics")).find((t) => Number(t.chat_id) === GROUP.id && Number(t.thread_id) === 22).keyboard_message_id;
+  r = await api("POST", `/setup/topics/${GROUP.id}/22/read-only`, USERS.admin, { on: true });
+  check("read-only: an admin makes a topic read-only", r.status === 200 && calls("closeForumTopic", (b) => Number(b.message_thread_id) === 22).length === 1, JSON.stringify(r.json));
+  const panelMsg = sentTo(GROUP.id, 22).at(-1);
+  check("read-only: members get a button panel there", /Quick actions/.test(panelMsg.body.text) && JSON.stringify(panelMsg.body.reply_markup).includes("pr|out") && JSON.stringify(panelMsg.body.reply_markup).includes("lang|am"), panelMsg.body.text);
+  check("read-only: its message-box buttons are removed", calls("deleteMessage", (b) => Number(b.chat_id) === GROUP.id && Number(b.message_id) === Number(kb22)).length === 1);
+  r = await api("GET", "/setup", USERS.admin);
+  eq("read-only: marked in Setup", r.json?.topics?.find((t) => Number(t.thread_id) === 22)?.read_only, true);
+  r = await api("POST", `/setup/topics/${GROUP.id}/22/read-only`, USERS.admin, { on: false });
+  check("read-only: opened again — panel removed, buttons back", r.status === 200 && calls("reopenForumTopic", (b) => Number(b.message_thread_id) === 22).length === 1 && sentTo(GROUP.id, 22).at(-1).body.text === "⌨️", JSON.stringify(r.json));
+  r = await api("POST", `/setup/topics/${GROUP.id}/0/read-only`, USERS.admin, { on: true });
+  eq("read-only: General cannot be closed", r.status, 400);
+  r = await api("POST", `/setup/topics/${GROUP.id}/22/read-only`, USERS.abebe, { on: true });
+  eq("read-only: members cannot change it", r.status, 403);
+
+  check("live: board pinned in General", sentTo(GROUP.id, null).some((c) => /📊 <b>Live/.test(c.body.text)));
+  const liveEdits = calls("editMessageText", (b) => /Live/.test(b.text ?? "")).length;
+  await api("POST", "/me/presence", USERS.sara, { presence: "away" });
+  await new Promise((res) => setTimeout(res, 4500));
+  check("live: board updated a few seconds after a change", calls("editMessageText", (b) => /Live/.test(b.text ?? "")).length > liveEdits && /ወጣ ብለዋል 1/.test(calls("editMessageText", (b) => /Live/.test(b.text ?? "")).at(-1)?.body.text ?? ""), calls("editMessageText", (b) => /Live/.test(b.text ?? "")).at(-1)?.body.text);
+  await api("POST", "/me/presence", USERS.sara, { presence: "available" });
 
   // ---- 7. Close & publish -----------------------------------------------------
   r = await api("POST", "/resolutions/" + R1.id + "/close", USERS.admin);
@@ -950,12 +1028,17 @@ try {
 
   // ---- Bot removed from the group ----------------------------------------
   const botStatus = (oldStatus, newStatus, date) => ({ my_chat_member: { chat: GROUP, from: from(USERS.admin), date, old_chat_member: { status: oldStatus, user: BOT }, new_chat_member: { status: newStatus, user: BOT } } });
+  const topicsCreated = calls("createForumTopic", (b) => Number(b.chat_id) === GROUP.id).length;
+  const oldKeyboards = (await rows("chat_topics")).filter((t) => Number(t.chat_id) === GROUP.id && t.keyboard_message_id).map((t) => Number(t.keyboard_message_id));
   await update(botStatus("administrator", "left", 2));
   r = await api("GET", "/setup", USERS.admin);
   check("group: removing the bot unlinks the group and clears its topics", r.json?.group === null && (r.json?.topics ?? []).length === 0, JSON.stringify([r.json?.group, r.json?.topics?.length]));
   await update(botStatus("left", "administrator", 3));
   r = await api("GET", "/setup", USERS.admin);
   eq("group: re-adding the bot links the group again", r.json?.group?.chat_id, GROUP.id);
+  eq("group: re-added, the bot reuses its topics instead of creating duplicates", calls("createForumTopic", (b) => Number(b.chat_id) === GROUP.id).length, topicsCreated);
+  check("group: re-added, its earlier button messages are replaced, not doubled", oldKeyboards.length >= 3 && oldKeyboards.every((id) => calls("deleteMessage", (b) => Number(b.chat_id) === GROUP.id && Number(b.message_id) === id).length >= 1), JSON.stringify(oldKeyboards));
+  check("group: re-added, the sign-in and Commands topics are read-only again", (await rows("chat_topics")).filter((t) => Number(t.chat_id) === GROUP.id && t.read_only).length >= 2);
   botMembership = "kicked";
   r = await api("GET", "/setup", USERS.admin);
   check("group: Setup refresh unlinks when Telegram says the bot is gone", r.json?.group === null && r.json?.group_rights === null, JSON.stringify([r.json?.group, r.json?.group_rights]));
@@ -1026,7 +1109,7 @@ try {
   const left = await Promise.all(["members", "councils", "resolutions", "ballots", "votes", "chat_topics", "group_people"].map((tb) => rows(tb)));
   check("reset: second tap wipes councils, members, resolutions, ballots, votes, topics and people", left.every((rs) => rs.length === 0), JSON.stringify(left.map((rs) => rs.length)));
   const settingsLeft = (await rows("app_settings")).map((s) => s.key);
-  check("reset: group settings gone, preferences and admins kept", !settingsLeft.includes("group") && !settingsLeft.includes("signin_topic") && settingsLeft.includes("group_gate") && (await rows("admins")).length > 0 && (await rows("audit_log")).length > 0, JSON.stringify(settingsLeft));
+  check("reset: group settings gone, preferences, the bot's own topic ids and admins kept", !settingsLeft.includes("group") && !settingsLeft.includes("group_link") && settingsLeft.includes("signin_topic") && settingsLeft.includes("group_gate") && (await rows("admins")).length > 0 && (await rows("audit_log")).length > 0, JSON.stringify(settingsLeft));
   check("reset: admins told what was wiped", /Wiped:/.test(calls("editMessageText").at(-1).body.text), calls("editMessageText").at(-1).body.text);
   // Automatic mode: removal wipes at once.
   r = await api("POST", "/setup/reset-mode", USERS.admin, { mode: "auto" });

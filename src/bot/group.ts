@@ -9,6 +9,7 @@ import { escapeHtml } from "./ui.js";
 import { lockGroupPermissions } from "./group-lock.js";
 import { onBotPromoted } from "./gate.js";
 import { onBotRemoved } from "./reset-flow.js";
+import { postKeyboard } from "./group-commands.js";
 import { getLinkedGroup, setLinkedGroup, unlinkGroup, upsertTopic } from "../services/settings.js";
 import { brandedName, currentOrg } from "../services/orgs.js";
 
@@ -150,6 +151,14 @@ async function track(ctx: Context): Promise<void> {
     await upsertTopic({ chat_id: chat.id, thread_id: threadId, name, chat_title: title });
     seen.add(key);
     console.log(`Learned topic #${threadId}${name ? ` "${name}"` : ""} in "${title ?? chat.id}" (${chat.id})`);
+    // A topic an admin just created gets the buttons under its message box (the bot's own topics are set up by their creator).
+    if (msg.forum_topic_created && msg.from?.id !== ctx.me.id && (await getLinkedGroup())?.chat_id === chat.id) {
+      try {
+        await postKeyboard(ctx.api, chat.id, threadId, title);
+      } catch (err) {
+        console.error("posting the buttons in a new topic failed:", (err as Error).message);
+      }
+    }
   }
 }
 

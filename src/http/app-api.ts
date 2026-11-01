@@ -10,7 +10,8 @@ import { getGateMode, getPerson, personName, setGateMode } from "../services/gro
 import { bindTelegram, findByToken } from "../services/members.js";
 import { clearInvitation, pendingInvitation } from "../services/pending.js";
 import { afterRegistrationKeyboard, groupInviteLink } from "../bot/group-link.js";
-import { ensureCommandTopic } from "../bot/group-commands.js";
+import { ensureCommandTopic, setTopicReadOnly } from "../bot/group-commands.js";
+import { getLang, isSignedIn, PRESENCES, presenceCounts, setAvatar, setLang, setPresence, type Lang } from "../services/presence.js";
 import { closeWaiting, extendVote } from "../bot/quorum-flow.js";
 import { assemblySummary, getResetMode, resetAssembly, setResetMode } from "../services/reset.js";
 import { closeResolution } from "../bot/lifecycle.js";
@@ -175,6 +176,7 @@ function safeMember(m: Member) {
     registered_at: m.registered_at,
     is_active: m.is_active,
     vote_weight: m.vote_weight ?? 1,
+    presence: m.presence ?? "available",
   };
 }
 
@@ -321,6 +323,8 @@ route("GET", "/me", false, async (ctx) => {
     user: ctx.user,
     role: ctx.isAdmin ? "admin" : member ? "member" : "guest",
     member: member ? safeMember(member) : null,
+    avatar: member?.avatar ?? null,
+    lang: await getLang(ctx.user.id),
     start_param: ctx.startParam ?? null,
     platform: { name: PLATFORM_NAME, admin: isPlatformAdmin(ctx.user.id) },
     org: org ? await orgSummary(org.id, ctx.user.id) : null,
@@ -335,6 +339,53 @@ route("GET", "/me", false, async (ctx) => {
       serverless: config.serverless,
     },
   };
+});
+
+/** The bar at the top of the app: who is signed in, and the open votes still waiting for this member. */
+route("GET", "/presence", false, async (ctx) => {
+  const member = await findByTelegramId(ctx.user.id);
+  const [counts, open] = await Promise.all([presenceCounts(), listResolutions("open")]);
+  const voted = member ? await memberBallots(member.id) : new Set<string>();
+  return {
+    ...counts,
+    open: open.length,
+    waiting: member ? open.filter((r) => !voted.has(r.id)).length : 0,
+    presence: member ? (member.presence ?? "available") : null,
+  };
+});
+
+/** Available, stepped away, or signed out (Logout). */
+route("POST", "/me/presence", false, async (ctx) => {
+  const member = await findByTelegramId(ctx.user.id);
+  if (!member || !member.is_active) throw new HttpError(403, "Please register first.", "not_registered");
+  const presence = String((await ctx.body()).presence);
+  if (!(PRESENCES as string[]).includes(presence)) throw new HttpError(400, "Unknown presence.");
+  if ((member.presence ?? "available") !== presence) {
+    await setPresence(member.id, presence as (typeof PRESENCES)[number]);
+    await audit(ctx.user.id, presence === "out" ? "signed_out" : isSignedIn(member) ? "presence_set" : "signed_in", { presence, via: "app" });
+  }
+  return { ok: true, presence };
+});
+
+/** A profile photo of the member's own choosing: a small JPEG/PNG/WebP data URL (the app shrinks it), or null for the Telegram photo. */
+route("POST", "/me/avatar", false, async (ctx) => {
+  const member = await findByTelegramId(ctx.user.id);
+  if (!member || !member.is_active) throw new HttpError(403, "Please register first.", "not_registered");
+  const data = (await ctx.body()).avatar;
+  if (data !== null) {
+    if (typeof data !== "string" || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) throw new HttpError(400, "The photo must be a JPEG, PNG or WebP image.");
+    if (data.length > 200_000) throw new HttpError(400, "The photo is too large.");
+  }
+  await setAvatar(member.id, data as string | null);
+  return { ok: true };
+});
+
+/** The person's language for the bot and the app (null = both). */
+route("POST", "/me/lang", false, async (ctx) => {
+  const lang = (await ctx.body()).lang;
+  if (lang !== null && lang !== "en" && lang !== "am") throw new HttpError(400, "lang must be en, am or null.");
+  await setLang(ctx.user.id, lang as Lang | null);
+  return { ok: true, lang };
 });
 
 // ---------------------------------------------------------------------------
@@ -497,6 +548,7 @@ route("POST", "/vote", false, async (ctx) => {
   const choice = int(b.choice_index, "choice_index", { min: 0, max: 50 })!;
   const res = await requireResolution(resolutionId);
   if (res.options[choice] === undefined) throw new HttpError(400, "Unknown option.");
+  if (!isSignedIn(member)) throw new HttpError(403, "You signed out of the session. Sign in to vote.", "signed_out");
   if (res.status === "open" && (await needsActivation(res, member.id))) {
     throw new HttpError(403, "Enter the activation code shown in the meeting first.", "activation_required");
   }
@@ -1556,6 +1608,24 @@ route("PATCH", "/setup/topics/(-?\\d+)/(\\d+)", true, async (ctx, [chat, thread]
   }
   await audit(ctx.user.id, "topic_renamed", { chat_id: chatId, thread_id: threadId, name, telegram, reason, via: "app" });
   return { ok: true, telegram, reason, code };
+});
+
+/** Read-only topic: only admins post; members get a pinned button panel instead of the message-box buttons. */
+route("POST", "/setup/topics/(-?\\d+)/(\\d+)/read-only", true, async (ctx, [chat, thread]) => {
+  const on = Boolean((await ctx.body()).on);
+  const chatId = Number(chat);
+  const threadId = Number(thread);
+  if (threadId === 0) throw new HttpError(400, "General cannot be made read-only.");
+  const linked = await getLinkedGroup();
+  if (!linked || linked.chat_id !== chatId) throw new HttpError(400, "Only topics of the linked group can be made read-only.");
+  try {
+    await setTopicReadOnly(bot.api, chatId, threadId, on, { title: linked.title });
+  } catch (err) {
+    const reason = (err as Error).message;
+    throw new HttpError(/rights|CHAT_ADMIN_REQUIRED|administrator/i.test(reason) ? 403 : 502, `Telegram refused: ${reason}`, "telegram");
+  }
+  await audit(ctx.user.id, on ? "topic_read_only" : "topic_opened", { chat_id: chatId, thread_id: threadId, via: "app" });
+  return { ok: true, read_only: on };
 });
 
 route("DELETE", "/setup/topics/(-?\\d+)/(\\d+)", true, async (_ctx, [chat, thread]) => {

@@ -369,3 +369,26 @@ create table if not exists user_active_org (
   updated_at       timestamptz not null default now()
 );
 alter table user_active_org enable row level security;
+
+-- =============================================================
+-- The group screen: sign in / out, language, read-only topics, live board.
+-- =============================================================
+-- Presence in the session: 'available' or 'away' (signed in), 'out' (signed
+-- out with Logout — counts as absent and cannot vote until they sign in again).
+alter table members add column if not exists presence text not null default 'available';
+alter table members add column if not exists presence_at timestamptz;
+-- Profile photo chosen in the Mini App (a small data: URL); null = the Telegram photo.
+alter table members add column if not exists avatar text;
+-- Language a person chose for the bot and the Mini App ('en' | 'am'; null = both).
+-- Per person, across organisations.
+create table if not exists user_prefs (
+  telegram_user_id bigint primary key,
+  lang             text,
+  updated_at       timestamptz not null default now()
+);
+alter table user_prefs enable row level security;
+-- Topics where only admins post (closed in Telegram); members get a pinned
+-- button panel there instead of the buttons under the message box.
+alter table chat_topics add column if not exists read_only boolean not null default false;
+alter table chat_topics add column if not exists keyboard_message_id bigint; -- the "⌨️" message carrying the buttons
+alter table chat_topics add column if not exists panel_message_id bigint;    -- the pinned button panel (read-only topics)

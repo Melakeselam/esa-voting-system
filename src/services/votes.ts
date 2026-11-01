@@ -1,4 +1,5 @@
 import { supabase } from "../db.js";
+import { liveChanged } from "./presence.js";
 import type { CastVoteResult, TallyRow } from "../types.js";
 
 export async function castVote(
@@ -12,6 +13,7 @@ export async function castVote(
     p_choice: choiceIndex,
   });
   if (error) throw error;
+  if (data === "ok") liveChanged();
   return data as CastVoteResult;
 }
 

@@ -1,6 +1,7 @@
 import { supabase } from "../db.js";
 import { memberCounts } from "./members.js";
 import { newActivationCode } from "./activation.js";
+import { liveChanged } from "./presence.js";
 import type { Resolution, ResolutionStatus, Threshold } from "../types.js";
 
 /**
@@ -81,6 +82,7 @@ export async function setStatus(
   }
   const { error } = await supabase.from("resolutions").update(patch).eq("id", id);
   if (error) throw error;
+  liveChanged();
 }
 
 /**
@@ -97,6 +99,7 @@ export async function claimClose(id: string): Promise<{ eligible: number } | nul
     .eq("status", "open")
     .select("id");
   if (error) throw error;
+  liveChanged();
   return (data?.length ?? 0) > 0 ? { eligible } : null;
 }
 
@@ -116,6 +119,7 @@ export async function reopenResolution(id: string, closesAt: Date | null): Promi
     .eq("status", "closed")
     .select("id");
   if (error) throw error;
+  liveChanged();
   return (data?.length ?? 0) > 0;
 }
 

@@ -14,7 +14,12 @@ export interface Member {
   seat_no: number | null;
   vote_weight: number;
   phone: string | null; // international form, e.g. +251911234567
+  presence?: Presence; // signed in (available / away) or signed out
+  presence_at?: string | null;
+  avatar?: string | null; // data: URL chosen in the Mini App
 }
+
+export type Presence = "available" | "away" | "out";
 
 export interface Council {
   id: string;

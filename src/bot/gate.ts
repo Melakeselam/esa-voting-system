@@ -9,7 +9,7 @@ import { getLinkedGroup, getSetting, setSetting, upsertTopic } from "../services
 import { getGateMode, getPerson, listPeople, personName, seePerson, setPersonStatus } from "../services/group-people.js";
 import { notifyAdmins } from "./notify.js";
 import { orgWords } from "../services/orgs.js";
-import { COMMANDS_TOPIC_NAME, ensureCommandTopic } from "./group-commands.js";
+import { COMMANDS_TOPIC_NAME, ensureCommandTopic, setTopicReadOnly } from "./group-commands.js";
 import { brandGroupTitle } from "./group-title.js";
 import { appKeyboard, escapeHtml, signInCard, signInKeyboard } from "./ui.js";
 
@@ -163,6 +163,11 @@ export async function ensureSignInTopic(
   else if (!isForum) notes.push("The group has topics switched off, so the sign-in card was posted in the main chat. Turn on Topics (group info › Edit › Topics), then tap “Post sign-in topic” in Setup.");
 
   if (saved?.message_id && !opts.repost && !created) {
+    // The bot is back in a group it knew: the card is still pinned there; make the topic read-only again.
+    if (threadId !== null) {
+      await upsertTopic({ chat_id: chatId, thread_id: threadId, name: SIGNIN_TOPIC_NAME, chat_title: groupTitle });
+      await setTopicReadOnly(api, chatId, threadId, true, { panel: false, title: groupTitle, name: SIGNIN_TOPIC_NAME }).catch(() => undefined);
+    }
     return { thread_id: threadId, message_id: saved.message_id, created: false, note: null };
   }
 
@@ -196,7 +201,18 @@ export async function ensureSignInTopic(
       notes.push("The card could not be pinned (the bot lacks the “Pin messages” right).");
     }
   }
+  if (messageId !== null && saved?.message_id && saved.message_id !== messageId) {
+    await api.deleteMessage(chatId, saved.message_id).catch(() => undefined);
+  }
   await setSetting("signin_topic", { chat_id: chatId, thread_id: threadId, message_id: messageId } satisfies SignInTopic);
+  // Members only read here (the card's buttons work anyway); talk happens in the other topics.
+  if (threadId !== null) {
+    try {
+      await setTopicReadOnly(api, chatId, threadId, true, { panel: false, title: groupTitle, name: SIGNIN_TOPIC_NAME });
+    } catch (err) {
+      notes.push(`Could not make the sign-in topic read-only (${(err as Error).message}); give the bot the “Manage topics” right.`);
+    }
+  }
   return { thread_id: threadId, message_id: messageId, created, note: notes.length ? notes.join(" ") : null };
 }
 
