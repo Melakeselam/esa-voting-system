@@ -234,6 +234,7 @@
   var PRESENCE = {
     available: { ico: "🟢", label: "Available" },
     away: { ico: "☕", label: "Stepped away" },
+    busy: { ico: "🔴", label: "Busy on a task" },
     out: { ico: "🚪", label: "Signed out" },
   };
   function myPhoto() {
@@ -250,30 +251,30 @@
     var photo = myPhoto();
     var mine = state.me.member;
     var bar = h('<div class="me-bar">' +
-      '<button class="me-avatar"' + (mine ? "" : " disabled") + ' aria-label="' + esc(t("My status")) + '">' + (photo ? '<img alt="" src="' + esc(photo) + '">' : "<span>" + esc(initials()) + "</span>") + '<i class="dot"></i></button>' +
+      '<button class="me-avatar"' + (mine ? "" : " disabled") + ' aria-label="' + esc(t("My status")) + '">' + (photo ? '<img alt="" src="' + esc(photo) + '">' : "<span>" + esc(initials()) + "</span>") + (mine ? '<i class="dot"></i>' : "") + "</button>" +
       '<div class="me-info"><div class="me-name">' + esc((mine && mine.full_name) || state.me.user.first_name) + '</div><div class="me-status hint">…</div></div>' +
       '<div class="me-stats"></div></div>');
     var avatarBtn = bar.querySelector(".me-avatar");
     if (mine) avatarBtn.onclick = function () { haptic("light"); presenceSheet(); };
     api("GET", "/presence").then(function (p) {
       var pr = PRESENCE[p.presence || "available"];
-      bar.querySelector(".dot").className = "dot " + (p.presence || (mine ? "available" : "none"));
+      if (mine) bar.querySelector(".dot").className = "dot " + (p.presence || "available");
       bar.querySelector(".me-status").textContent = mine ? pr.ico + " " + t(pr.label) : t("Administrator");
       var stats = bar.querySelector(".me-stats");
       stats.innerHTML = '<span class="stat" title="' + esc(t("Signed in")) + '">🙋 <b>' + p.signed_in + "</b>/" + p.registered + "</span>" +
         (mine ? '<button class="stat' + (p.waiting ? " hot" : "") + '" data-waiting>🗳 <b>' + p.waiting + "</b></button>" : '<span class="stat">🗳 <b>' + p.open + "</b></span>");
       var w = stats.querySelector("[data-waiting]");
       if (w) w.onclick = function () { haptic("light"); go("ballots", {}, { root: true }); };
-      stats.title = t("{in} of {all} signed in ({away} stepped away) · {open} open votes", { in: p.signed_in, all: p.registered, away: p.away, open: p.open });
+      stats.title = t("{in} of {all} signed in ({away} stepped away, {busy} busy) · {open} open votes", { in: p.signed_in, all: p.registered, away: p.away, busy: p.busy || 0, open: p.open });
     }).catch(function () { bar.querySelector(".me-status").textContent = ""; });
     return bar;
   }
 
   async function presenceSheet() {
-    var html = "<h2>" + esc(t("My status")) + '</h2><div class="list">' + ["available", "away", "out"].map(function (k) {
+    var html = "<h2>" + esc(t("My status")) + '</h2><div class="list">' + ["available", "away", "busy", "out"].map(function (k) {
       var pr = PRESENCE[k];
       return '<button class="row" data-p="' + k + '"><div class="main"><div class="title">' + pr.ico + " " + esc(t(k === "out" ? "Sign out (Logout)" : pr.label)) + '</div><div class="meta">' +
-        esc(t(k === "available" ? "In the session and following" : k === "away" ? "Still signed in; stepped out for a moment" : "Leave the session: you no longer count as present and cannot vote until you sign in again")) + "</div></div></button>";
+        esc(t(k === "available" ? "In the session and following" : k === "away" ? "Still signed in; stepped out for a moment" : k === "busy" ? "Still signed in and can vote; working on a task, please do not disturb" : "Leave the session: you no longer count as present and cannot vote until you sign in again")) + "</div></div></button>";
     }).join("") + "</div>" +
       '<div class="section-title">' + esc(t("Photo")) + '</div><div class="actions"><button class="btn secondary block" data-photo>🖼 ' + esc(t("Choose a photo")) + "</button>" +
       (state.me.avatar ? '<button class="btn secondary block" data-tgphoto>↺ ' + esc(t("Use my Telegram photo")) + "</button>" : "") +

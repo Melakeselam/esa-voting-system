@@ -4,11 +4,11 @@ import type { Presence } from "../types.js";
 
 /**
  * Who is in the session. A registered member is signed in ("available" or
- * "away" — stepped out of the room for a moment) until they tap Logout; then
+ * "away" — stepped out of the room for a moment — or "busy" on a task) until they tap Logout; then
  * they are "out": not counted as present and unable to vote until they sign
  * in again. Registration itself is kept, so signing in needs no password.
  */
-export const PRESENCES: Presence[] = ["available", "away", "out"];
+export const PRESENCES: Presence[] = ["available", "away", "busy", "out"];
 
 export async function setPresence(memberId: string, presence: Presence): Promise<void> {
   const { error } = await supabase
@@ -28,6 +28,7 @@ export interface PresenceCounts {
   signed_in: number;
   available: number;
   away: number;
+  busy: number;
 }
 
 export async function presenceCounts(): Promise<PresenceCounts> {
@@ -39,7 +40,8 @@ export async function presenceCounts(): Promise<PresenceCounts> {
   const rows = (data ?? []).filter((r) => r.is_active);
   const available = rows.filter((r) => (r.presence ?? "available") === "available").length;
   const away = rows.filter((r) => r.presence === "away").length;
-  return { registered: rows.length, signed_in: available + away, available, away };
+  const busy = rows.filter((r) => r.presence === "busy").length;
+  return { registered: rows.length, signed_in: available + away + busy, available, away, busy };
 }
 
 export async function setAvatar(memberId: string, avatar: string | null): Promise<void> {

@@ -609,6 +609,13 @@ try {
   eq("presence: stepped away still counts as signed in", [r.json?.signed_in, r.json?.away, r.json?.presence, r.json?.waiting], [6, 1, "away", 0]);
   r = await api("POST", "/vote", USERS.abebe, { resolution_id: R2.id, choice_index: 1 });
   eq("presence: stepped away can still vote", r.json?.result, "changed");
+  r = await api("POST", "/me/presence", USERS.abebe, { presence: "busy" });
+  eq("presence: busy on a task, from the app", r.status, 200);
+  r = await api("GET", "/presence", USERS.abebe);
+  eq("presence: busy still counts as signed in", [r.json?.signed_in, r.json?.busy, r.json?.away, r.json?.presence], [6, 1, 0, "busy"]);
+  r = await api("POST", "/vote", USERS.abebe, { resolution_id: R2.id, choice_index: 0 });
+  eq("presence: busy can still vote", r.json?.result, "changed");
+  await api("POST", "/vote", USERS.abebe, { resolution_id: R2.id, choice_index: 1 }); // back to the earlier choice the later checks expect
   await api("POST", "/me/presence", USERS.abebe, { presence: "available" });
   r = await api("POST", "/me/presence", USERS.guest, { presence: "out" });
   eq("presence: guests have none", r.status, 403);
@@ -1238,6 +1245,16 @@ try {
   check("orgs(group): the question turns into the choice made", (edited?.body.text ?? "").includes("is now the group of <b>Ethiopia Scout Association (Kene Voting System)</b>"), JSON.stringify(edited?.body));
   check("orgs(group): the chosen group is renamed", calls("setChatTitle", (b) => Number(b.chat_id) === FRESH_GROUP.id).at(-1)?.body.title === "Fresh group | Ethiopia Scout Association (Kene Voting System)", JSON.stringify(calls("setChatTitle").at(-1)?.body));
   check("orgs(group): the chosen group gets the sign-in topic", sentTo(FRESH_GROUP.id).some((c) => /Sign in/.test(c.body.text ?? "")), JSON.stringify(sentTo(FRESH_GROUP.id).map((c) => c.body.text?.slice(0, 40))));
+  // Removed from Setup, then added back: the group goes straight back to its organisation, no question, no new topics.
+  r = await api("DELETE", "/setup/group", USERS.admin, undefined, ORG.id);
+  check("orgs(group): 'Remove bot from group' leaves the group", r.json?.left === true && calls("leaveChat", (b) => Number(b.chat_id) === FRESH_GROUP.id).length === 1, JSON.stringify(r.json));
+  await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 35, old_chat_member: { status: "administrator", user: BOT }, new_chat_member: { status: "left", user: BOT } } });
+  const freshAsks = sentTo(FRESH_GROUP.id).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length;
+  const freshTopics = calls("createForumTopic", (b) => Number(b.chat_id) === FRESH_GROUP.id).length;
+  await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 36, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  check("orgs(group): added back, the group is linked to its organisation again without asking", r.json?.group?.chat_id === FRESH_GROUP.id && sentTo(FRESH_GROUP.id).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length === freshAsks, JSON.stringify(r.json?.group));
+  eq("orgs(group): added back, its topics are reused", calls("createForumTopic", (b) => Number(b.chat_id) === FRESH_GROUP.id).length, freshTopics);
   const REDO = { id: -1000965, type: "supergroup", title: "Redo group", is_forum: true };
   const redoAsks = () => sentTo(REDO.id).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length;
   await update({ my_chat_member: { chat: REDO, from: from(USERS.admin), date: 40, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });

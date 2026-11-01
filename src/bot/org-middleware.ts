@@ -40,6 +40,19 @@ async function orgOfResolution(id: string): Promise<string | null> {
   return data ? String(data.org_id) : null;
 }
 
+/**
+ * Organisations that had this group linked before (they remember its topics,
+ * see unlinkGroup): the bot is back in a group it knew.
+ */
+async function orgsThatKnewGroup(chatId: number): Promise<string[]> {
+  const { data, error } = await rawDb.from("app_settings").select("org_id, key, value").or("key.eq.group_memory,key.eq.signin_topic,key.eq.commands_topic");
+  if (error) throw error;
+  const ids = (data ?? [])
+    .filter((r) => r.org_id && Number((r.value as { chat_id?: unknown } | null)?.chat_id) === chatId)
+    .map((r) => String(r.org_id));
+  return [...new Set(ids)];
+}
+
 /** Organisations a person administers (all of them for platform admins). */
 async function adminOrgs(userId: number): Promise<Org[]> {
   const orgs = await listOrgs();
@@ -76,6 +89,11 @@ async function resolve(ctx: Context): Promise<string | null> {
     if (from) {
       const mine = await adminOrgs(from.id);
       if (mine.length === 1) return mine[0].id;
+      // Back in a group one of their organisations had linked: that one, without asking.
+      if (ctx.myChatMember && mine.length > 1) {
+        const knew = (await orgsThatKnewGroup(chat.id)).filter((id) => mine.some((o) => o.id === id));
+        if (knew.length === 1) return knew[0];
+      }
     }
     return null;
   }

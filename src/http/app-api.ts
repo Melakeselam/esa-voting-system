@@ -354,7 +354,7 @@ route("GET", "/presence", false, async (ctx) => {
   };
 });
 
-/** Available, stepped away, or signed out (Logout). */
+/** Available, stepped away, busy on a task, or signed out (Logout). */
 route("POST", "/me/presence", false, async (ctx) => {
   const member = await findByTelegramId(ctx.user.id);
   if (!member || !member.is_active) throw new HttpError(403, "Please register first.", "not_registered");

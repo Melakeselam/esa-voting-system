@@ -12,7 +12,7 @@ import { escapeHtml } from "./ui.js";
 
 /**
  * The "📊 Live" message pinned in General: who is signed in (available or
- * stepped away) and which votes are open with how many ballots so far. The
+ * stepped away or busy) and which votes are open with how many ballots so far. The
  * bot edits it a few seconds after anything it shows changes, so a burst of
  * ballots costs one edit.
  */
@@ -26,7 +26,7 @@ async function boardText(): Promise<string> {
   const lines = [
     `📊 <b>Live — ${escapeHtml(w.branded)}</b>`,
     `🙋 Signed in / ገብተዋል: <b>${p.signed_in}</b> of ${p.registered}`,
-    `   🟢 available / አሉ ${p.available} · ☕ stepped away / ወጣ ብለዋል ${p.away}`,
+    `   🟢 available / አሉ ${p.available} · ☕ stepped away / ወጣ ብለዋል ${p.away} · 🔴 busy / ሥራ ላይ ${p.busy}`,
     `🗳 Open votes / ክፍት ድምፆች: <b>${open.length}</b>`,
   ];
   for (const r of open) lines.push(`   • ${escapeHtml(r.code)} — ${escapeHtml(r.title)}: ${await ballotCount(r.id)} ballots / ድምፆች`);
