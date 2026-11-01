@@ -10,6 +10,7 @@ import { getGateMode, getPerson, listPeople, personName, seePerson, setPersonSta
 import { notifyAdmins } from "./notify.js";
 import { orgWords } from "../services/orgs.js";
 import { COMMANDS_TOPIC_NAME, ensureCommandTopic } from "./group-commands.js";
+import { brandGroupTitle } from "./group-title.js";
 import { appKeyboard, escapeHtml, signInCard, signInKeyboard } from "./ui.js";
 
 /**
@@ -159,7 +160,7 @@ export async function ensureSignInTopic(
   };
 
   if (threadId === null && isForum) await createTopic();
-  else if (!isForum) notes.push("The group has topics switched off, so the sign-in card was posted in the main chat.");
+  else if (!isForum) notes.push("The group has topics switched off, so the sign-in card was posted in the main chat. Turn on Topics (group info › Edit › Topics), then tap “Post sign-in topic” in Setup.");
 
   if (saved?.message_id && !opts.repost && !created) {
     return { thread_id: threadId, message_id: saved.message_id, created: false, note: null };
@@ -199,12 +200,34 @@ export async function ensureSignInTopic(
   return { thread_id: threadId, message_id: messageId, created, note: notes.length ? notes.join(" ") : null };
 }
 
+export const TOPICS_OFF_TIP =
+  "🗂 <b>Admins:</b> please turn on <b>Topics</b> for this group (group info › Edit › Topics). " +
+  "Telegram does not let a bot do it. Once they are on, tap “Post sign-in topic” in the Mini App’s Setup.";
+
 /**
  * The bot was just made admin of the assembly group: set up the sign-in topic
  * and tell the admins what the bot can and cannot see.
  */
-export async function onBotPromoted(api: Api, chatId: number, groupTitle: string | null, isForum: boolean): Promise<void> {
+export async function onBotPromoted(api: Api, chatId: number, rawTitle: string | null, isForum: boolean): Promise<void> {
+  // Label the group with its organisation first, so the cards below carry the new name.
+  let titleNote: string | null = null;
+  let groupTitle = rawTitle;
+  try {
+    const named = await brandGroupTitle(api, chatId, rawTitle);
+    groupTitle = named.title;
+    titleNote = named.note;
+  } catch (err) {
+    console.error("renaming the group failed:", err);
+  }
   const title = groupTitle ?? "this group";
+  if (!isForum) {
+    // Telegram gives bots no way to switch topics on; ask the people who can.
+    try {
+      await api.sendMessage(chatId, TOPICS_OFF_TIP, { parse_mode: "HTML" });
+    } catch (err) {
+      console.error("topics tip failed:", err);
+    }
+  }
   let signin: SignInResult | null = null;
   try {
     signin = await ensureSignInTopic(api, chatId, groupTitle, isForum);
@@ -225,6 +248,7 @@ export async function onBotPromoted(api: Api, chatId: number, groupTitle: string
   await notifyAdmins(
     api,
     `🛡 I am now an administrator of <b>${escapeHtml(title)}</b>.\n${escapeHtml(where)}` +
+      (titleNote ? `\n⚠️ ${escapeHtml(titleNote)}` : "") +
       (signin?.note ? `\n⚠️ ${escapeHtml(signin.note)}` : "") +
       (commandsNote ? `\n⚠️ ${escapeHtml(commandsNote)}` : "") +
       `\n\nTelegram does not let a bot list a group's members, so I cannot check the people already inside. ` +

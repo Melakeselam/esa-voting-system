@@ -373,6 +373,8 @@
       "Unregistered people are now removed automatically": "ያልተመዘገቡ ሰዎች አሁን በራስ-ሰር ይወገዳሉ",
       "Unregistered people are now only reported to admins": "ያልተመዘገቡ ሰዎች አሁን ለአስተዳዳሪዎች ብቻ ይነገራሉ",
       "without this right the bot cannot lock member permissions": "ያለዚህ መብት ቦቱ የአባላት ፈቃዶችን መቆለፍ አይችልም",
+      "Change group info": "የቡድን መረጃ መቀየር",
+      "without this right the bot cannot add the organisation's name to the group title": "ያለዚህ መብት ቦቱ የድርጅቱን ስም በቡድኑ ስም ላይ ማከል አይችልም",
       "Member permissions:": "የአባላት ፈቃዶች፦",
       "locked — only admins can add members, change the group, pin messages, create topics or post polls": "ተቆልፏል — አባላት መጨመር፣ ቡድኑን መቀየር፣ መልዕክት መሰካት፣ ርዕስ መፍጠር ወይም የሕዝብ አስተያየት መለጠፍ የሚችሉት አስተዳዳሪዎች ብቻ ናቸው",
       "members can still: {list}": "አባላት አሁንም ይችላሉ፦ {list}",

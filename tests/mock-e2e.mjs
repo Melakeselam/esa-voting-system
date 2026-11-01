@@ -29,6 +29,8 @@ process.chdir(root);
 // ---------------------------------------------------------------- mock Telegram
 const BOT_TOKEN = "777000:MOCKTOKENabcdef";
 const BOT = { id: 777000, is_bot: true, first_name: "ESA Voting (mock)", username: "esa_mock_bot" };
+const chatInfo = new Map(); // getChat answers for particular chats (default: the forum test group)
+const blockedUsers = new Set(); // users who never opened a private chat with the bot
 let botMembership = "administrator"; // what getChatMember reports for the bot in the group
 // Member permissions of the group as Telegram would report them (all on for a new group).
 let chatPermissions = { can_send_messages: true, can_send_polls: true, can_change_info: true, can_invite_users: true, can_pin_messages: true, can_manage_topics: true };
@@ -68,6 +70,11 @@ const tgServer = createServer(async (req, res) => {
     body.is_pdf = raw.includes("%PDF-");
   }
   tgCalls.push({ method, body });
+  if (method === "sendMessage" && blockedUsers.has(Number(body.chat_id))) {
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error_code: 403, description: "Forbidden: bot can't initiate conversation with a user" }));
+    return;
+  }
   let result = true;
   switch (method) {
     case "getMe": result = BOT; break;
@@ -81,7 +88,7 @@ const tgServer = createServer(async (req, res) => {
       result = { status: botMembership, user: BOT, can_manage_topics: true, can_delete_messages: true, can_pin_messages: true, can_restrict_members: true };
       break;
     case "getChat":
-      result = { id: Number(body.chat_id), type: "supergroup", title: GROUP.title, is_forum: true, permissions: { ...chatPermissions } };
+      result = chatInfo.get(Number(body.chat_id)) ?? { id: Number(body.chat_id), type: "supergroup", title: GROUP.title, is_forum: true, permissions: { ...chatPermissions } };
       break;
     case "createForumTopic":
       result = { message_thread_id: nextThreadId++, name: body.name, icon_color: 0x6fb9f0 };
@@ -1087,10 +1094,60 @@ try {
   eq("orgs(group): choosing ESA links the group to ESA", r.json?.group?.chat_id, OTHER_GROUP.id);
   r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
   eq("orgs(group): AEA keeps its own group", r.json?.group?.chat_id, AEA_GROUP.id);
-  await update({ message: { message_id: msgId++, date: 32, chat: AEA_GROUP, from: from(AEA_ADMIN), message_thread_id: 77, is_topic_message: true, forum_topic_created: { name: "Design review", icon_color: 0 } } });
+  // A new bot the admin never started privately: the question is asked in the group instead.
+  const FRESH_GROUP = { id: -1000960, type: "supergroup", title: "Fresh group", is_forum: true };
+  blockedUsers.add(1001);
+  await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 33, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "member", user: BOT } } });
+  await update({ my_chat_member: { chat: FRESH_GROUP, from: from(USERS.admin), date: 34, old_chat_member: { status: "member", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  blockedUsers.delete(1001);
+  const inGroup = sentTo(FRESH_GROUP.id).filter((c) => /Which organisation is this group for/.test(c.body.text ?? ""));
+  check("orgs(group): when the admin cannot be messaged privately, the group itself is asked (once)", inGroup.length === 1 && JSON.stringify(inGroup[0].body.reply_markup).includes(`gswitch|${FRESH_GROUP.id}|${ORG.id}`), JSON.stringify(inGroup.map((c) => c.body.text)));
+  const freshPress = callback(USERS.admin, `gswitch|${FRESH_GROUP.id}|${ORG.id}`);
+  freshPress.callback_query.message.chat = FRESH_GROUP;
+  await update(freshPress);
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("orgs(group): choosing in the group links it", r.json?.group?.chat_id, FRESH_GROUP.id);
+  check("orgs(group): the chosen group gets the sign-in topic", sentTo(FRESH_GROUP.id).some((c) => /Sign in/.test(c.body.text ?? "")), JSON.stringify(sentTo(FRESH_GROUP.id).map((c) => c.body.text?.slice(0, 40))));
+  await update(callback(USERS.admin, `gswitch|${OTHER_GROUP.id}|${ORG.id}`));
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("orgs(group): switching back restores the earlier group", r.json?.group?.chat_id, OTHER_GROUP.id);
+  // The group is renamed after its organisation.
+  const aeaRename = calls("setChatTitle", (b) => Number(b.chat_id) === AEA_GROUP.id).at(-1);
+  eq("title: AEA's group is labelled with AEA and the platform", aeaRename?.body.title, "Architects AGM | Association of Ethiopian Architects (Kene Voting System)");
+  const { brandedTitle, baseTitle } = await import("../dist/bot/group-title.js");
+  eq("title: relabelling for another organisation replaces the old label", brandedTitle("Architects AGM | Association of Ethiopian Architects (Kene Voting System)", { name_en: "Ethiopia Scout Association", short_code: "ESA" }), "Architects AGM | Ethiopia Scout Association (Kene Voting System)");
+  eq("title: a plain title keeps its own name", baseTitle("Board | room"), "Board | room");
+  check("title: a long name falls back to the short code within 128 characters", (() => { const t = brandedTitle("X".repeat(100), { name_en: "A very long organisation name indeed", short_code: "AVL" }); return t.length <= 128 && t.endsWith("| AVL (Kene Voting System)"); })(), "");
+  // A group without Topics is refused: banner in the group, a note to whoever added the bot, and the bot leaves.
+  const BASIC = { id: -970, type: "group", title: "Basic group" };
+  const PLAIN = { id: -1000972, type: "supergroup", title: "Plain group" };
+  chatInfo.set(PLAIN.id, { ...PLAIN, is_forum: false });
+  const asksBefore = sentTo(1001).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length;
+  await update({ my_chat_member: { chat: BASIC, from: from(USERS.admin), date: 33, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  check("topics: a basic group gets the 'Topics are off' banner", sentTo(BASIC.id).some((c) => /Topics are off in this group/.test(c.body.text ?? "") && /Topics/.test(c.body.text)), JSON.stringify(sentTo(BASIC.id).map((c) => c.body.text?.slice(0, 40))));
+  check("topics: whoever added the bot is told how to fix it", /Topics are off there, so I left/.test(lastTextTo(1001)), lastTextTo(1001));
+  check("topics: the bot leaves the basic group", calls("leaveChat", (x) => Number(x.chat_id) === BASIC.id).length === 1, "");
+  await update({ my_chat_member: { chat: PLAIN, from: from(USERS.admin), date: 34, old_chat_member: { status: "left", user: BOT }, new_chat_member: { status: "member", user: BOT } } });
+  check("topics: a supergroup without topics is refused too", calls("leaveChat", (x) => Number(x.chat_id) === PLAIN.id).length === 1 && sentTo(PLAIN.id).some((c) => /Topics are off/.test(c.body.text ?? "")), "");
+  await update({ my_chat_member: { chat: PLAIN, from: from(USERS.admin), date: 35, old_chat_member: { status: "member", user: BOT }, new_chat_member: { status: "left", user: BOT } } });
+  eq("topics: refused groups are never asked about an organisation", sentTo(1001).filter((c) => /Which organisation is this group for/.test(c.body.text ?? "")).length, asksBefore);
+  check("topics: refused groups are not renamed", calls("setChatTitle", (x) => [BASIC.id, PLAIN.id].includes(Number(x.chat_id))).length === 0, "");
+  await update({ message: { message_id: msgId++, date: 36, chat: PLAIN, from: from(USERS.admin), text: "hello" } });
+  await update(callback(USERS.admin, `gswitch|${PLAIN.id}|${ORG.id}`));
+  const refusal = calls("answerCallbackQuery").at(-1);
+  check("topics: 'use this group' refuses a group without topics", /Topics switched off/.test(refusal?.body.text ?? ""), JSON.stringify(refusal?.body));
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("topics: ESA keeps its group", r.json?.group?.chat_id, OTHER_GROUP.id);
+  // The linked group is never left, even if its topics were switched off later.
+  await update({ my_chat_member: { chat: { ...OTHER_GROUP, is_forum: false }, from: from(USERS.admin), date: 37, old_chat_member: { status: "member", user: BOT }, new_chat_member: { status: "administrator", user: BOT } } });
+  check("topics: the linked group is never left", calls("leaveChat", (x) => Number(x.chat_id) === OTHER_GROUP.id).length === 0, "");
+  check("topics: its admins are asked to switch topics back on", sentTo(OTHER_GROUP.id).some((c) => /turn on <b>Topics<\/b>/.test(c.body.text ?? "")), "");
+  r = await api("GET", "/setup", USERS.admin, undefined, ORG.id);
+  eq("topics: and it stays linked", r.json?.group?.chat_id, OTHER_GROUP.id);
+  await update({ message: { message_id: msgId++, date: 32, chat: AEA_GROUP, from: from(AEA_ADMIN), message_thread_id: 9077, is_topic_message: true, forum_topic_created: { name: "Design review", icon_color: 0 } } });
   r = await api("GET", "/setup", AEA_ADMIN, undefined, null);
   const esaTopics = (await api("GET", "/setup", USERS.admin, undefined, ORG.id)).json?.topics ?? [];
-  check("orgs(group): topics learned in AEA's group stay in AEA", (r.json?.topics ?? []).some((t) => t.thread_id === 77) && !esaTopics.some((t) => t.thread_id === 77), JSON.stringify([r.json?.topics?.map((t) => t.thread_id), esaTopics.map((t) => t.thread_id)]));
+  check("orgs(group): topics learned in AEA's group stay in AEA", (r.json?.topics ?? []).some((t) => t.thread_id === 9077) && !esaTopics.some((t) => t.thread_id === 9077), JSON.stringify([r.json?.topics?.map((t) => t.thread_id), esaTopics.map((t) => t.thread_id)]));
   // Deadlines of every organisation are handled.
   await pastDue(esaR.id);
   await pastDue(aeaR.id);

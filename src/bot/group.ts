@@ -137,6 +137,9 @@ async function track(ctx: Context): Promise<void> {
   const key = `${chat.id}:${threadId}`;
   if (seen.has(key) && !name) return;
 
+  // Only a group with Topics can become the assembly group (see topics-required.ts).
+  const forum = chat.type === "supergroup" && "is_forum" in chat && Boolean(chat.is_forum);
+  if (!forum && (await getLinkedGroup())?.chat_id !== chat.id) return;
   await linkGroupIfUnset(chat.id, title);
   if (!seen.has(`${chat.id}:0`)) {
     await upsertTopic({ chat_id: chat.id, thread_id: 0, name: "General", chat_title: title });
@@ -200,6 +203,13 @@ groupComposer.callbackQuery(/^gswitch\|(-?\d+)(?:\|[0-9a-f-]{36})?$/, async (ctx
     chat = (await ctx.api.getChat(chatId)) as unknown as { title?: string; is_forum?: boolean };
   } catch (err) {
     await ctx.answerCallbackQuery({ text: `I can no longer reach that group: ${(err as Error).message}`.slice(0, 190), show_alert: true });
+    return;
+  }
+  if (!chat.is_forum) {
+    await ctx.answerCallbackQuery({
+      text: "That group has Topics switched off. Turn them on (group info › Edit › Topics), then add me again.",
+      show_alert: true,
+    });
     return;
   }
   const linked = await getLinkedGroup();

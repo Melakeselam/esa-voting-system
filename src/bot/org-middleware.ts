@@ -16,6 +16,7 @@ import {
 } from "../services/orgs.js";
 import { sessionOrgId } from "./login.js";
 import { escapeHtml } from "./ui.js";
+import { refuseGroupWithoutTopics } from "./topics-required.js";
 
 /**
  * Runs first for every Telegram update: decides which organisation the update
@@ -103,20 +104,40 @@ async function askWhichOrg(ctx: Context, orgIds: string[]): Promise<void> {
 }
 
 /** A group nobody linked yet, added by someone who administers several organisations: ask which one. */
+const askedGroups = new Map<number, number>();
+const ASK_AGAIN_MS = 10 * 60 * 1000;
+
 async function askWhichOrgForGroup(ctx: Context): Promise<void> {
   const chat = ctx.myChatMember?.chat;
   const from = ctx.myChatMember?.from;
   const status = ctx.myChatMember?.new_chat_member.status;
   if (!chat || !from || (status !== "administrator" && status !== "member")) return;
-  const mine = await adminOrgs(from.id);
-  if (mine.length < 2) return;
   const title = ("title" in chat ? chat.title : undefined) ?? String(chat.id);
+  const mine = await adminOrgs(from.id);
+  if (mine.length < 2) {
+    // Added by someone who administers no organisation: the group stays unclaimed.
+    console.log(`Added to "${title}" (${chat.id}) by ${from.id}, who administers no organisation — not linking it`);
+    return;
+  }
+  // Added, then promoted a moment later: ask once, not twice.
+  const last = askedGroups.get(chat.id);
+  if (last && Date.now() - last < ASK_AGAIN_MS) return;
+  askedGroups.set(chat.id, Date.now());
   const kb = new InlineKeyboard();
   for (const org of mine) kb.text(org.name_en, `gswitch|${chat.id}|${org.id}`).row();
+  const question = `👥 I was added to <b>${escapeHtml(title)}</b>. Which organisation is this group for?`;
   try {
-    await ctx.api.sendMessage(from.id, `👥 I was added to <b>${escapeHtml(title)}</b>. Which organisation is this group for?`, { parse_mode: "HTML", reply_markup: kb });
+    await ctx.api.sendMessage(from.id, question, { parse_mode: "HTML", reply_markup: kb });
+    console.log(`Added to "${title}" (${chat.id}) — asked ${from.id} privately which organisation it is for`);
+    return;
   } catch {
-    // The admin never opened a private chat with the bot.
+    // The admin never opened a private chat with the bot (e.g. a new bot): ask in the group instead.
+  }
+  try {
+    await ctx.api.sendMessage(chat.id, `${question}\n\n<i>Only an administrator can choose.</i>`, { parse_mode: "HTML", reply_markup: kb });
+    console.log(`Added to "${title}" (${chat.id}) — asked in the group which organisation it is for`);
+  } catch (err) {
+    console.error(`Added to "${title}" (${chat.id}) but could not ask which organisation it is for:`, (err as Error).message);
   }
 }
 
@@ -136,6 +157,9 @@ orgComposer.use(async (ctx: Context, next: NextFunction) => {
     await ctx.editMessageText(`✅ This chat is now about <b>${escapeHtml(brandedName(org))}</b>. Send /org to switch.`, { parse_mode: "HTML" });
     return;
   }
+
+  // A group without Topics: warn, tell whoever added the bot, and leave.
+  if (await refuseGroupWithoutTopics(ctx)) return;
 
   const orgId = await resolve(ctx);
 

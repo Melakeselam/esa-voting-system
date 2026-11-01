@@ -1213,7 +1213,7 @@ route("GET", "/setup", true, async (ctx) => {
   }
   // How the bot stands in the linked group, so the admin can see why a topic
   // rename stayed app-side (it needs the "Manage topics" administrator right).
-  let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean; can_restrict_members: boolean } | null = null;
+  let groupRights: { status: string; is_admin: boolean; can_manage_topics: boolean; can_delete_messages: boolean; can_pin_messages: boolean; can_restrict_members: boolean; can_change_info: boolean } | null = null;
   // Which admin-only switches members of the linked group still have (see group-lock.ts).
   let groupLock: GroupLockState | null = null;
   if (group?.chat_id) {
@@ -1241,6 +1241,7 @@ route("GET", "/setup", true, async (ctx) => {
           can_delete_messages: owner || (isAdmin && Boolean(m.can_delete_messages)),
           can_pin_messages: owner || (isAdmin && Boolean(m.can_pin_messages)),
           can_restrict_members: owner || (isAdmin && Boolean(m.can_restrict_members)),
+          can_change_info: owner || (isAdmin && Boolean(m.can_change_info)),
         };
         groupLock = await readLockState(bot.api, linkedChatId);
       }

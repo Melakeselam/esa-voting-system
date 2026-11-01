@@ -1386,7 +1386,8 @@
         (s.group ? "<p>" + esc(t("Linked group:")) + " <b>" + esc(s.group.title || s.group.chat_id) + '</b> <span class="hint">(' + s.group.chat_id + ")</span></p>" +
           (s.group_rights ? '<p class="hint">' + esc(t("Bot in the group:")) + " " + esc(s.group_rights.is_admin ? t("administrator") : t("not an administrator")) + " · " + esc(t("Manage topics")) + " " +
             (s.group_rights.can_manage_topics ? "✅" : "❌ — " + esc(t("without this right, renaming a topic here does not rename it in the group"))) +
-            " · " + esc(t("Ban users")) + " " + (s.group_rights.can_restrict_members ? "✅" : "❌ — " + esc(t("without this right the bot cannot lock member permissions"))) + "</p>" : "") +
+            " · " + esc(t("Ban users")) + " " + (s.group_rights.can_restrict_members ? "✅" : "❌ — " + esc(t("without this right the bot cannot lock member permissions"))) +
+            " · " + esc(t("Change group info")) + " " + (s.group_rights.can_change_info ? "✅" : "❌ — " + esc(t("without this right the bot cannot add the organisation's name to the group title"))) + "</p>" : "") +
           (s.group_lock ? '<p class="hint">' + esc(t("Member permissions:")) + " " + (s.group_lock.locked ? "✅ " + esc(t("locked — only admins can add members, change the group, pin messages, create topics or post polls")) :
             "⚠️ " + esc(t("members can still: {list}", { list: s.group_lock.open.map(permLabel).join(", ") }))) + "</p>" : "") :
           '<p class="hint">' + esc(t("No group linked yet. Add the bot to the assembly supergroup as an administrator (it will link automatically), or post any message in the group.")) + "</p>") +
