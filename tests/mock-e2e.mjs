@@ -150,6 +150,7 @@ Object.assign(process.env, {
   VERCEL: "1",
   TZ_OFFSET_MINUTES: "180",
   TZ_LABEL: "EAT",
+  BUSINESS_ORIGINS: "https://www.kene-tech.com/",
 });
 delete process.env.RESEND_API_KEY;
 
@@ -157,7 +158,7 @@ const REAL = Boolean(process.env.TEST_DATABASE_URL);
 if (!REAL) register("./hooks.mjs", import.meta.url);
 const { handleHttp } = await import(pathToFileURL(resolve(root, "dist/http/router.js")).href);
 const realDb = REAL ? await import(pathToFileURL(resolve(root, "dist/db.js")).href) : null;
-const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations", "user_prefs", "motions"];
+const TABLES = ["members", "resolutions", "ballots", "votes", "vote_activations", "audit_log", "app_settings", "chat_topics", "admins", "councils", "group_people", "pending_invitations", "user_active_org", "organizations", "user_prefs", "motions", "biz_accounts", "biz_plans", "biz_plan_prices", "biz_pay_methods", "biz_payments", "biz_logins", "biz_settings"];
 if (REAL) {
   await realDb.ensureSchema();
   await realDb.rawDb.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
@@ -1503,6 +1504,160 @@ try {
   r = await api("GET", "/me", USERS.admin, undefined, ORG.id);
   eq("direct: ESA keeps its councils", r.json?.org?.structure, "councils");
   defaultOrg = ORG.id;
+
+  // ---- Kene Voting as a business: sign up, create an organisation, pay, share ----
+  const biz = async (method, path, auth, body, headers = {}) => {
+    const res = await fetch(base + "/api/biz" + path, {
+      method,
+      headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}), ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let json = null;
+    try { json = await res.json(); } catch { /* empty */ }
+    return { status: res.status, json, headers: res.headers };
+  };
+  const tma = (u) => "tma " + initData(u);
+  const PLAT = tma(USERS.admin);
+  r = await biz("GET", "/catalog");
+  check("biz: the catalogue is public; nothing on offer yet", r.status === 200 && Array.isArray(r.json?.plans) && r.json.plans.length === 0 && r.json.trial_member_cap === 5 && /startgroup=kene&admin=/.test(r.json.links?.add_to_group ?? ""), JSON.stringify(r.json));
+  r = await biz("POST", "/admin/plans", tma(USERS.abebe), { name_en: "X", duration_days: 30 });
+  eq("biz: only platform administrators manage plans", r.status, 403);
+  r = await biz("POST", "/admin/plans", PLAT, { name_en: "Assembly pass", duration_days: 30, member_cap: 50, prices: [{ country: "ET", price: 1500, currency: "etb" }, { country: "KE", price: 40, currency: "USD" }] });
+  const PLAN = r.json?.plan;
+  check("biz: a plan with prices per country", r.status === 200 && PLAN?.prices?.length === 2 && PLAN.prices.find((p) => p.country === "ET")?.currency === "ETB", JSON.stringify(r.json));
+  r = await biz("POST", "/admin/plans", PLAT, { name_en: "Bad", duration_days: 30, prices: [{ country: "ET", price: 1, currency: "ETB" }, { country: "ET", price: 2, currency: "ETB" }] });
+  eq("biz: two prices for one country refused", r.status, 400);
+  r = await biz("POST", "/admin/methods", PLAT, { country: "ET", provider: "Commercial Bank of Ethiopia", account_name: "Kene Technologies", account_number: "1000123456789" });
+  const METHOD = r.json?.method;
+  check("biz: a payment account for Ethiopia", r.status === 200 && METHOD?.country === "ET", JSON.stringify(r.json));
+  r = await biz("GET", "/catalog");
+  check("biz: the catalogue lists the plan and its countries", r.json?.plans?.length === 1 && JSON.stringify(r.json.countries) === '["ET","KE"]', JSON.stringify(r.json?.countries));
+
+  // Signing in on the website through the bot.
+  const CREATOR = { id: 9101, first_name: "Hana", last_name: "Bekele", username: "hana_b" };
+  const FRIEND = { id: 9102, first_name: "Yared" };
+  r = await biz("POST", "/login/start", null, {});
+  const nonce = r.json?.nonce;
+  check("biz: sign-in starts with a link to the bot", r.status === 200 && r.json.link === "https://t.me/esa_mock_bot?start=weblogin_" + nonce, JSON.stringify(r.json));
+  r = await biz("GET", "/login/poll?nonce=" + nonce);
+  eq("biz: waiting until Start is tapped", r.json?.status, "pending");
+  await update(textMessage(CREATOR, "/start weblogin_" + nonce));
+  check("biz: the bot confirms the sign-in", /signed in on the Kene Voting business page/.test(lastTextTo(CREATOR.id)), lastTextTo(CREATOR.id));
+  r = await biz("GET", "/login/poll?nonce=" + nonce);
+  const HANA = "Bearer " + r.json?.token;
+  check("biz: the page collects its session", r.json?.status === "ok" && r.json.account?.telegram_user_id === CREATOR.id && /\/business\/\?ref=[A-Z0-9]{8}$/.test(r.json.account.share_link ?? ""), JSON.stringify(r.json));
+  r = await biz("GET", "/login/poll?nonce=" + nonce);
+  eq("biz: the session is handed out once", r.json?.status, "expired");
+  await update(textMessage(FRIEND, "/start weblogin_" + nonce));
+  check("biz: a used sign-in link is refused in the bot", /expired or was already used/.test(lastTextTo(FRIEND.id)));
+  r = await biz("GET", "/me", "Bearer 9101.9999999999.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+  eq("biz: a forged session is refused", r.status, 401);
+  r = await biz("GET", "/me", HANA);
+  const hanaRef = r.json?.account?.ref_code;
+  check("biz: signed in, no organisation yet", r.status === 200 && r.json.orgs.length === 0 && r.json.platform_admin === false, JSON.stringify(r.json));
+
+  // A friend comes through Hana's share link.
+  r = await biz("POST", "/login/start", null, { ref: hanaRef });
+  const n2 = r.json.nonce;
+  await update(textMessage(FRIEND, "/start weblogin_" + n2));
+  r = await biz("GET", "/login/poll?nonce=" + n2);
+  const YARED = "Bearer " + r.json?.token;
+  check("biz: the share link is remembered on sign-up", Number((await rows("biz_accounts")).find((a) => Number(a.telegram_user_id) === FRIEND.id)?.referred_by) === CREATOR.id);
+
+  // Hana creates her own organisation.
+  r = await biz("POST", "/orgs", HANA, { name_en: "Kene Test Club", short_code: "ktc", structure: "direct", voter_term: "member" });
+  const KTC = r.json?.org;
+  check("biz: anyone signed in creates an organisation, without a plan at first", r.status === 200 && KTC?.is_creator && KTC.billing?.status === "trial" && KTC.billing.member_cap === 5 && KTC.short_code === "KTC", JSON.stringify(r.json));
+  check("biz: the creator is its administrator", (await rows("admins")).some((a) => a.org_id === KTC.id && Number(a.telegram_user_id) === CREATOR.id));
+  check("biz: the platform administrators hear about it", /Kene Test Club<\/b> \(KTC\) was created by Hana on the business page/.test(lastTextTo(1001)), lastTextTo(1001));
+  r = await biz("GET", "/orgs/" + KTC.id, YARED);
+  eq("biz: someone else cannot open it", r.status, 403);
+  r = await api("GET", "/me", CREATOR, undefined, KTC.id);
+  check("biz: in the app the creator administers it and sees the plan", r.json?.role === "admin" && r.json.billing?.status === "trial" && /\/business\/$/.test(r.json.business_url ?? ""), JSON.stringify([r.json?.role, r.json?.billing]));
+
+  // Without a plan: up to 5 members.
+  r = await api("POST", "/members/invitations", CREATOR, { people: [1, 2, 3, 4, 5, 6].map((i) => ({ name: "Member " + i })) }, KTC.id);
+  check("biz: without a plan, 6 members are refused (limit 5)", r.status === 402 && r.json?.code === "plan_limit" && r.json.cap === 5, JSON.stringify(r.json));
+  r = await api("POST", "/members/invitations", CREATOR, { people: [1, 2, 3, 4, 5].map((i) => ({ name: "Member " + i })) }, KTC.id);
+  const ktcRows = r.json?.rows ?? [];
+  eq("biz: 5 members fit without a plan", ktcRows.length, 5);
+  r = await api("POST", "/members/invitations", CREATOR, { people: [{ name: "Member 6" }] }, KTC.id);
+  eq("biz: a sixth is refused", r.status, 402);
+  r = await api("DELETE", "/setup/admins/" + CREATOR.id, USERS.admin, undefined, KTC.id);
+  check("biz: the creator cannot be removed as administrator", r.status === 409 && r.json?.code === "creator", JSON.stringify(r.json));
+
+  // Paying.
+  r = await biz("GET", "/orgs/" + KTC.id + "/pay-options?country=ET", HANA);
+  check("biz: what Ethiopia can buy and where to pay", r.json?.country === "ET" && r.json.plans.length === 1 && r.json.plans[0].price.price === 1500 && r.json.methods.length === 1, JSON.stringify(r.json));
+  const RECEIPT = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "ET", method_id: METHOD.id, reference: "FT123", receipt: "data:text/html;base64,PGI+" });
+  eq("biz: a receipt that is no image or PDF is refused", r.status, 400);
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "KE", method_id: METHOD.id, reference: "FT123456", receipt: RECEIPT });
+  check("biz: the account must be one of the country's", r.status === 409 && r.json?.code === "no_method", JSON.stringify(r.json));
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "ET", method_id: METHOD.id, reference: "FT2611ABCD", receipt: RECEIPT, amount: 1 });
+  const PAY = r.json?.payment;
+  check("biz: a payment is filed; the amount comes from the plan, not the page", r.status === 200 && PAY?.status === "pending" && PAY.amount === 1500 && PAY.currency === "ETB", JSON.stringify(r.json));
+  check("biz: the platform administrators get the payment to review", /Payment to review/.test(lastTextTo(1001)) && calls("sendMessage", (b) => Number(b.chat_id) === 1001).pop()?.body.reply_markup?.inline_keyboard?.[0]?.[0]?.url === "https://esa.test/business/#/admin/payments/" + PAY.id);
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "ET", method_id: METHOD.id, reference: "FT2611ABCE", receipt: RECEIPT });
+  check("biz: one payment under review at a time", r.status === 409 && r.json?.code === "pending_exists", JSON.stringify(r.json));
+  r = await biz("GET", "/admin/summary", HANA);
+  eq("biz: the console is for platform administrators", r.status, 403);
+  r = await biz("GET", "/admin/payments/" + PAY.id, PLAT);
+  check("biz: the reviewer sees the receipt", r.json?.payment?.receipt === RECEIPT && r.json.payer?.first_name === "Hana", JSON.stringify(r.json?.payer));
+  r = await biz("POST", "/admin/payments/" + PAY.id + "/approve", PLAT);
+  const until = new Date(r.json?.billing?.paid_until ?? 0).getTime();
+  check("biz: approval activates the plan for 30 days with its member limit", r.status === 200 && r.json.billing.status === "active" && r.json.billing.member_cap === 50 && Math.abs(until - (Date.now() + 30 * 86400_000)) < 120_000, JSON.stringify(r.json?.billing));
+  check("biz: the payer is told in Telegram", /Payment accepted/.test(lastTextTo(CREATOR.id)), lastTextTo(CREATOR.id));
+  r = await biz("POST", "/admin/payments/" + PAY.id + "/approve", PLAT);
+  check("biz: a payment is approved once", r.status === 409 && r.json?.code === "not_pending", JSON.stringify(r.json));
+  r = await api("POST", "/members/invitations", CREATOR, { people: [{ name: "Member 6" }] }, KTC.id);
+  eq("biz: with the plan, more members fit", r.json?.rows?.length, 1);
+
+  // A second payment extends from the end of the paid period; a rejected one changes nothing.
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "ET", method_id: METHOD.id, reference: "FT2611XYZ1", receipt: null });
+  const PAY2 = r.json?.payment;
+  r = await biz("POST", "/admin/payments/" + PAY2.id + "/reject", PLAT, { note: "The amount does not match" });
+  check("biz: a payment can be rejected with a reason the payer sees", r.json?.payment?.status === "rejected" && /The amount does not match/.test(lastTextTo(CREATOR.id)), lastTextTo(CREATOR.id));
+  r = await biz("POST", "/orgs/" + KTC.id + "/payments", HANA, { plan_id: PLAN.id, country: "ET", method_id: METHOD.id, reference: "FT2611XYZ2", receipt: RECEIPT });
+  r = await biz("POST", "/admin/payments/" + r.json.payment.id + "/approve", PLAT);
+  check("biz: a renewal stacks on the running period", Math.abs(new Date(r.json?.billing?.paid_until ?? 0).getTime() - (until + 30 * 86400_000)) < 120_000, JSON.stringify(r.json?.billing));
+  r = await biz("POST", "/admin/orgs/" + KTC.id + "/adjust", PLAT, { days: 10, member_cap: 7 });
+  check("biz: the platform adjusts days and the member limit by hand", r.json?.billing?.member_cap === 7, JSON.stringify(r.json));
+  r = await api("POST", "/members/invitations", CREATOR, { people: [{ name: "Member 7" }, { name: "Member 8" }] }, KTC.id);
+  eq("biz: the adjusted limit applies", r.status, 402);
+  r = await biz("POST", "/admin/orgs/" + KTC.id + "/exempt", PLAT, { on: true });
+  eq("biz: an organisation can be exempted", r.json?.billing?.status, "exempt");
+  r = await biz("GET", "/admin/summary", PLAT);
+  check("biz: the overview counts revenue, payments and sign-ups", r.json?.revenue?.find((x) => x.currency === "ETB")?.total === 3000 && r.json.payments.rejected === 1 && r.json.accounts.referred === 1, JSON.stringify(r.json));
+  r = await biz("GET", "/admin/accounts", PLAT);
+  check("biz: sign-ups show who brought whom", r.json?.items?.find((a) => a.telegram_user_id === CREATOR.id)?.referrals === 1 && r.json.items.find((a) => a.telegram_user_id === FRIEND.id)?.referred_by_name === "Hana", JSON.stringify(r.json?.items));
+  r = await biz("GET", "/me", HANA);
+  check("biz: the creator's organisations on the page", r.json?.orgs?.length === 1 && r.json.orgs[0].id === KTC.id, JSON.stringify(r.json?.orgs));
+
+  // A member of one organisation joins another one with its invitation code.
+  const esaRow = (await rows("members")).find((m) => m.org_id === ORG.id && m.telegram_user_id && m.is_active);
+  const JOINER = { id: Number(esaRow.telegram_user_id), first_name: "Joiner" };
+  r = await api("POST", "/register", JOINER, { token: ktcRows[0].token_id, password: ktcRows[0].password }, ORG.id);
+  check("biz: a member joins another organisation with its code", r.json?.status === "ok" && r.json.org_id === KTC.id, JSON.stringify(r.json));
+  r = await api("GET", "/me", JOINER, undefined, KTC.id);
+  check("biz: and switches between both", r.json?.orgs?.some((o) => o.id === ORG.id) && r.json.orgs.some((o) => o.id === KTC.id) && r.json.org?.id === KTC.id && r.json.role === "member", JSON.stringify(r.json?.orgs?.map((o) => o.id)));
+
+  // Inside Telegram, the app hands the business page a session.
+  r = await biz("POST", "/login/telegram", tma(USERS.sara), {});
+  check("biz: the Mini App gets a business session", r.status === 200 && /^\d+\.\d+\./.test(r.json?.token ?? "") && r.json.account?.telegram_user_id === USERS.sara.id, JSON.stringify(r.json));
+  r = await biz("GET", "/me", "Bearer " + r.json.token);
+  eq("biz: that session works", r.status, 200);
+  // Another site (the company website) may call the API when listed.
+  r = await biz("OPTIONS", "/catalog", null, undefined, { origin: "https://www.kene-tech.com", "access-control-request-method": "GET" });
+  check("biz: the company website is allowed (CORS)", r.status === 204 && r.headers.get("access-control-allow-origin") === "https://www.kene-tech.com");
+  r = await biz("GET", "/catalog", null, undefined, { origin: "https://evil.example" });
+  check("biz: other sites are not", r.status === 200 && !r.headers.get("access-control-allow-origin"));
+  r = await fetch(base + "/business/");
+  check("biz: the business pages are served", r.status === 200 && /biz\.js/.test(await r.text()));
+  r = await fetch(base + "/business/biz.js");
+  check("biz: the business script is served", r.status === 200 && (await r.text()).length > 5000);
+  r = await api("GET", "/me", USERS.admin, undefined, ORG.id);
+  check("biz: organisations created by the platform need no plan", r.json?.billing?.exempt === true, JSON.stringify(r.json?.billing));
 
   r = await api("GET", "/audit?limit=500", USERS.admin);
   const actions = new Set((r.json?.items ?? []).map((a) => a.action));

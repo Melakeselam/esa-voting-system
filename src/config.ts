@@ -66,6 +66,17 @@ export const config = {
   resendApiKey: env("RESEND_API_KEY"),
   reportEmailFrom: env("REPORT_EMAIL_FROM"),
   reportEmailTo: env("REPORT_EMAIL_TO"),
+  /**
+   * Web origins allowed to call the business API (/api/biz) from another site,
+   * e.g. https://www.kene-tech.com — comma-separated. The business pages served
+   * here (/business/) need nothing.
+   */
+  /** Where the business pages live, when not here (e.g. https://www.kene-tech.com/voting/): used in share links and notices. */
+  businessPageUrl: env("BUSINESS_PAGE_URL") ? env("BUSINESS_PAGE_URL").replace(/\/?$/, "/") : null,
+  businessOrigins: env("BUSINESS_ORIGINS")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean),
 };
 
 /** HTTPS URL of the Mini App, or null when no public URL is configured. */

@@ -83,7 +83,39 @@
   }
   function fail(err) {
     haptic("error");
+    if (err && err.code === "plan_limit") {
+      // The organisation's plan allows no more members: offer the plan page.
+      confirmDialog(err.message + "\n\n" + t("Open the plan page?")).then(function (yes) { if (yes) openBusiness(state.orgId ? "#/org/" + state.orgId : ""); });
+      return;
+    }
     toast(err && err.message ? err.message : t("Something went wrong"), "err");
+  }
+
+  /**
+   * The business pages (/business/): create an organisation of one's own, buy a
+   * plan, share Kene Voting. Same site, so the session is handed over through
+   * localStorage and the page opens inside Telegram.
+   */
+  async function bizSession() {
+    var res = await fetch("/api/biz/login/telegram", { method: "POST", headers: { "content-type": "application/json", authorization: "tma " + tg.initData }, body: "{}" });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || t("Request failed ({status})", { status: res.status }));
+    try { localStorage.setItem("kvb_token", data.token); } catch (_) { /* the page signs in again */ }
+    return data;
+  }
+  async function openBusiness(hash) {
+    try {
+      await bizSession();
+      location.href = "/business/" + (hash || "");
+    } catch (err) { fail(err); }
+  }
+  async function shareKene() {
+    try {
+      var d = await bizSession();
+      var text = t("Run your association's general assembly votes on Telegram with Kene Voting System — create your organisation here:");
+      var url = "https://t.me/share/url?url=" + encodeURIComponent(d.account.share_link) + "&text=" + encodeURIComponent(text);
+      if (tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url, "_blank");
+    } catch (err) { fail(err); }
   }
   function thresholdLabel(th) { return th === "two_thirds" ? t("2/3 majority") : t("simple majority"); }
   function statusBadge(status) {
@@ -211,7 +243,7 @@
     app.append(header);
     // Which organisation this is; tap to switch when there is more than one.
     if (state.me && state.me.org && view.name !== "orgpick") {
-      var canSwitch = (state.me.orgs && state.me.orgs.length > 1) || (state.me.platform && state.me.platform.admin);
+      var canSwitch = true; // switch, join another organisation, create one's own, share
       var bar = h('<button class="org-bar' + (canSwitch ? " switch" : "") + '"' + (canSwitch ? "" : " disabled") + '><span class="org-name">' + esc(orgName(state.me.org)) + '</span><span class="org-platform">' + esc(state.me.platform.name) + "</span>" + (canSwitch ? '<span class="chev">⇄</span>' : "") + "</button>");
       if (canSwitch) bar.onclick = function () { haptic("light"); go("orgpick"); };
       app.append(bar);
@@ -1826,6 +1858,7 @@
           : t("Invitation codes start with {code}- · voters are called {voters} · their bodies {groups}", { code: og.short_code, voters: og.terms.voter.en_pl, groups: og.terms.group.en_pl })) + "</p>" +
         '<div class="actions inline"><button class="btn secondary sm" data-act="orgedit">✏️ ' + esc(t("Edit organisation")) + "</button>" +
         (state.me.platform && state.me.platform.admin ? '<button class="btn secondary sm" data-act="orgsall">🏢 ' + esc(t("All organisations")) + "</button>" : "") + "</div></div>" : "") +
+        planCard(state.me.billing) +
         '<div class="card"><h3>' + esc(t("Health")) + "</h3>" +
         check(s.db.ok, esc(t("Database")), s.db.ok ? esc(t("All tables present")) : esc(t("Missing tables: {tables}. Restart the app so the schema is applied, or run npm run db:migrate.", { tables: s.db.missing.join(", ") }))) +
         check(true, esc(t("Bot")), "@" + esc(s.bot.username) + " · " + esc(s.bot.name)) +
@@ -1891,7 +1924,7 @@
       // Admins
       html += '<div class="card"><h3>' + esc(t("Admins")) + '</h3><div class="list">' +
         s.admins.env.map(function (id) { return '<div class="row static"><div class="main"><div class="title">' + id + '</div><div class="meta">' + esc(t("from ADMIN_TELEGRAM_IDS")) + "</div></div></div>"; }).join("") +
-        s.admins.db.map(function (a) { return '<button class="row" data-admin="' + a.telegram_user_id + '"><div class="main"><div class="title">' + esc(a.name || a.telegram_user_id) + '</div><div class="meta">' + a.telegram_user_id + " · " + esc(t("added in app")) + '</div></div><span class="chev">›</span></button>'; }).join("") +
+        s.admins.db.map(function (a) { return '<button class="row" data-admin="' + a.telegram_user_id + '"><div class="main"><div class="title">' + esc(a.name || a.telegram_user_id) + '</div><div class="meta">' + a.telegram_user_id + " · " + esc(Number(s.admins.creator) === Number(a.telegram_user_id) ? "👑 " + t("creator of the organisation") : t("added in app")) + '</div></div><span class="chev">›</span></button>'; }).join("") +
         '</div><p class="hint">' + esc(t("Admins can do everything in this panel. A person finds their Telegram ID by sending /whoami to the bot.")) + "</p>" +
         '<button class="btn secondary sm" data-act="addadmin">＋ ' + esc(t("Add admin")) + "</button></div>";
 
@@ -1941,6 +1974,7 @@
             if (si.note) toast(si.note, "warn"); else { haptic("success"); toast(t("Sign-in card posted"), "ok"); }
             return refresh();
           }
+          if (act === "plan") return openBusiness("#/org/" + state.orgId);
           if (act === "commands") {
             if (!(await confirmDialog(t("Post the command reference in the group? The bot creates a “📖 Commands” topic if there is none yet, pins the reference in English and Amharic, registers the “/” menu and shows the command buttons.")))) return;
             var cm = await api("POST", "/setup/group/commands");
@@ -2114,7 +2148,9 @@
         try { var pend = await api("GET", "/register/pending"); if (pend && pend.token_id) inv = pend.token_id; } catch (_) { /* fall back to typing the code */ }
         if (alive && !alive()) return;
       }
-      content.innerHTML = '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>" +
+      content.innerHTML = (params.join
+        ? '<div class="card"><h2>🎫 ' + esc(t("Join another organisation")) + "</h2><p>" + esc(t("Enter the invitation code and password that organisation gave you. You keep your other organisations and switch between them from the bar at the top.")) + "</p></div>"
+        : '<div class="card"><h2>👋 ' + esc(t("Welcome")) + "</h2><p>" + esc(t("Register once with the credentials issued to you by the National Office. Your Telegram account is then linked to your voting token.")) + "</p></div>") +
         (inv ? '<div class="card"><p>🎫 ' + esc(t("Your invitation code was read from the link. Enter the password printed on your invitation.")) + "</p></div>" : "") +
         '<div class="card"><div class="field"><label>' + esc(t("Voting Token ID")) + '</label><input type="text" data-token autocapitalize="characters" autocomplete="off" placeholder="' + esc(((state.me && state.me.org && state.me.org.short_code) || "ABC") + "-2026-K7M2P") + '" value="' + esc(inv || "") + '"' + (inv ? " readonly" : "") + "></div>" +
         (inv ? '<p class="hint small"><a href="#" data-other>' + esc(t("Use a different code")) + "</a></p>" : "") +
@@ -2122,8 +2158,11 @@
         '<p class="err hint" data-err hidden></p></div>' +
         '<button class="btn block" data-go>' + esc(t("Register")) + "</button>" +
         '<p class="hint">' + esc(t("Five wrong passwords lock the token for a while. Problems? Contact the National Office.")) + "</p>" +
-        '<button class="btn secondary block" data-help>❔ ' + esc(t("How do I register?")) + "</button>";
+        '<button class="btn secondary block" data-help>❔ ' + esc(t("How do I register?")) + "</button>" +
+        (params.join ? "" : '<div class="card"><h3>🚀 ' + esc(t("Run your own vote")) + '</h3><p class="small">' + esc(t("Want your association to vote like this? Create your own organisation, invite your members and run your general assembly in Telegram.")) + "</p>" +
+          '<button class="btn secondary block" data-create>' + esc(t("Create your own organisation")) + "</button></div>");
       var errEl = content.querySelector("[data-err]");
+      if (content.querySelector("[data-create]")) content.querySelector("[data-create]").onclick = function () { openBusiness("#/new"); };
       var MSG = {
         unknown_token: t("That token was not recognized. Check for typos (letters O/0 and I/1 are never used)."),
         conflict: t("This token is already registered to another Telegram account. Contact the National Office if this is an error."),
@@ -2144,8 +2183,10 @@
           var r = await api("POST", "/register", { token: token, password: pass });
           if (r.status === "ok") {
             haptic("success");
-            state.me = await api("GET", "/me");
             toast(t("Registered as {name}", { name: r.member.full_name || r.member.token_id }), "ok");
+            // The code decided the organisation: carry on in it (a second organisation when joining).
+            if (r.org_id && r.org_id !== state.orgId) return selectOrg(r.org_id);
+            state.me = await api("GET", "/me");
             go("ballots", { focus: params.focus }, { root: true });
             return;
           }
@@ -2336,21 +2377,48 @@
     landing({});
   }
 
+  /** Setup: the organisation's plan (organisations created on the business page). */
+  function planCard(b) {
+    if (!b || b.exempt) return "";
+    var used = t("{used} of {cap} members", { used: b.members_used, cap: b.member_cap == null ? "∞" : b.member_cap });
+    var line = b.status === "active"
+      ? "✅ " + t("{plan} — active until {date}", { plan: b.plan_name || t("Plan"), date: fmtDay(b.paid_until) }) + " · " + used
+      : b.status === "expired"
+        ? "⚠️ " + t("Your plan ended on {date}. Without a plan the organisation can have {n} members.", { date: fmtDay(b.paid_until), n: b.trial_member_cap }) + " · " + used
+        : "🧪 " + t("No plan yet: up to {n} members, enough to set up and rehearse.", { n: b.trial_member_cap }) + " · " + used;
+    return '<div class="card"><h3>💳 ' + esc(t("Plan")) + '</h3><p class="small">' + esc(line) + "</p>" +
+      (b.pending_payment ? '<p class="hint">⏳ ' + esc(t("Payment under review: {plan}, {amount}", { plan: b.pending_payment.plan_name, amount: b.pending_payment.amount + " " + b.pending_payment.currency })) + "</p>" : "") +
+      '<button class="btn sm" data-act="plan">' + esc(b.status === "active" ? t("Extend or upgrade the plan") : t("Buy a plan")) + "</button></div>";
+  }
+  function fmtDay(iso) { try { return new Date(iso).toLocaleDateString(I18N.locale()); } catch (_) { return String(iso).slice(0, 10); } }
+
   views.orgpick = {
     title: function () { return t("Choose organisation"); },
     render: async function (content, params, alive) {
       var list = state.me.orgs || [];
       if (state.me.platform && state.me.platform.admin) list = (await api("GET", "/orgs")).items;
       if (!alive()) return;
-      var html = '<p class="hint">' + esc(t("You take part in several organisations. Choose the one to work in; you can switch any time from the bar at the top.")) + "</p>" +
+      var html = '<p class="hint">' + esc(list.length > 1 ? t("You take part in several organisations. Choose the one to work in; you can switch any time from the bar at the top.") : t("Your organisations. Join another one with its invitation code, or create your own.")) + "</p>" +
         '<div class="list">' + list.map(function (o) {
           return '<button class="row" data-org="' + esc(o.id) + '"><div class="main"><div class="title">' + esc(orgName(o)) + '</div><div class="meta">' +
             esc(o.role === "admin" ? t("administrator") : o.role === "member" ? t("member") : "") + (state.orgId === o.id ? " · ✓ " + esc(t("current")) : "") + '</div></div><span class="chev">›</span></button>';
         }).join("") + "</div>";
-      if (state.me.platform && state.me.platform.admin) html += '<div class="actions"><button class="btn secondary block" data-act="orgs">🏢 ' + esc(t("Manage organisations")) + "</button></div>";
+      html += '<div class="actions">' +
+        '<button class="btn secondary block" data-act="join">🎫 ' + esc(t("Join another organisation (invitation code)")) + "</button>" +
+        '<button class="btn secondary block" data-act="create">🚀 ' + esc(t("Create your own organisation")) + "</button>" +
+        '<button class="btn secondary block" data-act="share">📣 ' + esc(t("Share Kene Voting")) + "</button>" +
+        (state.me.platform && state.me.platform.admin ? '<button class="btn secondary block" data-act="orgs">🏢 ' + esc(t("Manage organisations")) + "</button>" +
+          '<button class="btn secondary block" data-act="console">💼 ' + esc(t("Business console")) + "</button>" : "") + "</div>";
       content.innerHTML = html;
       on(content, "[data-org]", "click", function (e) { haptic("light"); selectOrg(e.currentTarget.dataset.org).catch(fail); });
-      on(content, "[data-act]", "click", function () { go("orgs"); });
+      on(content, "[data-act]", "click", function (e) {
+        var a = e.currentTarget.dataset.act;
+        if (a === "orgs") go("orgs");
+        else if (a === "join") go("register", { join: true });
+        else if (a === "create") openBusiness("#/new");
+        else if (a === "share") shareKene();
+        else if (a === "console") openBusiness("#/admin");
+      });
     },
   };
 

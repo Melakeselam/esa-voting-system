@@ -437,3 +437,119 @@ create unique index if not exists motions_org_code on motions (org_id, code);
 create index if not exists motions_by_org on motions (org_id, created_at);
 -- The motion a resolution puts to the vote.
 alter table resolutions add column if not exists motion_id uuid references motions(id) on delete set null;
+
+-- =============================================================
+-- Kene Voting as a business: anyone signs in with Telegram, creates an
+-- organisation (its creator is its first administrator) and buys a plan by
+-- bank / mobile-money transfer with a receipt the platform administrators
+-- approve. Organisations created by the platform administrators are exempt.
+-- Without an active plan an organisation works with a small number of
+-- members (the trial cap), enough to set up and rehearse.
+-- =============================================================
+-- Existing organisations (created before self-service) stay exempt: the default is true,
+-- self-service creation inserts false.
+alter table organizations add column if not exists billing_exempt boolean not null default true;
+alter table organizations add column if not exists created_by     bigint;      -- Telegram ID of the creator
+alter table organizations add column if not exists paid_until     timestamptz; -- end of the paid period
+alter table organizations add column if not exists member_cap     integer;     -- members the paid plan allows (null = no limit)
+alter table organizations add column if not exists plan_id        uuid;
+
+-- Someone who signed in on the business pages (creators of organisations).
+create table if not exists biz_accounts (
+  telegram_user_id bigint primary key,
+  first_name       text,
+  last_name        text,
+  username         text,
+  ref_code         text not null unique,   -- their share link: /business/?ref=<code>
+  referred_by      bigint,                 -- the account whose link brought them (link only, no reward)
+  created_at       timestamptz not null default now(),
+  last_login_at    timestamptz not null default now()
+);
+alter table biz_accounts enable row level security;
+
+create table if not exists biz_plans (
+  id            uuid primary key default gen_random_uuid(),
+  name_en       text not null,
+  name_am       text,
+  description   text,
+  duration_days integer not null check (duration_days > 0),
+  member_cap    integer check (member_cap is null or member_cap > 0), -- null = no limit
+  active        boolean not null default true,
+  sort          integer not null default 0,
+  created_at    timestamptz not null default now()
+);
+alter table biz_plans enable row level security;
+
+-- A plan's price in each country (ISO-2) where it is sold.
+create table if not exists biz_plan_prices (
+  plan_id  uuid not null references biz_plans(id) on delete cascade,
+  country  text not null,
+  price    numeric(12, 2) not null check (price >= 0),
+  currency text not null,
+  primary key (plan_id, country)
+);
+alter table biz_plan_prices enable row level security;
+
+-- Where creators send the money, per country.
+create table if not exists biz_pay_methods (
+  id             uuid primary key default gen_random_uuid(),
+  country        text not null,
+  provider       text not null,           -- "Commercial Bank of Ethiopia", "telebirr"
+  account_name   text not null,
+  account_number text not null,
+  note           text,
+  active         boolean not null default true,
+  sort           integer not null default 0,
+  created_at     timestamptz not null default now()
+);
+alter table biz_pay_methods enable row level security;
+
+create table if not exists biz_payments (
+  id               uuid primary key default gen_random_uuid(),
+  org_id           uuid not null references organizations(id) on delete cascade,
+  telegram_user_id bigint not null,       -- who paid
+  plan_id          uuid references biz_plans(id) on delete set null,
+  plan_name        text not null,         -- as bought
+  duration_days    integer not null,
+  member_cap       integer,
+  country          text not null,
+  amount           numeric(12, 2) not null,
+  currency         text not null,
+  method_id        uuid references biz_pay_methods(id) on delete set null,
+  method_label     text,                  -- as shown when paying
+  reference        text not null,         -- transaction reference on the receipt
+  receipt          text,                  -- the receipt image (small data: URL)
+  status           text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  review_note      text,
+  reviewed_by      bigint,
+  reviewed_at      timestamptz,
+  period_start     timestamptz,           -- set on approval
+  period_end       timestamptz,
+  created_at       timestamptz not null default now()
+);
+alter table biz_payments enable row level security;
+create index if not exists biz_payments_by_status on biz_payments (status, created_at);
+create index if not exists biz_payments_by_org on biz_payments (org_id, created_at);
+
+-- Signing in on the business pages through the bot: the page shows a link
+-- t.me/<bot>?start=weblogin_<nonce>; the bot marks the nonce with the account
+-- that tapped Start; the page then collects its session.
+create table if not exists biz_logins (
+  nonce            text primary key,
+  telegram_user_id bigint,
+  first_name       text,
+  last_name        text,
+  username         text,
+  ref_code         text,
+  created_at       timestamptz not null default now(),
+  claimed_at       timestamptz
+);
+alter table biz_logins enable row level security;
+
+-- Platform-wide business settings (trial member cap, ...).
+create table if not exists biz_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table biz_settings enable row level security;

@@ -22,6 +22,12 @@ export interface Org {
   group_chat_id: number | null;
   group_title: string | null;
   created_at: string;
+  /** Business side (services/billing.ts): exempt organisations need no plan. */
+  billing_exempt?: boolean | null;
+  created_by?: number | null;
+  paid_until?: string | null;
+  member_cap?: number | null;
+  plan_id?: string | null;
 }
 
 export const PLATFORM_NAME = "Kene Voting System";

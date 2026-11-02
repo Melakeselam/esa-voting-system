@@ -37,6 +37,7 @@ import { registerTelegramSurface, registerWebhook, webhookStatus } from "../bot/
 import { announceKeyboard, appKeyboard, escapeHtml, resolutionCard, resultsText, voteKeyboard } from "../bot/ui.js";
 import { buildReport, emailReport, reportToCsv, reportToHtml } from "../report.js";
 import { addDbAdmin, isAdminUser, listDbAdmins, removeDbAdmin } from "../services/admins.js";
+import { orgBilling } from "../services/billing.js";
 import { credentialsCsv, generateCredentials, normalizePhone, parsePeople, type CredentialRow, type Person } from "../services/credentials.js";
 import { councilMembers, createCouncil, deleteCouncil, findCouncilByName, getCouncil, issueInvitations, listCouncils, occupiedSeats, reissuePasswords, SeatsFullError, updateCouncil, type DelegateEntry } from "../services/councils.js";
 import { ethiopicFontAvailable, invitationLink, invitationsPdf, type InvitationRow } from "../invitations.js";
@@ -349,6 +350,9 @@ route("GET", "/me", false, async (ctx) => {
     orgs,
     org_required: !org && orgs.length > 1,
     group_link: org && (member || ctx.isAdmin) ? await groupInviteLink(bot.api) : null,
+    // The organisation's plan (admins), and the business page where anyone creates an organisation of their own.
+    billing: org && ctx.isAdmin ? await orgBilling(org.id) : null,
+    business_url: config.businessPageUrl ?? (config.publicUrl ? `${config.publicUrl}/business/` : "/business/"),
     app: {
       bot_username: bot.botInfo.username,
       tz_label: config.tzLabel,
@@ -1695,7 +1699,7 @@ route("GET", "/setup", true, async (ctx) => {
     tick_path: "/api/tick?key=<CRON_SECRET or WEBHOOK_SECRET>",
     group,
     topics,
-    admins: { env: config.adminIds, db: dbAdmins },
+    admins: { env: config.adminIds, db: dbAdmins, creator: (await currentOrg())?.created_by ?? null },
     email_configured: emailConfigured(),
     tz: { label: config.tzLabel, offset_minutes: config.tzOffsetMinutes },
     db,
@@ -1728,6 +1732,7 @@ route("DELETE", "/setup/admins/(\\d+)", true, async (ctx, [idStr]) => {
   const id = Number(idStr);
   if (config.adminIds.includes(id)) throw new HttpError(409, "This admin comes from ADMIN_TELEGRAM_IDS; remove it there.");
   if (id === ctx.user.id) throw new HttpError(409, "You cannot remove yourself.");
+  if (Number((await currentOrg())?.created_by) === id) throw new HttpError(409, "The creator of the organisation cannot be removed.", "creator");
   await removeDbAdmin(id);
   await audit(ctx.user.id, "admin_removed", { telegram_user_id: id, via: "app" });
   return { ok: true };

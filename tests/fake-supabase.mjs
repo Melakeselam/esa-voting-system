@@ -20,10 +20,17 @@ const DEFAULTS = {
   councils: () => ({ id: randomUUID(), seats: 1, vote_weight: 1, created_at: now() }),
   group_people: () => ({ first_name: null, last_name: null, username: null, status: "member", source: null, added_by: null, first_seen_at: now(), last_seen_at: now() }),
   vote_activations: () => ({ activated_at: now() }),
-  organizations: () => ({ id: randomUUID(), structure: "councils", name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
+  organizations: () => ({ id: randomUUID(), billing_exempt: true, created_by: null, paid_until: null, member_cap: null, plan_id: null, structure: "councils", name_am: null, assembly_en: null, assembly_am: null, office_en: null, office_am: null, voter_term: "delegate", group_term: "council", group_chat_id: null, group_title: null, created_at: now() }),
   pending_invitations: () => ({ created_at: now() }),
   user_active_org: () => ({ updated_at: now() }),
   user_prefs: () => ({ lang: null, updated_at: now() }),
+  biz_accounts: () => ({ first_name: null, last_name: null, username: null, referred_by: null, created_at: now(), last_login_at: now() }),
+  biz_plans: () => ({ id: randomUUID(), name_am: null, description: null, member_cap: null, active: true, sort: 0, created_at: now() }),
+  biz_plan_prices: () => ({}),
+  biz_pay_methods: () => ({ id: randomUUID(), note: null, active: true, sort: 0, created_at: now() }),
+  biz_payments: () => ({ id: randomUUID(), plan_id: null, member_cap: null, method_id: null, method_label: null, receipt: null, status: "pending", review_note: null, reviewed_by: null, reviewed_at: null, period_start: null, period_end: null, created_at: now() }),
+  biz_logins: () => ({ telegram_user_id: null, first_name: null, last_name: null, username: null, ref_code: null, created_at: now(), claimed_at: null }),
+  biz_settings: () => ({ updated_at: now() }),
   motions: () => ({ id: randomUUID(), kind: "main", parent_id: null, original_body: null, replaced_body: null, status: "proposed", mover_member_id: null, mover_name: null, seconder_member_id: null, seconder_name: null, from_floor: false, late_notice: false, chat_id: null, thread_id: null, message_id: null, resolution_id: null, merged_into: null, reason: null, seconded_at: null, stated_at: null, decided_at: null, created_at: now() }),
 };
 const PRIMARY = {
@@ -32,6 +39,7 @@ const PRIMARY = {
   group_people: ["chat_id", "user_id"],
   vote_activations: ["resolution_id", "member_id"],
   organizations: ["id"], pending_invitations: ["telegram_user_id"], user_active_org: ["telegram_user_id"], user_prefs: ["telegram_user_id"], motions: ["id"],
+  biz_accounts: ["telegram_user_id"], biz_plans: ["id"], biz_plan_prices: ["plan_id", "country"], biz_pay_methods: ["id"], biz_payments: ["id"], biz_logins: ["nonce"], biz_settings: ["key"],
 };
 // Mirrors db/schema.sql: uniqueness is per organisation, invitation codes are unique everywhere.
 const UNIQUE = {
@@ -48,6 +56,10 @@ const UNIQUE = {
   user_active_org: [["telegram_user_id"]],
   user_prefs: [["telegram_user_id"]],
   motions: [["org_id", "code"]],
+  biz_accounts: [["telegram_user_id"], ["ref_code"]],
+  biz_plan_prices: [["plan_id", "country"]],
+  biz_logins: [["nonce"]],
+  biz_settings: [["key"]],
 };
 // Organisation tables: an insert without org_id is a bug the real database would reject (NOT NULL).
 const NEEDS_ORG = new Set(["members", "councils", "resolutions", "chat_topics", "group_people", "admins", "app_settings", "motions"]);

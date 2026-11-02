@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Kene Voting System</title>
+  <meta name="description" content="Run your association's general assembly votes on Telegram: secret ballots, motions, quorum and reports.">
+  <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
+  <link rel="stylesheet" href="biz.css">
+  <!-- On another site (the company website), set the API base before biz.js:
+       <script>window.KV_API_BASE = "https://esa-voting.app.aletcloud.com";</script> -->
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/"><span class="logo">🗳</span><span><b>Kene Voting</b><small>by Kene Technologies</small></span></a>
+    <nav id="nav"></nav>
+  </header>
+  <main id="main"><div class="center"><div class="spinner"></div></div></main>
+  <footer class="foot"><span>© Kene Technologies</span> · <a href="https://www.kene-tech.com" target="_blank" rel="noopener">kene-tech.com</a></footer>
+  <div id="toast" class="toast" hidden></div>
+  <script src="biz.js"></script>
+</body>
+</html>

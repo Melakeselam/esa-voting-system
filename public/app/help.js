@@ -10,13 +10,60 @@
         body: [
           "Do this once, a few days before the General Assembly. Everything is on the Setup tab.",
           { steps: [
+            "Create the assembly group in Telegram with Topics switched on (group settings › Topics). The bot refuses groups without Topics.",
             "Open Setup and read the Health list. Every line should show ✅. If the webhook line shows ❌, tap “Register webhook, commands and menu button”.",
-            "Add the bot to the assembly supergroup as an administrator. The group links itself and appears under “Assembly group & topics”.",
-            "Post a short message in every topic (room) where announcements and results should go. Tap ↻ in Setup: the topics appear in the list. Rename any topic whose name was not captured; when the bot has the “Manage topics” admin right, the topic is renamed in the group too.",
+            "Add the bot to the group and make it an administrator with the rights Ban users, Pin messages, Manage topics and Change group info. If you run more than one organisation, the bot asks in the group which organisation the group is for: tap the answer (only admins can). The group then appears under “Assembly group & topics” and its title gets the organisation's name.",
+            "The bot sets the group up by itself: a “📝 Register / Sign in” topic with a pinned sign-in card, a “📖 Commands” topic with the command reference, a live board pinned in General, and the buttons under the message box of every topic.",
+            "Create the topics (rooms) for debates, announcements and results with “＋ New topic”: the bot creates each one in the group. Topics that already exist appear in the list once someone posts in them; tap ↻. Rename a topic here; when the bot has the “Manage topics” right, it is renamed in the group too.",
             "Add the other officials as admins: they send /whoami to the bot, you enter the ID under Admins → Add admin.",
             "Tap “Send a test message here” on one topic to confirm the bot can post in the group.",
           ] },
           { tip: "Run a full rehearsal with 2–3 test credentials: create a resolution, open it, vote, close it, and generate the report. Deactivate the test tokens afterwards." },
+        ],
+      },
+      {
+        icon: "🏠", title: "The group: topics, buttons and the live board",
+        body: [
+          "Members do everything from the group and the app; the bot keeps the group tidy.",
+          { bullets: [
+            "Buttons under the message box of every topic: 🗳 Vote, 📝 Motion, 📋 Status, 🌐 Language, 🤖 Bot, 🚪 Logout, ❔ Help. A tap opens the right place in the app or the private chat. The bot's short answers disappear after a while, so topics stay readable.",
+            "Read-only topics: Setup › tap a topic › “Make read-only (only admins post)”. Members then see a pinned panel of buttons instead of a message box; “Let members post here” undoes it. The sign-in and Commands topics are read-only. Telegram always lets administrators post in a read-only topic, so a message you send there goes through.",
+            "Live board: a “📊 Live” message pinned in General shows how many are signed in (available, stepped away, busy) and the open votes with their number of ballots. It updates by itself.",
+            "“Post sign-in topic” and “Post command reference” in Setup post those cards again if someone deleted them.",
+            "“＋ New topic” creates a topic in the group. “Add topic by ID” only registers a topic that already exists (its ID is the last number in the topic's link); an ID that is not a topic of the group is refused.",
+            "“Remove bot from group” makes the bot leave the group and keeps all the assembly data. When you add the bot back, the group links to the same organisation again without asking.",
+            "Administrators run the assembly from the app and need no registration; the buttons in the group tell them so. To vote as well, an administrator registers with an invitation of their own.",
+          ] },
+        ],
+      },
+      {
+        icon: "🏢", title: "Organisations",
+        body: [
+          "One installation can serve several organisations side by side, each with its own group, members, councils, resolutions and motions.",
+          { bullets: [
+            "The bar under the header names the organisation you are working in. If you belong to more than one, tap it (⇄) to switch.",
+            "Setup › “Edit organisation”: the names in English and Amharic, the short code (used in invitation codes and file names), the names of the assembly and the office, the words used for members and councils, and how members vote (through councils or directly).",
+            "Anyone can create an organisation of their own: tap the organisation bar › “Create your own organisation”, or open the Kene Voting business page. The creator becomes its administrator (👑 creator in Setup › Admins) and cannot be removed by the other admins.",
+            "Platform administrators also create organisations under Setup › “All organisations” › “＋ New organisation” and can name the first admin; those need no plan.",
+            "Each organisation needs its own group. When the bot is added to a new group, it asks which organisation the group is for.",
+          ] },
+        ],
+      },
+      {
+        icon: "💳", title: "Plan and payment",
+        body: [
+          "An organisation created on the business page works with a few members (5 by default) until it has a plan — enough to set up the group and rehearse. Setup › Plan shows where it stands.",
+          { steps: [
+            "Setup › Plan › “Buy a plan” opens the business page (inside Telegram, already signed in).",
+            "Choose the country, the plan (days and number of members) and the account to pay into. Copy the account number.",
+            "Transfer the amount by bank or mobile money, then enter the transaction reference and attach a photo or PDF of the receipt. Tap “Send for review”.",
+            "Kene Technologies checks it. You get a Telegram message when the plan is active (or why the payment was not accepted; fix it and send it again).",
+            "Paying again before the plan ends adds the days to the end of the current period.",
+          ] },
+          { bullets: [
+            "Adding members beyond what the plan allows is refused with a link to the plan page. Members already added are kept when a plan ends, but no new ones can be added beyond the limit.",
+            "Share Kene Voting: organisation bar › “Share Kene Voting” sends your personal link; people who sign up through it are recorded as brought by you.",
+          ] },
         ],
       },
       {
@@ -118,6 +165,20 @@
         ],
       },
       {
+        icon: "🙋", title: "Attendance: signed in, stepped away, busy, signed out",
+        body: [
+          "Every registered member has a status. The bar at the top of the app shows your photo, how many are signed in out of all registered, and the open votes (for members: the ones still waiting for them).",
+          { bullets: [
+            "🟢 Available — in the session and following.",
+            "☕ Stepped away — still signed in, out for a moment.",
+            "🔴 Busy on a task — still signed in and can vote; please do not disturb.",
+            "Grey — signed out (Logout): no longer counted as present and cannot vote until they sign in again. Their registration is kept.",
+            "Members change their status by tapping their photo in the app, or with 🚪 Logout and 🙋 Sign in in the group. The live board and the bar in the app update for everyone.",
+            "Administrators without a member registration have no status dot.",
+          ] },
+        ],
+      },
+      {
         icon: "🟢", title: "Open voting and announce it",
         body: [
           { steps: [
@@ -172,10 +233,11 @@
         icon: "👥", title: "Manage members and admins",
         body: [
           { bullets: [
-            "Members: search by token, name or region; filter by registered, not registered, locked or deactivated.",
-            "Deactivate a token when a member leaves or a slip is lost; reactivate it later if needed.",
+            "Members: search by code, name, council or phone number; filter by registered, not registered, locked or deactivated.",
+            "Tap a member to manage them: “Unlock now”, “Detach Telegram account (lost phone)”, “Suspend (can be reactivated)” and Reactivate, “Revoke invitation” (an unused invitation; frees the council's seat) or “Revoke access” (a registered member is deactivated, detached and removed from the group; ballots already cast stay counted).",
             "Admins: Setup → Admins → Add admin with the person's Telegram ID (they get it by sending /whoami to the bot). Tap an admin to remove them.",
             "Admins listed “from ADMIN_TELEGRAM_IDS” are set on the server and cannot be removed here.",
+            "Administrators need no registration to run the assembly. An administrator who also votes registers with an invitation of their own and then has a status and ballots like any member.",
           ] },
         ],
       },
@@ -183,7 +245,11 @@
         icon: "🛠", title: "Troubleshooting",
         body: [
           { bullets: [
-            "No topics in the picker: the bot has not seen a message there yet. Post in the topic and tap ↻, or add it by ID in Setup.",
+            "No topics in the picker: the bot has not seen a message there yet. Post in the topic and tap ↻, or create one with “＋ New topic” in Setup.",
+            "“Bad Request: message thread not found” when sending a test message: the topic does not exist in the group (usually a topic added with a wrong ID). Tap it › “Remove from list”, then create it with “＋ New topic”.",
+            "The bot was removed and added back: it links the group to the organisation that knew it without asking, and reuses its topics. If Setup still shows no group, close the app and open it again.",
+            "You posted in a read-only topic and it went through: Telegram lets administrators post in closed topics. Members cannot.",
+            "The bot left a new group right away: the group has no Topics. Switch Topics on in the group settings and add the bot again.",
             "Renaming a topic in the app did not change it in the group: the bot lacks the “Manage topics” right. Grant it in the group's administrator settings, then save the name again.",
             "Setup still shows a group the bot was removed from: tap ↻. The app checks the bot's membership and unlinks the group; “Remove bot from group” makes the bot leave the group and keeps the assembly data.",
             "A topic does not appear after you post in it: open Health at the top of Setup and read “Last update from Telegram”. If that line does not change after you post, Telegram is not delivering updates to this server — register the webhook again from Setup.",
@@ -206,13 +272,60 @@
         body: [
           "ይህንን ከጠቅላላ ጉባኤው ጥቂት ቀናት በፊት አንድ ጊዜ ያድርጉ። ሁሉም ነገር በ«ማዋቀር» ትር ውስጥ ነው።",
           { steps: [
+            "በቴሌግራም የጉባኤውን ቡድን «ርዕሶች» (Topics) በርተው ይፍጠሩ (የቡድን ቅንብሮች › Topics)። ቦቱ ርዕሶች የሌሉትን ቡድን አይቀበልም።",
             "«ማዋቀር»ን ከፍተው የጤንነት ዝርዝሩን ያንብቡ። እያንዳንዱ መስመር ✅ ማሳየት አለበት። የዌብሁክ መስመሩ ❌ ካሳየ «ዌብሁክ፣ ትዕዛዞችን እና የምናሌ አዝራርን መዝግብ»ን ይንኩ።",
-            "ቦቱን ወደ የጉባኤው ሱፐርግሩፕ እንደ አስተዳዳሪ ያክሉ። ቡድኑ በራሱ ይገናኛል እና በ«የጉባኤ ቡድን እና ርዕሶች» ስር ይታያል።",
-            "ማስታወቂያዎችና ውጤቶች በሚለጠፉበት እያንዳንዱ ርዕስ (ክፍል) ውስጥ አጭር መልዕክት ይለጥፉ። በ«ማዋቀር» ውስጥ ↻ን ይንኩ፤ ርዕሶቹ በዝርዝሩ ውስጥ ይታያሉ። ስሙ ያልተያዘ ርዕስ ካለ እንደገና ይሰይሙት፤ ቦቱ የ«ርዕሶችን አስተዳድር» የአስተዳዳሪ መብት ካለው ርዕሱ በቡድኑ ውስጥም ይቀየራል።",
+            "ቦቱን ወደ ቡድኑ ያክሉና «ተጠቃሚዎችን አግድ»፣ «መልዕክቶችን ሰካ»፣ «ርዕሶችን አስተዳድር» እና «የቡድን መረጃ ቀይር» መብቶች ያሉት አስተዳዳሪ ያድርጉት። ከአንድ በላይ ድርጅት ካስተዳደሩ ቦቱ ቡድኑ የየትኛው ድርጅት እንደሆነ በቡድኑ ውስጥ ይጠይቃል፤ መልሱን ይንኩ (አስተዳዳሪዎች ብቻ ይችላሉ)። ከዚያ ቡድኑ በ«የጉባኤ ቡድን እና ርዕሶች» ስር ይታያል፣ ስሙም የድርጅቱን ስም ይይዛል።",
+            "ቦቱ ቡድኑን ራሱ ያዘጋጃል፦ የተሰካ የመግቢያ ካርድ ያለው «📝 ይመዝገቡ / ይግቡ» ርዕስ፣ የትዕዛዝ ማጣቀሻ ያለው «📖 ትዕዛዞች» ርዕስ፣ በGeneral የተሰካ የቀጥታ ሰሌዳ፣ እና በእያንዳንዱ ርዕስ የመልዕክት ሳጥን ስር ያሉ አዝራሮች።",
+            "ለውይይቶች፣ ለማስታወቂያዎችና ለውጤቶች የሚሆኑ ርዕሶችን (ክፍሎችን) በ«＋ አዲስ ርዕስ» ይፍጠሩ፤ ቦቱ እያንዳንዱን በቡድኑ ውስጥ ይፈጥራል። አስቀድመው ያሉ ርዕሶች አንድ ሰው ሲለጥፍባቸው በዝርዝሩ ይታያሉ፤ ↻ን ይንኩ። ርዕስን እዚህ እንደገና ይሰይሙ፤ ቦቱ የ«ርዕሶችን አስተዳድር» መብት ካለው በቡድኑ ውስጥም ይቀየራል።",
             "ሌሎቹን ባለሥልጣናት እንደ አስተዳዳሪ ያክሉ፦ እነሱ ለቦቱ /whoami ይልካሉ፣ እርስዎ መታወቂያውን በ«አስተዳዳሪዎች» → «አስተዳዳሪ አክል» ውስጥ ያስገባሉ።",
             "ቦቱ በቡድኑ ውስጥ መለጠፍ እንደሚችል ለማረጋገጥ በአንድ ርዕስ ላይ «እዚህ የሙከራ መልዕክት ላክ»ን ይንኩ።",
           ] },
           { tip: "በ2–3 የሙከራ መግቢያዎች ሙሉ ልምምድ ያድርጉ፦ የውሳኔ ሀሳብ ይፍጠሩ፣ ይክፈቱ፣ ድምፅ ይስጡ፣ ይዝጉ እና ሪፖርቱን ያመንጩ። ከዚያ በኋላ የሙከራ ቶከኖቹን ያቦዝኑ።" },
+        ],
+      },
+      {
+        icon: "🏠", title: "ቡድኑ፦ ርዕሶች፣ አዝራሮች እና የቀጥታ ሰሌዳ",
+        body: [
+          "አባላት ሁሉንም ነገር ከቡድኑ እና ከመተግበሪያው ያደርጋሉ፤ ቦቱ ቡድኑን ሥርዓት ያለው ያደርገዋል።",
+          { bullets: [
+            "በእያንዳንዱ ርዕስ የመልዕክት ሳጥን ስር ያሉ አዝራሮች፦ 🗳 Vote (ድምፅ)፣ 📝 Motion (ሀሳብ)፣ 📋 Status (ሁኔታ)፣ 🌐 Language (ቋንቋ)፣ 🤖 Bot (ቦት)፣ 🚪 Logout (መውጫ)፣ ❔ Help (እገዛ)። መንካት በመተግበሪያው ወይም በግል ውይይቱ ትክክለኛውን ቦታ ይከፍታል። የቦቱ አጫጭር መልሶች ከጥቂት ጊዜ በኋላ ይጠፋሉ፣ ስለዚህ ርዕሶቹ ለማንበብ ምቹ ሆነው ይቆያሉ።",
+            "ለንባብ ብቻ የሆኑ ርዕሶች፦ «ማዋቀር» › ርዕሱን ይንኩ › «ለንባብ ብቻ አድርግ (አስተዳዳሪዎች ብቻ ይጽፋሉ)»። አባላት ከመልዕክት ሳጥን ይልቅ የተሰካ የአዝራሮች ሰሌዳ ያያሉ፤ «አባላት እዚህ እንዲጽፉ ፍቀድ» ይህንን ይመልሳል። የመግቢያ እና የትዕዛዞች ርዕሶች ለንባብ ብቻ ናቸው። ቴሌግራም አስተዳዳሪዎች ለንባብ ብቻ በሆነ ርዕስ ውስጥ እንዲጽፉ ሁልጊዜ ይፈቅዳል፤ ስለዚህ እርስዎ የሚልኩት መልዕክት ይለጠፋል።",
+            "የቀጥታ ሰሌዳ፦ በGeneral የተሰካው «📊 Live» መልዕክት ስንቶች እንደገቡ (አሉ፣ ወጣ ብለዋል፣ ሥራ ላይ) እና ክፍት ድምፆችን ከተሰጡት ድምፆች ብዛት ጋር ያሳያል። በራሱ ይዘመናል።",
+            "በ«ማዋቀር» ያሉት «የመግቢያ ርዕስ ለጥፍ» እና «የትዕዛዝ ማጣቀሻ ለጥፍ» አንድ ሰው ከሰረዛቸው እነዚያን ካርዶች እንደገና ይለጥፋሉ።",
+            "«＋ አዲስ ርዕስ» በቡድኑ ውስጥ ርዕስ ይፈጥራል። «ርዕስ በመታወቂያ አክል» አስቀድሞ ያለን ርዕስ ብቻ ይመዘግባል (መታወቂያው በርዕሱ ሊንክ ውስጥ የመጨረሻው ቁጥር ነው)፤ የቡድኑ ርዕስ ያልሆነ መታወቂያ ተቀባይነት የለውም።",
+            "«ቦቱን ከቡድኑ አስወጣ» ቦቱ ቡድኑን እንዲለቅ ያደርጋል፣ የጉባኤውን መረጃ ሁሉ ይጠብቃል። ቦቱን መልሰው ሲያክሉት ቡድኑ ሳይጠየቅ ከዚያው ድርጅት ጋር እንደገና ይገናኛል።",
+            "አስተዳዳሪዎች ጉባኤውን ከመተግበሪያው ያስተዳድራሉ፣ ምዝገባ አያስፈልጋቸውም፤ በቡድኑ ያሉት አዝራሮች ይህንኑ ይነግሯቸዋል። ድምፅ ለመስጠትም አስተዳዳሪው በራሱ ግብዣ ይመዘገባል።",
+          ] },
+        ],
+      },
+      {
+        icon: "🏢", title: "ድርጅቶች",
+        body: [
+          "አንድ ሥርዓት ብዙ ድርጅቶችን ጎን ለጎን ማገልገል ይችላል፤ እያንዳንዱ የራሱ ቡድን፣ አባላት፣ ምክር ቤቶች፣ የውሳኔ ሀሳቦች እና ሀሳቦች አሉት።",
+          { bullets: [
+            "ከርዕሱ በታች ያለው አሞሌ የሚሠሩበትን ድርጅት ይሰይማል። ከአንድ በላይ ድርጅት ካለዎት ለመቀየር ይንኩት (⇄)።",
+            "«ማዋቀር» › «ድርጅቱን አስተካክል»፦ በእንግሊዝኛና በአማርኛ ስሞች፣ አጭር ኮድ (በግብዣ ኮዶችና በፋይል ስሞች ይውላል)፣ የጉባኤው እና የጽሕፈት ቤቱ ስሞች፣ ለአባላትና ለምክር ቤቶች የሚውሉ ቃላት፣ እና አባላት እንዴት ድምፅ እንደሚሰጡ (በምክር ቤቶች ወይም በቀጥታ)።",
+            "ማንኛውም ሰው የራሱን ድርጅት መፍጠር ይችላል፦ የድርጅቱን አሞሌ ይንኩ › «የራስዎን ድርጅት ይፍጠሩ»፣ ወይም የ Kene Voting የንግድ ገጽን ይክፈቱ። ፈጣሪው አስተዳዳሪ ይሆናል (በ«ማዋቀር» › አስተዳዳሪዎች 👑 ፈጣሪ)፣ ሌሎቹ አስተዳዳሪዎችም ሊያስወግዱት አይችሉም።",
+            "የመድረኩ አስተዳዳሪዎችም በ«ማዋቀር» › «ሁሉም ድርጅቶች» › «＋ አዲስ ድርጅት» ድርጅቶችን ይፈጥራሉ፣ የመጀመሪያውን አስተዳዳሪም መሰየም ይችላሉ፤ እነዚህ ዕቅድ አያስፈልጋቸውም።",
+            "እያንዳንዱ ድርጅት የራሱ ቡድን ያስፈልገዋል። ቦቱ ወደ አዲስ ቡድን ሲጨመር ቡድኑ የየትኛው ድርጅት እንደሆነ ይጠይቃል።",
+          ] },
+        ],
+      },
+      {
+        icon: "💳", title: "ዕቅድ እና ክፍያ",
+        body: [
+          "በንግድ ገጹ የተፈጠረ ድርጅት ዕቅድ እስኪኖረው ድረስ በጥቂት አባላት (በነባሪ 5) ይሠራል — ቡድኑን ለማዘጋጀትና ለልምምድ ይበቃል። «ማዋቀር» › ዕቅድ ያለበትን ሁኔታ ያሳያል።",
+          { steps: [
+            "«ማዋቀር» › ዕቅድ › «ዕቅድ ይግዙ» የንግድ ገጹን ይከፍታል (በቴሌግራም ውስጥ፣ አስቀድመው ገብተው)።",
+            "አገሩን፣ ዕቅዱን (ቀናትና የአባላት ብዛት) እና የሚከፍሉበትን ሂሳብ ይምረጡ። የሂሳብ ቁጥሩን ይቅዱ።",
+            "መጠኑን በባንክ ወይም በሞባይል ገንዘብ ያስተላልፉ፣ ከዚያ የግብይት መለያ ቁጥሩን ያስገቡና የደረሰኙን ፎቶ ወይም PDF ያያይዙ። «ለግምገማ ላክ» ይንኩ።",
+            "Kene Technologies ያረጋግጠዋል። ዕቅዱ ሲነቃ (ወይም ክፍያው ለምን እንዳልተቀበለ) በቴሌግራም መልዕክት ይደርስዎታል፤ ያስተካክሉና እንደገና ይላኩ።",
+            "ዕቅዱ ከማብቃቱ በፊት እንደገና መክፈል ቀናቱን አሁን ባለው ጊዜ መጨረሻ ላይ ይጨምራል።",
+          ] },
+          { bullets: [
+            "ዕቅዱ ከሚፈቅደው በላይ አባላት መጨመር ወደ ዕቅድ ገጹ ከሚወስድ ሊንክ ጋር ተቀባይነት አያገኝም። ዕቅድ ሲያበቃ የተጨመሩት አባላት ይቀራሉ፤ ከገደቡ በላይ አዲስ ግን አይጨመርም።",
+            "Kene Votingን ያጋሩ፦ የድርጅቱ አሞሌ › «Kene Votingን ያጋሩ» የግል ሊንክዎን ይልካል፤ በእሱ የሚመዘገቡ ሰዎች በእርስዎ እንደመጡ ይመዘገባሉ።",
+          ] },
         ],
       },
       {
@@ -314,6 +427,20 @@
         ],
       },
       {
+        icon: "🙋", title: "መገኘት፦ ገብተዋል፣ ወጣ ብለዋል፣ ሥራ ላይ፣ ወጥተዋል",
+        body: [
+          "እያንዳንዱ የተመዘገበ አባል ሁኔታ አለው። በመተግበሪያው አናት ያለው አሞሌ ፎቶዎን፣ ከተመዘገቡት ውስጥ ስንቶች እንደገቡ፣ እና ክፍት ድምፆችን (ለአባላት፦ ገና የሚጠብቋቸውን) ያሳያል።",
+          { bullets: [
+            "🟢 አሉ — በስብሰባው ውስጥ ናቸው፣ እየተከታተሉ ነው።",
+            "☕ ወጣ ብለዋል — አሁንም ገብተዋል፣ ለአፍታ ወጣ ብለዋል።",
+            "🔴 ሥራ ላይ ነኝ — አሁንም ገብተዋል፣ ድምፅም መስጠት ይችላሉ፤ እባክዎ አይረብሹ።",
+            "ግራጫ — ከስብሰባው ወጥተዋል (Logout)፦ እንደተገኙ አይቆጠሩም፣ እንደገና እስኪገቡ ድረስ ድምፅ መስጠት አይችሉም። ምዝገባቸው ይቀመጣል።",
+            "አባላት ሁኔታቸውን በመተግበሪያው ፎቶአቸውን በመንካት፣ ወይም በቡድኑ በ🚪 Logout እና በ🙋 ይግቡ ይቀይራሉ። የቀጥታ ሰሌዳውና በመተግበሪያው ያለው አሞሌ ለሁሉም ይዘመናሉ።",
+            "የአባል ምዝገባ የሌላቸው አስተዳዳሪዎች የሁኔታ ነጥብ የላቸውም።",
+          ] },
+        ],
+      },
+      {
         icon: "🟢", title: "ድምፅ መስጠትን መክፈት እና ማሳወቅ",
         body: [
           { steps: [
@@ -368,10 +495,11 @@
         icon: "👥", title: "አባላትን እና አስተዳዳሪዎችን ማስተዳደር",
         body: [
           { bullets: [
-            "አባላት፦ በቶከን፣ በስም ወይም በክልል ይፈልጉ፤ በተመዘገበ፣ ባልተመዘገበ፣ በተቆለፈ ወይም በቦዘነ ያጣሩ።",
-            "አባል ሲለቅ ወይም ወረቀት ሲጠፋ ቶከኑን ያቦዝኑ፤ አስፈላጊ ከሆነ በኋላ እንደገና ያስነሱት።",
+            "አባላት፦ በኮድ፣ በስም፣ በምክር ቤት ወይም በስልክ ቁጥር ይፈልጉ፤ በተመዘገበ፣ ባልተመዘገበ፣ በተቆለፈ ወይም በቦዘነ ያጣሩ።",
+            "አባሉን ለማስተዳደር ይንኩት፦ «አሁን ክፈት»፣ «የቴሌግራም መለያ ንቀል (ስልክ ጠፍቷል)»፣ «አግድ (እንደገና ሊነቃ ይችላል)» እና እንደገና ማንቃት፣ «ግብዣውን ሰርዝ» (ያልተጠቀመ ግብዣ፤ የምክር ቤቱን ወንበር ነጻ ያደርጋል) ወይም «መዳረሻውን ሰርዝ» (የተመዘገበ አባል ይቦዝናል፣ ከመለያው ይነቀላል፣ ከቡድኑም ይወገዳል፤ አስቀድመው የተሰጡ ድምፆች ይቆጠራሉ)።",
             "አስተዳዳሪዎች፦ «ማዋቀር» → «አስተዳዳሪዎች» → «አስተዳዳሪ አክል» በሰውዬው የቴሌግራም መታወቂያ (ለቦቱ /whoami በመላክ ያገኙታል)። አስተዳዳሪን ለማስወገድ ይንኩት።",
             "«ከ ADMIN_TELEGRAM_IDS» ተብለው የተዘረዘሩ አስተዳዳሪዎች በአገልጋዩ ላይ የተቀመጡ ናቸው እና እዚህ ሊወገዱ አይችሉም።",
+            "አስተዳዳሪዎች ጉባኤውን ለማስተዳደር ምዝገባ አያስፈልጋቸውም። ድምፅም የሚሰጥ አስተዳዳሪ በራሱ ግብዣ ይመዘገባል፣ ከዚያም እንደማንኛውም አባል ሁኔታና ድምፆች ይኖሩታል።",
           ] },
         ],
       },
@@ -379,9 +507,13 @@
         icon: "🛠", title: "ችግር መፍታት",
         body: [
           { bullets: [
-            "በመራጩ ውስጥ ርዕሶች የሉም፦ ቦቱ እስካሁን እዚያ መልዕክት አላየም። በርዕሱ ውስጥ ይለጥፉና ↻ን ይንኩ፣ ወይም በ«ማዋቀር» ውስጥ በመታወቂያ ያክሉት።",
+            "በመራጩ ውስጥ ርዕሶች የሉም፦ ቦቱ እስካሁን እዚያ መልዕክት አላየም። በርዕሱ ውስጥ ይለጥፉና ↻ን ይንኩ፣ ወይም በ«ማዋቀር» ውስጥ በ«＋ አዲስ ርዕስ» ይፍጠሩ።",
+            "የሙከራ መልዕክት ሲልኩ «Bad Request: message thread not found»፦ ርዕሱ በቡድኑ ውስጥ የለም (ብዙውን ጊዜ በተሳሳተ መታወቂያ የተጨመረ ርዕስ)። ይንኩት › «ከዝርዝሩ አስወግድ»፣ ከዚያ በ«＋ አዲስ ርዕስ» ይፍጠሩት።",
+            "ቦቱ ተወግዶ እንደገና ተጨመረ፦ ቡድኑን ከሚያውቀው ድርጅት ጋር ሳይጠይቅ እንደገና ያገናኘዋል፣ ርዕሶቹንም እንደገና ይጠቀማል። «ማዋቀር» አሁንም ቡድን ካላሳየ መተግበሪያውን ዘግተው እንደገና ይክፈቱ።",
+            "ለንባብ ብቻ በሆነ ርዕስ ውስጥ ጽፈው ተለጠፈ፦ ቴሌግራም አስተዳዳሪዎች በተዘጉ ርዕሶች እንዲጽፉ ይፈቅዳል። አባላት አይችሉም።",
+            "ቦቱ አዲስ ቡድንን ወዲያው ለቀቀ፦ ቡድኑ ርዕሶች (Topics) የሉትም። በቡድኑ ቅንብሮች Topicsን ያብሩና ቦቱን እንደገና ያክሉ።",
             "በመተግበሪያው ውስጥ ርዕስ መሰየም በቡድኑ ውስጥ አልቀየረውም፦ ቦቱ የ«ርዕሶችን አስተዳድር» መብት የለውም። በቡድኑ የአስተዳዳሪ ቅንብሮች ውስጥ ይስጡትና ስሙን እንደገና ያስቀምጡ።",
-            "ቦቱ የተወገደበት ቡድን አሁንም በ«ማዋቀር» ውስጥ ይታያል፦ ↻ን ይንኩ። መተግበሪያው የቦቱን አባልነት አረጋግጦ ቡድኑን ያላቅቃል፤ «ቡድኑን አላቅቅ» በእጅ ተመሳሳይ ነገር ያደርጋል።",
+            "ቦቱ የተወገደበት ቡድን አሁንም በ«ማዋቀር» ውስጥ ይታያል፦ ↻ን ይንኩ። መተግበሪያው የቦቱን አባልነት አረጋግጦ ቡድኑን ያላቅቃል፤ «ቦቱን ከቡድኑ አስወጣ» ቦቱ ቡድኑን እንዲለቅ ያደርጋል፣ የጉባኤውን መረጃም ይጠብቃል።",
             "በርዕስ ውስጥ መልዕክት ከላኩ በኋላ ርዕሱ አይታይም፦ በ«ማዋቀር» አናት ላይ ያለውን «ጤንነት» ይክፈቱና «ከቴሌግራም የመጨረሻ ዝመና»ን ያንብቡ። መልዕክት ከላኩ በኋላ ያ መስመር ካልተቀየረ፣ ቴሌግራም ዝመናዎችን ወደዚህ አገልጋይ እያደረሰ አይደለም — ከ«ማዋቀር» ዌብሁኩን እንደገና ይመዝግቡ።",
             "የሙከራ ቡድኑ ተሰርዞ አዲስ ተፈጥሯል፦ ቦቱ ከተገናኘው ቡድን ሲወገድ ቡድኑን ይረሳል እና ለአስተዳዳሪዎች በግል መልዕክት የጉባኤውን መረጃ (ምክር ቤቶች፣ አባላት፣ ግብዣዎች፣ የውሳኔ ሀሳቦች እና ድምፆች) በሁለተኛ የማረጋገጫ ንክኪ እንዲያጠፉ ያቀርባል፣ ስለዚህ አዲሱ ቡድን ንጹህ ይጀምራል እና ምንም የምክር ቤት ወይም የአባል ስም ከተረፈ ነገር ጋር አይጋጭም። «ማዋቀር» › «የጉባኤውን መረጃ ዳግም አስጀምር» ተመሳሳይ ነገር ያደርጋል፣ እዚያ ያለው ማብሪያ ደግሞ ማጥፋቱን በመወገድ ላይ በራስ-ሰር ያደርገዋል — ቦቱ በስህተት መወገዱ ተቀባይነት ካለው ብቻ ያብሩት።",
             "አባላት የት ይገባሉ? በቡድኑ ውስጥ ቦቱ የተሰካ ካርድ ያለው «📝 ይመዝገቡ / ይግቡ» ርዕስ ይይዛል (ቦቱ አስተዳዳሪ ሲሆን የተፈጠረ፤ በ«ማዋቀር» ያለው «የመግቢያ ርዕስ ለጥፍ» እንደገና ይለጥፈዋል)። «በኮድዎ ይመዝገቡ» የሚለው አዝራር አባሉን ከቦቱ ጋር ወደ የግል ውይይት ይወስዳል፣ እዚያም የግብዣ ኮዳቸውን እና የይለፍ ቃላቸውን ከሁሉም ዓይን ውጭ ያስገባሉ። በቡድኑ ውስጥ ራሱ ምንም አይተየብም።",
@@ -401,13 +533,14 @@
   var MEMBER = {
     en: [
       {
-        icon: "📝", title: "Register with your credentials",
+        icon: "📝", title: "Register with your credentials", guest: true,
         body: [
           "You need the credential slip from the National Office: a Token ID (like ESA-2026-K7M2P) and a password.",
           { steps: [
             "Open the voting bot in Telegram and tap the menu button next to the message box (or send /start).",
             "Type your Token ID and password exactly as printed. The letters O/0 and I/1 are never used in tokens.",
             "Tap Register. You only do this once; your Telegram account is now linked to your token.",
+            "Tap “Open the assembly group” to join the group, where the buttons under each topic lead you to your ballots.",
           ] },
           { bullets: [
             "Five wrong passwords lock the token for a while. Wait, or ask the National Office to unlock it.",
@@ -416,7 +549,7 @@
         ],
       },
       {
-        icon: "🎫", title: "Register with a printed invitation (QR code)",
+        icon: "🎫", title: "Register with a printed invitation (QR code)", guest: true,
         body: [
           "If your council gave you a printed invitation, it carries a QR code, an invitation code and a password.",
           { steps: [
@@ -432,10 +565,39 @@
         ],
       },
       {
+        icon: "🔘", title: "The buttons in the group",
+        body: [
+          "Under the message box of every topic you post in, the bot shows buttons. The answers are private: your personal data is never shown in the group.",
+          { bullets: [
+            "🗳 Vote — opens your ballots in the app.",
+            "📝 Motion — write a motion for this topic.",
+            "📋 Status — your registration and the ballots you cast.",
+            "🌐 Language — English, Amharic or both, for the bot's answers and the app.",
+            "🤖 Bot — your private chat with the bot.",
+            "🚪 Logout — sign out of the session; 🙋 Sign in brings you back.",
+            "❔ Help — the list of commands.",
+            "Some topics are read-only: only admins post there, and a pinned panel holds the same buttons.",
+          ] },
+        ],
+      },
+      {
+        icon: "🙋", title: "Sign in, step away, sign out",
+        body: [
+          "While you are signed in you count as present and can vote.",
+          { steps: [
+            "Tap your photo at the top of the app to set your status: 🟢 Available, ☕ Stepped away, 🔴 Busy on a task, or 🚪 Sign out (Logout).",
+            "Stepped away and Busy keep you signed in: you can still vote. Busy tells the others you are working on a task.",
+            "Sign out when you leave the meeting: you no longer count as present and cannot vote. Your registration is kept.",
+            "To come back, tap “Sign in” on the Vote tab or 🙋 Sign in in the group.",
+          ] },
+          { tip: "In the same sheet you can choose a photo for your avatar, or go back to your Telegram photo." },
+        ],
+      },
+      {
         icon: "🗳", title: "Cast your vote",
         body: [
           { steps: [
-            "Open the Vote tab. Every resolution that is open for voting is listed with its options.",
+            "Open the Vote tab (or tap 🗳 Vote in the group). Every resolution that is open for voting is listed with its options. If you signed out, tap “Sign in” first.",
             "If the resolution asks for an activation code, type the 4 digits shown in the meeting (on the screen or in the video-call chat) and tap “Activate”. You do this once per resolution.",
             "Tap the option you choose and confirm.",
             "On a secret ballot your choice is stored without your name and is final. On an open ballot you may tap another option to change your vote until voting closes.",
@@ -471,27 +633,40 @@
         ],
       },
       {
-        icon: "📱", title: "Lost phone or new Telegram account",
+        icon: "📱", title: "Lost phone or new Telegram account", guest: true,
         body: [
           "Your token is linked to one Telegram account. If you change phone or account, ask the National Office to detach your token. You then register again with the same credential slip.",
         ],
       },
       {
-        icon: "🌐", title: "Change the language",
+        icon: "🧭", title: "More than one organisation, or your own", guest: true,
         body: [
-          "Tap the language button at the top right of any screen to switch between English and Amharic. The choice is remembered on this device.",
+          "You can belong to several organisations with one Telegram account — for example your association and a cooperative.",
+          { bullets: [
+            "Join another one: tap the organisation bar at the top › “Join another organisation (invitation code)” and enter the code and password that organisation gave you.",
+            "Switch: tap the organisation bar and choose. Ballots, motions and results are always those of the organisation shown in the bar.",
+            "Run your own: “Create your own organisation” opens the Kene Voting business page; you become its administrator and can invite your members.",
+            "“Share Kene Voting” sends your link to anyone who might want to run their votes the same way.",
+          ] },
+        ],
+      },
+      {
+        icon: "🌐", title: "Change the language", guest: true,
+        body: [
+          "Tap the language button at the top right of any screen to switch between English and Amharic, or tap 🌐 Language in the group to choose English, Amharic or both. Your choice is kept for the app and for the bot's answers to you.",
         ],
       },
     ],
     am: [
       {
-        icon: "📝", title: "በመግቢያ መረጃዎ መመዝገብ",
+        icon: "📝", title: "በመግቢያ መረጃዎ መመዝገብ", guest: true,
         body: [
           "ከብሔራዊ ጽሕፈት ቤት የተሰጠዎት የመግቢያ ወረቀት ያስፈልግዎታል፦ የቶከን መታወቂያ (እንደ ESA-2026-K7M2P) እና የይለፍ ቃል።",
           { steps: [
             "የድምፅ መስጫ ቦቱን በቴሌግራም ከፍተው ከመልዕክት ሳጥኑ አጠገብ ያለውን የምናሌ አዝራር ይንኩ (ወይም /start ይላኩ)።",
             "የቶከን መታወቂያዎንና የይለፍ ቃልዎን በትክክል እንደተጻፈው ይተይቡ። ፊደላቱ O/0 እና I/1 በቶከኖች ውስጥ በፍጹም አይጠቀሙም።",
             "«ይመዝገቡ»ን ይንኩ። ይህንን አንድ ጊዜ ብቻ ያደርጋሉ፤ የቴሌግራም መለያዎ አሁን ከቶከንዎ ጋር ተገናኝቷል።",
+            "ቡድኑን ለመቀላቀል «የጉባኤውን ቡድን ክፈት»ን ይንኩ፤ በእያንዳንዱ ርዕስ ስር ያሉት አዝራሮች ወደ ድምፆችዎ ይወስዱዎታል።",
           ] },
           { bullets: [
             "አምስት የተሳሳቱ የይለፍ ቃላት ቶከኑን ለተወሰነ ጊዜ ይቆልፋሉ። ይጠብቁ፣ ወይም ብሔራዊ ጽሕፈት ቤቱ እንዲከፍትልዎ ይጠይቁ።",
@@ -500,7 +675,7 @@
         ],
       },
       {
-        icon: "🎫", title: "በታተመ ጥሪ (QR ኮድ) መመዝገብ",
+        icon: "🎫", title: "በታተመ ጥሪ (QR ኮድ) መመዝገብ", guest: true,
         body: [
           "ምክር ቤትዎ የታተመ ጥሪ ከሰጠዎት፣ QR ኮድ፣ የጥሪ ኮድ እና የይለፍ ቃል ይዟል።",
           { steps: [
@@ -516,10 +691,39 @@
         ],
       },
       {
+        icon: "🔘", title: "በቡድኑ ውስጥ ያሉ አዝራሮች",
+        body: [
+          "በሚጽፉበት በእያንዳንዱ ርዕስ የመልዕክት ሳጥን ስር ቦቱ አዝራሮችን ያሳያል። መልሶቹ የግል ናቸው፤ የግል መረጃዎ በቡድኑ ውስጥ በፍጹም አይታይም።",
+          { bullets: [
+            "🗳 Vote (ድምፅ) — ድምፆችዎን በመተግበሪያው ይከፍታል።",
+            "📝 Motion (ሀሳብ) — ለዚህ ርዕስ ሀሳብ ይጻፉ።",
+            "📋 Status (ሁኔታ) — ምዝገባዎ እና የሰጧቸው ድምፆች።",
+            "🌐 Language (ቋንቋ) — ለቦቱ መልሶችና ለመተግበሪያው እንግሊዝኛ፣ አማርኛ ወይም ሁለቱም።",
+            "🤖 Bot (ቦት) — ከቦቱ ጋር ያለዎት የግል ውይይት።",
+            "🚪 Logout (መውጫ) — ከስብሰባው ይውጡ፤ 🙋 ይግቡ መልሶ ያስገባዎታል።",
+            "❔ Help (እገዛ) — የትዕዛዞች ዝርዝር።",
+            "አንዳንድ ርዕሶች ለንባብ ብቻ ናቸው፦ እዚያ የሚጽፉት አስተዳዳሪዎች ብቻ ናቸው፣ የተሰካ ሰሌዳም እነዚሁን አዝራሮች ይይዛል።",
+          ] },
+        ],
+      },
+      {
+        icon: "🙋", title: "መግባት፣ ወጣ ማለት፣ መውጣት",
+        body: [
+          "ገብተው እስካሉ ድረስ እንደተገኙ ይቆጠራሉ፣ ድምፅም መስጠት ይችላሉ።",
+          { steps: [
+            "ሁኔታዎን ለማስቀመጥ በመተግበሪያው አናት ፎቶዎን ይንኩ፦ 🟢 አሉ፣ ☕ ወጣ ብለዋል፣ 🔴 ሥራ ላይ ነኝ፣ ወይም 🚪 ከስብሰባው ውጣ።",
+            "«ወጣ ብለዋል» እና «ሥራ ላይ ነኝ» እንደገቡ ያቆይዎታል፤ ድምፅ መስጠት ይችላሉ። «ሥራ ላይ ነኝ» ሌሎች አንድ ሥራ ላይ እንደሆኑ እንዲያውቁ ያደርጋል።",
+            "ስብሰባውን ሲለቁ ይውጡ፦ እንደተገኙ አይቆጠሩም፣ ድምፅም መስጠት አይችሉም። ምዝገባዎ ይቀመጣል።",
+            "ለመመለስ በድምፅ ገጽ «ይግቡ» ወይም በቡድኑ 🙋 ይግቡ ይንኩ።",
+          ] },
+          { tip: "በዚሁ ገጽ ለመገለጫዎ ፎቶ መምረጥ፣ ወይም ወደ ቴሌግራም ፎቶዎ መመለስ ይችላሉ።" },
+        ],
+      },
+      {
         icon: "🗳", title: "ድምፅዎን መስጠት",
         body: [
           { steps: [
-            "«ድምፅ ይስጡ» ትርን ይክፈቱ። ለድምፅ ክፍት የሆነ እያንዳንዱ የውሳኔ ሀሳብ ከአማራጮቹ ጋር ተዘርዝሯል።",
+            "«ድምፅ ይስጡ» ትርን ይክፈቱ (ወይም በቡድኑ 🗳 Vote ይንኩ)። ለድምፅ ክፍት የሆነ እያንዳንዱ የውሳኔ ሀሳብ ከአማራጮቹ ጋር ተዘርዝሯል። ከስብሰባው ወጥተው ከሆነ መጀመሪያ «ይግቡ»ን ይንኩ።",
             "የውሳኔ ሀሳቡ የማግበሪያ ኮድ ከጠየቀ፣ በስብሰባው ውስጥ የታዩትን 4 አሃዞች (በስክሪኑ ላይ ወይም በቪዲዮ ጥሪው ውይይት) ይጻፉና «አግብር»ን ይንኩ። ይህን በአንድ የውሳኔ ሀሳብ አንድ ጊዜ ያደርጋሉ።",
             "የሚመርጡትን አማራጭ ነክተው ያረጋግጡ።",
             "በሚስጥራዊ ድምፅ ምርጫዎ ያለ ስምዎ ይቀመጣል እና የመጨረሻ ነው። በግልጽ ድምፅ ድምፅ መስጠት እስኪዘጋ ድረስ ድምፅዎን ለመቀየር ሌላ አማራጭ መንካት ይችላሉ።",
@@ -555,15 +759,27 @@
         ],
       },
       {
-        icon: "📱", title: "ስልክ ከጠፋ ወይም አዲስ የቴሌግራም መለያ ካለ",
+        icon: "📱", title: "ስልክ ከጠፋ ወይም አዲስ የቴሌግራም መለያ ካለ", guest: true,
         body: [
           "ቶከንዎ ከአንድ የቴሌግራም መለያ ጋር ተገናኝቷል። ስልክ ወይም መለያ ከቀየሩ፣ ብሔራዊ ጽሕፈት ቤቱ ቶከንዎን እንዲነቅል ይጠይቁ። ከዚያ በዚያው የመግቢያ ወረቀት እንደገና ይመዘገባሉ።",
         ],
       },
       {
-        icon: "🌐", title: "ቋንቋ መቀየር",
+        icon: "🧭", title: "ከአንድ በላይ ድርጅት፣ ወይም የራስዎ", guest: true,
         body: [
-          "በእንግሊዝኛ እና በአማርኛ መካከል ለመቀያየር በማንኛውም ማያ ገጽ ላይ ከላይ በቀኝ ያለውን የቋንቋ አዝራር ይንኩ። ምርጫው በዚህ መሣሪያ ላይ ይታወሳል።",
+          "በአንድ የቴሌግራም መለያ የብዙ ድርጅቶች አባል መሆን ይችላሉ — ለምሳሌ የማኅበርዎና የሕብረት ሥራ ማኅበር።",
+          { bullets: [
+            "ሌላውን ይቀላቀሉ፦ ከላይ ያለውን የድርጅት አሞሌ ይንኩ › «ሌላ ድርጅት ይቀላቀሉ (የግብዣ ኮድ)» እና ያ ድርጅት የሰጠዎትን ኮድና የይለፍ ቃል ያስገቡ።",
+            "ይቀያይሩ፦ የድርጅቱን አሞሌ ነክተው ይምረጡ። ድምፆች፣ ሀሳቦችና ውጤቶች ሁልጊዜ በአሞሌው የሚታየው ድርጅት ናቸው።",
+            "የራስዎን ያካሂዱ፦ «የራስዎን ድርጅት ይፍጠሩ» የ Kene Voting የንግድ ገጽን ይከፍታል፤ አስተዳዳሪው እርስዎ ይሆናሉ፣ አባላትዎንም መጋበዝ ይችላሉ።",
+            "«Kene Votingን ያጋሩ» ድምፃቸውን በተመሳሳይ መንገድ ማካሄድ ለሚፈልግ ለማንኛውም ሰው ሊንክዎን ይልካል።",
+          ] },
+        ],
+      },
+      {
+        icon: "🌐", title: "ቋንቋ መቀየር", guest: true,
+        body: [
+          "በእንግሊዝኛ እና በአማርኛ መካከል ለመቀያየር በማንኛውም ማያ ገጽ ላይ ከላይ በቀኝ ያለውን የቋንቋ አዝራር ይንኩ፣ ወይም በቡድኑ 🌐 Language ነክተው እንግሊዝኛ፣ አማርኛ ወይም ሁለቱንም ይምረጡ። ምርጫዎ ለመተግበሪያው እና ቦቱ ለእርስዎ ለሚሰጣቸው መልሶች ይቀመጣል።",
         ],
       },
     ],
@@ -575,7 +791,7 @@
       var L = lang === "am" ? "am" : "en";
       if (role === "admin") return ADMIN[L].concat([{ icon: "🙋", title: L === "am" ? "ለአባላት፦ መመዝገብ እና ድምፅ መስጠት" : "For members: registering and voting", body: [L === "am" ? "አባላት በመተግበሪያው ውስጥ የሚያዩት መመሪያ ይህ ነው።" : "This is the guide members see in the app."] }]).concat(MEMBER[L]);
       if (role === "member") return MEMBER[L];
-      return MEMBER[L].slice(0, 2).concat(MEMBER[L].slice(5));
+      return MEMBER[L].filter(function (s) { return s.guest; });
     },
   };
 })();

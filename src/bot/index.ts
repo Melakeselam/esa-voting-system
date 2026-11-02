@@ -1,6 +1,7 @@
 import { Bot, GrammyError, HttpError } from "grammy";
 import { adminComposer } from "./admin.js";
 import { orgComposer } from "./org-middleware.js";
+import { bizComposer } from "./biz.js";
 import { groupComposer } from "./group.js";
 import { gateComposer } from "./gate.js";
 import { groupCommandsComposer } from "./group-commands.js";
@@ -33,7 +34,8 @@ export function createBot(): Bot {
   // Group/topic tracking first (always calls next), then admin commands, then
   // member handlers (order matters: the member text handler is a catch-all
   // for private chats).
-  bot.use(orgComposer); // decides the organisation of every update — must stay first
+  bot.use(bizComposer); // business-page sign-in links: outside any organisation
+  bot.use(orgComposer); // decides the organisation of every update — must run before the rest
   bot.use(groupComposer);
   bot.use(gateComposer);
   bot.use(groupCommandsComposer);

@@ -49,6 +49,32 @@ so one organisation can never see or change another's data.
 - While only one organisation exists everything resolves to it. Data from
   before organisations existed was migrated into "Ethiopia Scout Association".
 
+## Self-service organisations, plans and payments
+
+Anyone can sign in with Telegram on the business pages (`/business/`), create
+an organisation (they become its administrator, shown as 👑 creator) and buy a
+plan:
+
+- **Without a plan** an organisation works with a few members (5 by default;
+  set in the console) — enough to set up the group and rehearse.
+- **Plans** (console › Plans) have a duration, a member limit and a price per
+  country. **Payment accounts** (bank / mobile money) are listed per country.
+- The creator transfers the money and sends the reference and receipt; a
+  platform administrator approves or rejects it in the console
+  (`/business/#/admin/payments`). Approval extends the paid period (stacking on
+  a running one) and sets the member limit; both sides are told in Telegram.
+- Members beyond the limit are refused (HTTP 402 `plan_limit`, with a link to
+  the plan page in the app).
+- Every creator has a **share link** (`/business/?ref=CODE`); sign-ups through
+  it are recorded (link only, no reward).
+- Organisations created by platform admins in the Mini App are exempt.
+- A member of one organisation joins another with its invitation code
+  (organisation bar › "Join another organisation") and switches between them.
+
+Settings: `BUSINESS_ORIGINS` (sites allowed to call `/api/biz`),
+`BUSINESS_PAGE_URL` (where the pages live, when moved). Moving the pages to
+www.kene-tech.com: see [docs/BUSINESS-MIGRATION.md](docs/BUSINESS-MIGRATION.md).
+
 ## Architecture
 
 ```

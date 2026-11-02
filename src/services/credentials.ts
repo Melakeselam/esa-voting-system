@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
+import { assertRoomForMembers } from "./billing.js";
 import { supabase } from "../db.js";
 
 // Unambiguous characters only (no 0/O, 1/I/L) — these get typed by hand.
@@ -55,6 +56,7 @@ export function normalizePhone(raw: string | null | undefined): string | null {
  * must hand them to the National Office securely and never log them.
  */
 export async function generateCredentials(people: Person[], prefix = "KVS-2026"): Promise<CredentialRow[]> {
+  await assertRoomForMembers(people.length); // the organisation's plan limits its members
   const cleanPrefix = prefix.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "") || "KVS";
   const rows: CredentialRow[] = [];
   for (const person of people) {

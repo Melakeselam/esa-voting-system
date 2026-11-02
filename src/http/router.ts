@@ -7,6 +7,8 @@ import { autoCloseDue, tickAutoClose } from "../bot/lifecycle.js";
 import { registerTelegramSurface, registerWebhook } from "../bot/setup.js";
 import { handleAppApi } from "./app-api.js";
 import { serveStatic } from "./static.js";
+import { handleBizApi } from "./biz-api.js";
+import { PlanLimitError } from "../services/billing.js";
 import { HttpError, json, readJsonBody, text } from "./util.js";
 
 /**
@@ -19,6 +21,8 @@ import { HttpError, json, readJsonBody, text } from "./util.js";
  *   GET  /api/tick        auto-close due resolutions (external cron; optional, the server has its own scheduler)
  *   GET  /api/setup       one-time: register webhook, commands and menu button
  *   *    /api/app/...     Mini App JSON API (Telegram initData auth)
+ *   *    /api/biz/...     business API: sign-up, organisations, plans, payments (services/billing.ts)
+ *   GET  /business/...    business pages (sign up, create an organisation, pay; platform console)
  *   GET  /app/...         Mini App static files (Node server only)
  */
 export async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -35,12 +39,18 @@ export async function handleHttp(req: IncomingMessage, res: ServerResponse): Pro
       if (config.serverless) await tickAutoClose(bot.api);
       return await handleAppApi(req, res, path.slice("/api/app".length) || "/", method, url.searchParams);
     }
+    if (path === "/api/biz" || path.startsWith("/api/biz/")) return await handleBizApi(req, res, path.slice("/api/biz".length) || "/", method, url.searchParams);
     if (path === "/") return landing(res);
     if (path === "/app" || path.startsWith("/app/")) return await serveStatic(req, res, url.pathname);
+    if (path === "/business" || path.startsWith("/business/")) return await serveStatic(req, res, url.pathname);
     text(res, 404, "Not found");
   } catch (err) {
     if (err instanceof HttpError) {
       json(res, err.status, { error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof PlanLimitError) {
+      json(res, 402, { error: err.message, code: "plan_limit", cap: err.cap, used: err.used });
       return;
     }
     console.error(`${method} ${path} failed:`, err);
@@ -61,7 +71,8 @@ function landing(res: ServerResponse): void {
       `<body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">` +
       `<h1>Kene Voting System</h1>` +
       `<p>This service powers the assembly voting bot on Telegram.</p>` +
-      `<p><a href="/app/">Open the Mini App</a> (works inside Telegram).</p></body>`,
+      `<p><a href="/app/">Open the Mini App</a> (works inside Telegram).</p>` +
+      `<p><a href="/business/">Run your own assembly vote</a> — create an organisation and choose a plan.</p></body>`,
   );
 }
 
